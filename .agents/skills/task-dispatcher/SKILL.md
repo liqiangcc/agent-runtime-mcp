@@ -1,11 +1,11 @@
 ---
 name: task-dispatcher
-description: Dispatch, inspect, track, or resume exactly one issue-linked Codex Worker runtime for agent-runtime-mcp. Orchestration only: never claim, implement, review, accept, close, or automatically start another Attempt.
+description: Dispatch, inspect, track, or resume exactly one issue-linked Codex Worker execution context for agent-runtime-mcp. Orchestration only: never claim, implement, review, accept, close, or automatically start another Attempt.
 ---
 
 # Task Dispatcher
 
-Bridge an already-published Task handoff to one isolated Codex Worker runtime.
+Bridge one published repository Task to one isolated Codex execution context.
 
 ## Authority
 
@@ -15,192 +15,143 @@ Before dispatch/tracking, read:
 2. `docs/tasks/collaboration-protocol.md`
 3. `docs/tasks/issue-state-convention.md`
 4. `docs/tasks/issue-lifecycle-protocol.md`
-5. target Issue and relevant comments
+5. target Issue/comments
 6. referenced `prompt.md` and `task.md`
 7. `docs/tasks/handoffs/codex.md`
 
-Dispatcher owns runtime orchestration only.
+Dispatcher owns **project execution preparation**, not product MCP semantics.
 
 ## Input
 
-For a new dispatch, require exactly one canonical Worker handoff, normally:
+Require exactly one canonical Worker handoff:
 
 ```text
 $task-worker Execute Issue #<issue> using `docs/tasks/<issue>-<slug>/prompt.md`.
 ```
 
-Extract one Issue and one prompt path. Preserve the handoff unchanged when delivering it to Codex.
-
-Do not rewrite Scope or copy `task.md` into the launch input.
+Transport it unchanged.
 
 ## GitHub preflight
 
-Before launching a new Worker, live-read GitHub and require:
+Require:
 
 ```text
 Issue open
 Status: status:ready
 Active owner: none
-prompt.md resolves
-task.md resolves
-actual child execution context/capabilities are known and eligible
-no already-running issue-linked Worker for the same Task
+prompt/task resolve
+child environment/capabilities are eligible
+no unresolved existing execution context for the same Issue
 ```
 
-If Issue is `status:in-progress`, `status:review`, `status:blocked`, `status:done`, or closed, do not launch a duplicate Worker. Track/reconcile instead.
+Dispatcher does not claim the Issue. Child Worker claims after startup.
 
-Dispatcher does not claim the Issue. The child `$task-worker` performs the claim after it starts.
+## Isolation and lifecycle ownership
 
-## Isolation
-
-Never launch parallel child Workers from the Dispatcher/main checkout.
-
-Bootstrap mapping:
+Dispatcher owns the repository-specific lifecycle:
 
 ```text
 Issue #123
-→ <repo-root>.worktrees/issue-123
+→ <repo>.worktrees/issue-123
 → tmux session codex-issue-123
-→ Codex Worker
+→ start Codex
 ```
 
 For a new dispatch:
 
-1. require the Dispatcher checkout to be clean and on `main`;
-2. fetch/sync `main` safely using fast-forward semantics;
-3. record exact base SHA;
-4. ensure no existing issue tmux session already owns the mapping;
-5. ensure any pre-existing issue worktree is reconciled rather than overwritten;
-6. create an isolated detached worktree from the recorded base SHA;
-7. launch Codex inside that worktree;
-8. deliver the canonical Worker handoff as literal terminal input.
+1. require clean/synced main Dispatcher checkout;
+2. record exact base SHA;
+3. reconcile existing issue worktree/session before changing anything;
+4. create isolated worktree;
+5. create/reuse issue-linked tmux endpoint according to repository policy;
+6. start/reuse Codex;
+7. deliver the canonical handoff.
 
-Never use `reset --hard`, destructive `clean`, or automatic stale-worktree deletion to hide conflicts.
+Never hide conflicts using destructive reset/clean or silently delete stale work.
 
-## Bootstrap runtime mode
+## Communication mode A — native tmux
 
-Until `agent-runtime-mcp` has accepted create/input/observe/recovery capabilities, Dispatcher may use native tools:
+Until Channel MCP read/write/control is accepted, use native tmux for handoff delivery and tracking.
 
-```text
-Task Dispatcher
-→ git worktree
-→ tmux
-→ Codex CLI
-```
+## Communication mode B — Channel MCP
 
-Text handoff must be transported as data; do not interpolate arbitrary handoff/prompt text into a shell command.
-
-Report after launch:
+After the Channel product is accepted for the needed operations, Dispatcher may use it **only as the communication path**:
 
 ```text
-Issue: #<N>
-base commit: <sha>
-worker worktree: <path>
-tmux: codex-issue-<N>
-child execution context/capability match: <...>
-Codex session id: <when available>
+Dispatcher prepares worktree + tmux + Codex itself
+→ Channel MCP list/get discovers that existing pane
+→ write_text(handoff)
+→ read_channel / send_control when needed
 ```
 
-## Runtime-backed mode
-
-After the required runtime MCP capabilities are accepted, prefer:
+Do not call or invent MCP operations for:
 
 ```text
-Task Dispatcher
-→ agent-runtime-mcp
-→ RuntimeBackend
-→ Codex
+create_worker
+restart_worker
+destroy_worker
+set_external_reference
+create_worktree
+create tmux session
+start Codex
 ```
 
-Conceptually:
+Those are outside the Channel product.
 
-```text
-get/create Worker
-→ set_external_reference("github:liqiangcc/agent-runtime-mcp#N")
-→ send_text(canonical handoff, submit=true)
-→ capture/inspect runtime as needed
-```
-
-The runtime only transports/manages the Worker. It does not claim or mutate GitHub Task state.
-
-Switching Bootstrap → Runtime-backed mode must not change Issue lifecycle semantics.
+The Issue↔pane mapping remains Dispatcher state/knowledge, not Channel MCP state.
 
 ## Tracking
 
-GitHub is durable authority; runtime/tmux is liveness evidence.
-
-Interpret state as:
+GitHub is project authority; tmux/Channel MCP is liveness and communication evidence.
 
 ```text
-ready + no runtime
+ready + no execution context
 → published, not executing here
 
-in-progress + live runtime
-→ active Worker Attempt
+in-progress + live context
+→ active Attempt
 
-in-progress + dead/missing runtime
-→ stale/recovery candidate; return to Reviewer/Coordinator
+in-progress + dead/missing context
+→ Reviewer/Coordinator recovery condition
 
 review
-→ Worker finished durably; Reviewer is next
+→ Reviewer next
 
 blocked
-→ do not auto-resume
+→ no auto-resume
 
 done/closed
-→ Task complete; runtime is diagnostic residue only
+→ project complete
 ```
 
-Never infer completion from a quiet pane, a shell prompt, the word `done`, or Codex process exit.
+Never infer Task completion from terminal text/activity.
 
-Tracking output should include when available:
+## Recovery boundary
 
-```text
-Issue/status/owner
-runtime/tmux liveness
-worktree path + branch/HEAD/dirty state
-child execution context
-Codex session ID
-latest durable Issue report
-next authority
-```
+A missing tmux pane or `CHANNEL_NOT_FOUND` does not authorize automatic replacement.
 
-## Resume and recovery boundary
-
-A dead child with `status:in-progress` is not permission to start a replacement or reuse Attempt N.
-
-Required sequence:
+Required flow:
 
 ```text
-reconcile GitHub + branch/commits/PR/evidence + worktree/runtime
+reconcile GitHub + worktree + commits/PR/evidence + process/channel state
 → Reviewer/Coordinator recovery decision
-→ release stale ownership if justified
-→ status:ready / draft / blocked
-→ next Worker claim starts Attempt N+1
+→ release stale owner if justified
+→ ready/draft/blocked
+→ next Worker claim is Attempt N+1
 ```
-
-Resume an existing Codex session only when lifecycle state and session identity make it unambiguous and safe.
 
 ## Cleanup
 
-Do not automatically remove tmux/worktree after Worker reports. Cleanup requires:
-
-- no active owner;
-- reconciled durable GitHub state;
-- no uncommitted/unpushed work that would be lost;
-- explicit operator/Coordinator request or explicit repository policy.
+Do not automatically remove worktree/session after Worker reports. Cleanup requires reconciled GitHub state and no work that would be lost.
 
 ## Forbidden authority
 
-Dispatcher must never:
+Dispatcher never:
 
-- claim the Issue;
-- set `status:in-progress` on behalf of Worker;
-- modify Task Contract;
-- implement Task code;
-- fabricate Worker reports;
-- Review/ACCEPT/merge/close;
-- publish another Task;
-- auto-start Attempt N+1.
-
-Dispatcher is the bridge between Control Plane handoff and Execution Plane runtime, not a second Coordinator.
+- claims the Issue;
+- changes Task Contract;
+- implements Task code;
+- fabricates Worker reports;
+- Reviews/accepts/closes;
+- auto-starts Attempt N+1;
+- moves project lifecycle responsibilities into Channel MCP.
