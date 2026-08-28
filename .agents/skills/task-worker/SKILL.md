@@ -1,6 +1,6 @@
 ---
 name: task-worker
-description: Claim and execute exactly one published agent-runtime-mcp Task Attempt, report durable results to its GitHub Issue, release ownership, and stop. Never publish, review, accept, close, or automatically select the next Task.
+description: Claim and execute exactly one published agent-runtime-mcp Task Attempt, report durable results to its GitHub Issue, release ownership, and stop. Never publish, dispatch, review, accept, close, or automatically select another Task.
 ---
 
 # Task Worker
@@ -17,21 +17,24 @@ Before execution, read:
 2. the target GitHub Issue and all relevant comments
 3. the Task Package `prompt.md`
 4. the Task Package `task.md`
-5. `docs/tasks/issue-state-convention.md`
-6. `docs/tasks/issue-lifecycle-protocol.md`
-7. every canonical document explicitly required by `task.md`
+5. `docs/tasks/collaboration-protocol.md`
+6. `docs/tasks/issue-state-convention.md`
+7. `docs/tasks/issue-lifecycle-protocol.md`
+8. every canonical document explicitly required by `task.md`
 
 If this skill conflicts with those sources, follow the higher-authority repository source.
 
-## Inputs
+## Input
 
-Prefer an explicit Issue number and `prompt.md` path, for example:
+Prefer an explicit Issue number and `prompt.md` path:
 
 ```text
 $task-worker Execute Issue #2 using `docs/tasks/2-runtime-core-tmux-discovery/prompt.md`.
 ```
 
-Do not autonomously choose among multiple ready Issues unless the Coordinator explicitly delegates that scheduling decision and repository policy uniquely determines the target.
+This handoff may arrive directly or through `$task-dispatcher`. Its transport does not change Worker responsibilities.
+
+Do not autonomously select another ready Issue. Task scheduling belongs upstream.
 
 ## GitHub capability
 
@@ -41,19 +44,19 @@ If Issue body/comments/ownership cannot be durably updated, do not begin write-s
 
 ## Pre-claim checks
 
-Re-read the live Issue immediately before claim and confirm:
+Re-read live Issue immediately before claim and confirm:
 
 ```text
-Issue is open
+Issue open
 Status = status:ready
 Active owner = none
 linked task.md resolves
 linked prompt.md resolves
-Required Capabilities are available
-Task Contract is executable as published
+Required Capabilities available
+Task Contract executable as published
 ```
 
-If any condition fails, stop without implementation changes.
+If any condition fails, stop without implementation changes. A Dispatcher launching this process is not proof that the Task is still claimable.
 
 ## Claim and Attempt
 
@@ -68,9 +71,9 @@ begins a new monotonically increasing Attempt.
 
 Determine `Attempt N` from Issue history. Do not reuse a previous Attempt number.
 
-Claim by updating the Issue body state block defined in `docs/tasks/issue-state-convention.md`. Preserve unrelated Issue prose/metadata. Labels/assignee may mirror the state but are not required for correctness.
+Claim by updating the Issue body state block defined in `issue-state-convention.md`. Preserve unrelated Issue prose/metadata. Re-read after mutation and confirm ownership before executing.
 
-Re-read the Issue after mutation and confirm the body shows your ownership before executing. If the claim cannot be confirmed, stop.
+If the claim cannot be confirmed, stop. Dispatcher must not claim on your behalf.
 
 ## Execute only the Task Contract
 
@@ -93,18 +96,20 @@ Do not silently:
 - weaken security controls;
 - expose tmux internals as public API merely because implementation is easier;
 - treat runtime state as GitHub Task state;
+- launch/dispatch a second Worker;
 - start a different Issue.
 
-## Repository-specific architecture reminders
-
-Always preserve these boundaries unless a formal canonical design change is part of the published Task:
+## Repository-specific boundaries
 
 ```text
 GitHub = Task authority
 GPT Web = Coordinator authority
+Publisher = publication
+Dispatcher = runtime delivery
+Worker = one Attempt
+Reviewer = Task decision
 agent-runtime-mcp = runtime authority
 tmux = backend
-Codex = Worker
 ```
 
 And:
@@ -114,79 +119,76 @@ runtime idle/running/exited
 != Task accepted/review/done
 ```
 
-Public MCP design is use-case-first. Do not implement a raw generic `tmux_command` or `run_shell_command` surface unless the Task Contract explicitly changes canonical architecture.
+Public MCP design is use-case-first. Do not implement a raw generic `tmux_command` or `run_shell_command` surface unless the published Contract formally changes canonical architecture.
 
 ## Security reminders
-
-For backend execution/input work:
 
 - prefer structured process argv/stdin;
 - do not concatenate untrusted values into shell command strings;
 - ordinary text input is data;
-- special control input is a closed explicit set;
-- capture output is potentially sensitive and must stay bounded;
+- special control input is an explicit closed set;
+- captured output may contain secrets and must be bounded;
 - destructive lifecycle operations target one verified managed Worker;
 - normal operation must not require root.
 
-If valid implementation requires breaking these invariants, stop and report the design conflict instead of bypassing it.
+If valid implementation requires breaking an invariant, stop and report the design conflict.
 
 ## Recoverable work
 
 For non-trivial repository changes:
 
-1. work on a Task-specific/reusable branch when the environment supports it;
-2. commit coherent in-scope progress rather than leaving the only copy in a transient shell;
-3. use/reuse a PR when appropriate for review/recovery;
-4. report exact candidate SHA and evidence at Attempt completion.
+1. use the issue-isolated worktree supplied by Dispatcher or another Task-specific checkout;
+2. create/reuse a Task-specific branch as appropriate;
+3. commit coherent in-scope progress rather than keeping the only copy transient;
+4. use/reuse a PR when appropriate;
+5. report exact Candidate SHA and evidence at completion.
 
-Do not create empty commits/PRs just to manufacture progress.
+Do not mutate the Dispatcher/Coordinator main checkout. Do not create empty commits/PRs merely to manufacture progress.
 
-## Normal Attempt completion
+## Normal completion
 
-Before leaving the Attempt:
-
-1. persist the required candidate/code/docs;
-2. run the verification required by `task.md`;
+1. persist required candidate/code/docs;
+2. run required verification;
 3. collect exact Evidence and Candidate SHA;
-4. post the exact `[EXECUTION REPORT]` structure from `docs/tasks/issue-lifecycle-protocol.md`;
-5. update Issue body `Status` to `status:review`;
-6. update `Candidate` / `PR` current pointers when applicable;
+4. post `[EXECUTION REPORT]` from the lifecycle protocol;
+5. set Issue `Status: status:review`;
+6. update Candidate/PR pointers when applicable;
 7. set `Active owner: none`;
-8. re-read the Issue to verify report + state are durable;
+8. re-read Issue to verify durable report/state;
 9. stop.
 
-Do not set `status:done`, close the Issue, or start Attempt N+1.
+Do not Review your own Attempt, set `status:done`, close the Issue, dispatch another Worker, or start Attempt N+1.
 
-## Blocked Attempt
-
-If required permission, dependency, tmux/runtime capability, test environment or other necessary condition is unavailable:
+## Blocked completion
 
 1. preserve safe/recoverable work;
 2. clean temporary state when required;
-3. post `[BLOCKER REPORT]` using the lifecycle protocol;
-4. update Issue body `Status` to `status:blocked` and the current `Blocker` field;
+3. post `[BLOCKER REPORT]`;
+4. set `Status: status:blocked` and current Blocker;
 5. set `Active owner: none`;
-6. re-read the Issue to verify durable state;
+6. re-read Issue;
 7. stop.
 
-Never lower Success Criteria or weaken architecture/security boundaries to avoid `BLOCKED`.
+Never lower Success Criteria or weaken boundaries to avoid BLOCKED.
 
 ## After REVISE
 
-When Coordinator returns the same Task to `status:ready`:
+A later Worker may receive a fresh Dispatcher handoff after Reviewer returns the same Task to ready.
 
-- read previous Attempt reports and Coordinator Review;
-- reuse the existing candidate/branch/PR when still valid;
-- make a new claim;
-- increment Attempt number;
-- implement only the requested revision within the unchanged Task Contract;
-- report and stop again.
+That Worker must:
 
-If Review changes Scope/Claims/Success Criteria/architecture/security assumptions, require formal Task Contract/canonical-doc revision before execution.
+- read previous Attempt reports and Review;
+- reuse existing candidate/branch/PR when still valid;
+- make a fresh claim;
+- use Attempt N+1;
+- execute only the required unchanged-contract revision;
+- report and stop.
 
-## Completion output to chat
+If Review changes Scope/Claims/Success Criteria/architecture/security/routing assumptions, require Publisher republication before execution.
 
-After durable GitHub update, summarize only the handoff essentials:
+## Completion output
+
+After durable GitHub update, summarize only:
 
 ```text
 Issue: #<issue>
@@ -195,7 +197,7 @@ Execution outcome: COMPLETED | PARTIAL | FAILED | BLOCKED
 Issue state: review | blocked
 Candidate: <sha or n/a>
 Report: posted
-Next authority: GPT Web Coordinator
+Next authority: Task Reviewer / GPT Web Coordinator
 ```
 
-GitHub is the recoverable handoff. Chat text is not the project state.
+GitHub is the recoverable handoff. Chat and terminal output are not project state.
