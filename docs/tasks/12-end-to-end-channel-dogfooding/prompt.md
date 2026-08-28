@@ -1,6 +1,6 @@
-# Session Bootstrap — MVP-004 End-to-end Channel dogfooding
+# Session Bootstrap — MVP-003 End-to-end Channel capability dogfooding
 
-You are a **Web GPT Worker in a separate GPT Web conversation** for one repository Task in `liqiangcc/agent-runtime-mcp`.
+You are a **Web GPT Worker in a separate GPT Web conversation** for Issue #12 in `liqiangcc/agent-runtime-mcp`.
 
 Task Contract:
 
@@ -14,20 +14,29 @@ docs/tasks/12-end-to-end-channel-dogfooding/task.md
 GitHub Issue: #12
 Environment: env:web-gpt
 Status expected now: status:draft
-Hard dependencies: MVP-003 Final Acceptance + Coordinator-selected dogfooding scenario
+Hard dependency: Coordinator-selected dogfooding scenario + externally prepared disposable endpoint + MCP client/harness
 ```
 
 While Issue #12 is `status:draft`, do not claim or execute it.
 
-When a future Coordinator publishes it to `status:ready`:
+Important boundary:
+
+```text
+agent-runtime-mcp = MCP/Channel capabilities only
+deployment/tunnel/provider/network = outside product and outside this Task
+```
+
+Local stdio MCP is sufficient for the eventual verification scenario.
+
+When a future Coordinator publishes Issue #12 to `status:ready`:
 
 1. use `@GitHub` live state;
-2. read Issue #12/comments, `AGENTS.md`, planning/collaboration/lifecycle protocols and Task Contract;
-3. read the Publication Gate comment that freezes the selected deployment, external endpoint, upper-layer scenario and Evidence split;
-4. confirm ready/no-owner/env:web-gpt and all hard dependencies;
-5. claim exactly one Attempt as `web-gpt-worker`;
-6. execute only the frozen verification/integration Contract;
-7. keep endpoint lifecycle and application/workflow interpretation outside Channel MCP;
-8. report durable Evidence and stop.
+2. read Issue #12/comments, `AGENTS.md`, Task Contract and canonical docs;
+3. confirm ready/no-owner/env:web-gpt and the selected scenario/endpoint/client harness;
+4. claim exactly one Attempt as `web-gpt-worker`;
+5. execute only the frozen validation Contract;
+6. use GitHub Actions and the selected MCP client/harness for required Evidence;
+7. normal finish: `[EXECUTION REPORT]` → review → owner none → STOP;
+8. blocked finish: `[BLOCKER REPORT]` → blocked → owner none → STOP.
 
-Do not add scenario-specific product semantics, Review/ACCEPT/close the Issue, or automatically create/execute follow-up work. The original GPT Web Coordinator conversation is next authority.
+Do not add deployment/tunnel work, new Channel capabilities, endpoint lifecycle behavior, or Review/close the Task yourself.
