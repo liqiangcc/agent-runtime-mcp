@@ -417,8 +417,8 @@ architecture evidence: Channel discovery + metadata inspection are inside produc
 frozen additive shape: backend_metadata.tmux with five fields above
 backward compatibility: existing inputs/fields/channel_id/write routing unchanged
 acceptance: two host sessions with identical title/cwd + misleading p1 text in s2; structured selection/write isolation through public MCP
-publication head: 715c88bc88aad290798ca74aa222d9a710bb0530
-publication CI: 33160561991 SUCCESS
+publication head: 32e77aa90e32c8288c04314d09524866c953ca8e
+publication CI: 33160648761 SUCCESS
 ```
 
 Live Issue must be `status:ready`, `owner:none`, `env:web-gpt`, `Blocker:none` before Worker claim.
