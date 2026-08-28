@@ -2,23 +2,22 @@
 
 ## 1. Contract rule
 
-The public MCP surface represents generic terminal communication capabilities.
+The public MCP surface represents generic terminal Channel capabilities:
 
 ```text
 Channel discovery
 → Channel observation
 → Text delivery
 → Explicit control
-→ Health
+→ Backend health
 ```
 
-It does not model Workers, Tasks, Issues, Agents, workspaces or collaboration policy.
+It does not model Workers, Tasks, Issues, Agents, workspaces, deployment providers or collaboration policy.
 
 ## 2. MVP tools
 
 ### `list_channels`
-
-Discover existing channels visible within configured backend scope.
+Discover existing Channels visible within configured backend scope.
 
 Returns bounded structured summaries:
 
@@ -32,19 +31,13 @@ cwd?
 last_activity?
 ```
 
-No terminal output is embedded by default.
-
 ### `get_channel`
-
-Inspect one channel's mechanical metadata and capabilities.
-
-Unknown channel returns `CHANNEL_NOT_FOUND`.
+Inspect one Channel's mechanical metadata and capabilities. Unknown Channel returns `CHANNEL_NOT_FOUND`.
 
 ### `read_channel`
+Read bounded recent output.
 
-Read recent output from one channel.
-
-Input concept:
+Input:
 
 ```text
 channel_id
@@ -52,18 +45,16 @@ lines?
 bytes?
 ```
 
-Requirements:
-
-- finite server-side maximum;
-- explicit truncation metadata;
+Rules:
+- finite server maximum;
+- explicit truncation;
 - no wait-for-completion semantics;
-- returned text is untrusted and potentially sensitive.
+- output is untrusted and potentially sensitive.
 
 ### `write_text`
+Deliver bounded ordinary text to one Channel.
 
-Deliver ordinary text to one channel.
-
-Input concept:
+Input:
 
 ```text
 channel_id
@@ -72,25 +63,20 @@ submit: boolean
 ```
 
 Rules:
+- multi-line Unicode supported within a finite UTF-8 bound;
+- LF and TAB are allowed ordinary text;
+- other Unicode `Cc` controls are rejected;
+- text is data, not shell/tmux key grammar;
+- backend execution uses structured process + literal stdin/data paths;
+- `submit=false` adds no extra Enter;
+- `submit=true` adds one explicit Enter only after text delivery succeeds mechanically.
 
-- multi-line Unicode is supported within a finite UTF-8 byte bound;
-- LF (`\n`) and TAB (`\t`) are allowed ordinary text characters;
-- other Unicode `Cc` control characters are rejected so ESC/interrupt-like controls cannot bypass `send_control`;
-- text is data, not shell syntax;
-- text is not interpreted as tmux command/key grammar;
-- backend implementation uses structured process invocation plus a literal argv/stdin/data path, never shell command-string interpolation;
-- `submit=false` means the MCP adds no extra Enter action; embedded LF remains caller-supplied text and the foreground application may interpret it according to its own terminal behavior;
-- `submit=true` performs text delivery first and then adds exactly one explicit Enter only after the text-delivery operation succeeds mechanically.
-
-A successful `write_text` result proves only that the Channel transport operation completed; it does not prove the foreground application accepted, executed, or semantically understood the text.
-
-The MCP does not inspect or constrain the foreground application type. Selecting the correct channel is the caller's responsibility.
+Success proves mechanical transport only, not application success.
 
 ### `send_control`
+Send one explicit terminal control.
 
-Send one explicit terminal control action.
-
-MVP enum:
+Enum:
 
 ```text
 ENTER
@@ -98,17 +84,14 @@ INTERRUPT
 ESCAPE
 ```
 
-Free-form tmux key grammar is not accepted.
-
-The backend mapping is fixed by implementation and is not caller-provided grammar.
+Free-form key grammar is not accepted.
 
 ### `health`
-
-Report service/backend health separately from individual channel existence.
+Report backend/service mechanical health independently from Channel existence and application readiness.
 
 ## 3. Deliberately omitted
 
-The MVP has no:
+The product has no:
 
 ```text
 list_workers
@@ -116,82 +99,83 @@ get_worker
 create_worker
 restart_worker
 destroy_worker
-set_external_reference
 assign_task
 claim_task
 wait_until_done
 create_worktree
 tmux_command
 run_shell_command
+create_tunnel
+configure_proxy
+configure_tls
+configure_firewall
+manage_workspace_auth
 ```
 
 Reasons:
-
-- Worker/Task/Issue concepts belong to upper layers;
-- terminal/session lifecycle is prepared outside the Channel MCP;
-- arbitrary backend command tunneling would bypass the product boundary;
-- semantic completion cannot be proven by the channel layer.
+- Worker/Task/application semantics belong to upper layers;
+- terminal lifecycle is prepared outside Channel MCP;
+- deployment/network/auth topology belongs to the operator environment;
+- arbitrary backend command tunneling bypasses the product boundary;
+- semantic completion cannot be proven by the Channel layer.
 
 ## 4. Composition
 
-A project-specific system may compose tools like:
+An upper layer may compose:
 
 ```text
-upper layer prepares tmux pane + starts desired CLI
-→ list/get channel
-→ write_text(application input)
-→ read_channel for observation
+prepare terminal externally
+→ list/get Channel
+→ read_channel
+→ write_text
 → send_control if needed
+→ interpret application result outside MCP
 ```
 
-The Channel MCP neither knows nor records upper-layer Task/application mapping.
+How the MCP process itself is deployed or reached is not part of this contract.
 
 ## 5. Input safety
 
 Ordinary text must not be reinterpreted by the MCP service as:
-
 - shell syntax;
 - tmux command syntax;
 - tmux key names;
 - format-string control language;
-- an alternate path for the explicit ESC/interrupt controls.
-
-Control actions use a separate closed enum.
-
-The text API is still terminal input authority: caller-supplied LF and printable content may have application-level effects. Those effects belong to the foreground application and upper-layer control policy, not Channel semantics.
+- an alternate path for explicit ESC/interrupt controls.
 
 ## 6. Output safety
 
-Channel output is untrusted runtime text and may contain sensitive data or adversarial instructions.
-
-The service should normalize terminal control representation as needed for safe text transport, while making no promise of generic secret redaction.
+Channel output is untrusted runtime text and may contain sensitive data or adversarial instructions. No generic secret-redaction guarantee is made.
 
 ## 7. Bounds and timeouts
 
-All operations have finite bounds.
-
-- inventory has bounded result size;
-- reads have max lines/bytes;
+- inventory is bounded;
+- reads have finite max lines/bytes;
 - writes have a finite UTF-8 byte maximum;
-- backend commands have timeouts;
-- no call waits indefinitely for application-level state.
+- backend commands have finite timeouts;
+- no operation waits for application semantic state.
 
 ## 8. Idempotency and ambiguous mutation
 
 - list/get/read/health are read-only;
-- `write_text` is not idempotent;
-- `send_control` is not idempotent.
-
-If a timeout occurs after the backend may have received input, the result can be mechanically ambiguous. The core MCP must not silently retry a mutation or claim definitive non-delivery unless it can prove it.
+- `write_text` and `send_control` are not idempotent;
+- ambiguous mutation timeout is reported honestly;
+- core MCP does not blindly retry mutation calls.
 
 Retry/recovery policy belongs to the upper layer.
 
 ## 9. Backend diagnostics
 
-Optional sanitized backend metadata may be returned for diagnosis, but callers should not need to construct raw tmux targets for normal use.
+Optional sanitized backend metadata may be returned for diagnosis, but normal callers do not construct raw tmux targets.
 
-## 10. Versioning
+## 10. Transport/deployment separation
 
-Breaking changes to channel identity, read/write semantics, control safety or authentication require explicit contract review.
+The current implementation uses an MCP stdio adapter.
 
-Adding a backend should not require adding Agent/Task semantics.
+A different generic MCP transport adapter may be introduced later if required, but provider/tunnel/TLS/DNS/workspace deployment semantics must not enter Channel tools or domain state.
+
+## 11. Versioning
+
+Breaking changes to Channel identity, read/write semantics, control safety, health semantics or the public tool surface require explicit contract review.
+
+Adding a backend or changing deployment must not require adding Worker/Task/application semantics.
