@@ -11,7 +11,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build --silent && node --test dist/tests/unit/*.test.js",
     "test:integration": "npm run build --silent && node --test dist/tests/integration/*.test.js",
-    "test:all": "npm run typecheck && npm run test && npm run test:integration",
+    "test:discovery": "npm run build --silent && node --test dist/tests/discovery/*.test.js",
+    "test:all": "npm run typecheck && npm run test && npm run test:integration && npm run test:discovery",
     "start": "node dist/src/server.js"
   },
   "dependencies": {
@@ -19,6 +20,7 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
     "@types/node": "^24.0.0",
     "typescript": "^5.9.0"
   }

@@ -47,7 +47,7 @@ async function assertRejectCode(promise: Promise<unknown>, code: ChannelErrorCod
 }
 
 describe('TmuxBackend', () => {
-  it('discovers only allowed sessions and advertises the Phase-2 Channel capabilities', async () => {
+  it('forces UTF-8 tmux output, parses seven-field metadata, and discovers only allowed sessions', async () => {
     const runner = new QueueRunner({
       stdout: [
         '%1\tvisible\t@1\t0\t0\tVisible pane\t/work/visible',
@@ -67,7 +67,20 @@ describe('TmuxBackend', () => {
     assert.equal(channels[0].cwd, '/work/visible');
     assert.match(channels[0].channel_id, /^tmux:[a-f0-9]{12}:1$/);
     assert.equal(runner.calls[0].executable, 'tmux');
-    assert.deepEqual(runner.calls[0].args.slice(0, 3), ['-L', 'isolated', 'list-panes']);
+    assert.deepEqual(runner.calls[0].args.slice(0, 4), ['-u', '-L', 'isolated', 'list-panes']);
+    const formatIndex = runner.calls[0].args.indexOf('-F');
+    assert.ok(formatIndex >= 0);
+    assert.equal(runner.calls[0].args[formatIndex + 1].split('\t').length, 7);
+  });
+
+  it('rejects pane metadata that does not preserve the required field separators', async () => {
+    const runner = new QueueRunner({
+      stdout: '%1_visible_@1_0_0_Visible pane_/work/visible\n',
+      stderr: '',
+    });
+    const backend = new TmuxBackend({ socketName: 'isolated' }, runner);
+
+    await assertRejectCode(backend.listChannels(), 'BACKEND_OPERATION_FAILED');
   });
 
   it('rejects channel ids from another configured tmux scope', async () => {
@@ -127,14 +140,14 @@ describe('TmuxBackend', () => {
 
     const load = runner.calls[1];
     const paste = runner.calls[2];
-    assert.equal(load.args[2], 'load-buffer');
+    assert.equal(load.args[3], 'load-buffer');
     assert.equal(load.options.stdin, text);
     assert.equal(load.args.at(-1), '-');
     const loadName = load.args[load.args.indexOf('-b') + 1];
     const pasteName = paste.args[paste.args.indexOf('-b') + 1];
     assert.match(loadName, /^agent-runtime-mcp-write-/);
     assert.equal(pasteName, loadName);
-    assert.equal(paste.args[2], 'paste-buffer');
+    assert.equal(paste.args[3], 'paste-buffer');
     assert.ok(paste.args.includes('-p'));
     assert.ok(paste.args.includes('-d'));
     assert.equal(paste.args[paste.args.indexOf('-t') + 1], '%1');
@@ -152,7 +165,7 @@ describe('TmuxBackend', () => {
     const channelId = successBackend.channelIdForPane('%1');
 
     await successBackend.writeText(channelId, 'submit me', { submit: true });
-    assert.deepEqual(successRunner.calls.map((call) => call.args[2]), ['list-panes', 'load-buffer', 'paste-buffer', 'send-keys']);
+    assert.deepEqual(successRunner.calls.map((call) => call.args[3]), ['list-panes', 'load-buffer', 'paste-buffer', 'send-keys']);
     assert.equal(successRunner.calls[3].args.at(-1), 'Enter');
 
     const pasteFailure = new Error('paste failed') as NodeJS.ErrnoException & { stderr?: string };
@@ -177,7 +190,7 @@ describe('TmuxBackend', () => {
       const backend = new TmuxBackend({ socketName: 'isolated', allowedSessions: ['visible'] }, runner);
       const channelId = backend.channelIdForPane('%1');
       assert.deepEqual(await backend.sendControl(channelId, control), { channel_id: channelId, control });
-      assert.equal(runner.calls[1].args[2], 'send-keys');
+      assert.equal(runner.calls[1].args[3], 'send-keys');
       assert.equal(runner.calls[1].args.at(-1), key);
     }
 
