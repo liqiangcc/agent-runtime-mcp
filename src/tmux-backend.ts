@@ -124,8 +124,8 @@ interface TmuxPane {
   paneId: string;
   sessionName: string;
   windowId: string;
-  windowIndex: string;
-  paneIndex: string;
+  windowIndex: number;
+  paneIndex: number;
   title?: string;
   cwd?: string;
 }
@@ -284,6 +284,15 @@ export class TmuxBackend implements ChannelBackend {
       capabilities: ['read', 'write-text', 'control'],
       ...(pane.title ? { title: pane.title } : {}),
       ...(pane.cwd ? { cwd: pane.cwd } : {}),
+      backend_metadata: {
+        tmux: {
+          session_name: pane.sessionName,
+          window_id: pane.windowId,
+          window_index: pane.windowIndex,
+          pane_id: pane.paneId,
+          pane_index: pane.paneIndex,
+        },
+      },
     };
   }
 
@@ -409,19 +418,36 @@ function splitCapturedLines(stdout: string): string[] {
 }
 
 function parsePaneLine(line: string): TmuxPane {
-  const [paneId, sessionName, windowId, windowIndex, paneIndex, title = '', cwd = ''] = line.split('\t');
-  if (!paneId || !sessionName || !windowId || windowIndex === undefined || paneIndex === undefined) {
+  const fields = line.split('\t');
+  if (fields.length !== 7) {
     throw new ChannelError('BACKEND_OPERATION_FAILED', 'Tmux returned malformed pane metadata');
   }
+
+  const [paneId, sessionName, windowId, windowIndex, paneIndex, title, cwd] = fields;
+  if (!paneId || !sessionName || !windowId) {
+    throw new ChannelError('BACKEND_OPERATION_FAILED', 'Tmux returned malformed pane metadata');
+  }
+
   return {
     paneId,
     sessionName,
     windowId,
-    windowIndex,
-    paneIndex,
+    windowIndex: parseTmuxIndex(windowIndex, 'window_index'),
+    paneIndex: parseTmuxIndex(paneIndex, 'pane_index'),
     ...(title ? { title } : {}),
     ...(cwd ? { cwd } : {}),
   };
+}
+
+function parseTmuxIndex(value: string, field: string): number {
+  if (!/^\d+$/.test(value)) {
+    throw new ChannelError('BACKEND_OPERATION_FAILED', `Tmux returned invalid ${field}`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new ChannelError('BACKEND_OPERATION_FAILED', `Tmux returned invalid ${field}`);
+  }
+  return parsed;
 }
 
 function classifyTmuxFailure(error: unknown, operation: string, terminalMutation: boolean): ChannelError {
