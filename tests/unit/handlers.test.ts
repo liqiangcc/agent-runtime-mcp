@@ -1,18 +1,30 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { ChannelBackend } from '../../src/backend.js';
-import { getChannel, listChannels, readChannel } from '../../src/handlers.js';
-import { MVP_001_TOOL_NAMES } from '../../src/mcp.js';
-import type { BackendHealth, Channel, ChannelRead, ReadChannelOptions } from '../../src/types.js';
+import { ChannelError } from '../../src/errors.js';
+import { getChannel, listChannels, readChannel, sendControl, writeText } from '../../src/handlers.js';
+import { MUTATION_TOOL_ANNOTATIONS, MVP_001_TOOL_NAMES, MVP_002_TOOL_NAMES } from '../../src/mcp.js';
+import type {
+  BackendHealth,
+  Channel,
+  ChannelRead,
+  ReadChannelOptions,
+  SendControlResult,
+  TerminalControl,
+  WriteTextOptions,
+  WriteTextResult,
+} from '../../src/types.js';
 
 class FakeBackend implements ChannelBackend {
   readonly channel: Channel = {
     channel_id: 'tmux:scope:1',
     backend_kind: 'tmux',
     state: 'available',
-    capabilities: ['read'],
+    capabilities: ['read', 'write-text', 'control'],
     title: 'fake',
   };
+  writeCalls = 0;
+  controlCalls = 0;
 
   async listChannels(): Promise<Channel[]> {
     return [this.channel];
@@ -34,32 +46,61 @@ class FakeBackend implements ChannelBackend {
     };
   }
 
+  async writeText(channelId: string, _text: string, options: WriteTextOptions): Promise<WriteTextResult> {
+    this.writeCalls += 1;
+    return { channel_id: channelId, submitted: options.submit };
+  }
+
+  async sendControl(channelId: string, control: TerminalControl): Promise<SendControlResult> {
+    this.controlCalls += 1;
+    return { channel_id: channelId, control };
+  }
+
   async health(): Promise<BackendHealth> {
     return { backend_kind: 'tmux', available: true };
   }
 }
 
-describe('MVP-001 handlers', () => {
-  it('lists channels through the backend abstraction', async () => {
-    const payload = await listChannels(new FakeBackend());
-    assert.equal(payload.channels.length, 1);
-    assert.deepEqual(payload.channels[0].capabilities, ['read']);
+describe('Channel handlers', () => {
+  it('keeps Phase-1 observation handlers compatible', async () => {
+    const backend = new FakeBackend();
+    const listed = await listChannels(backend);
+    const inspected = await getChannel(backend, 'tmux:opaque:7');
+    const read = await readChannel(backend, 'tmux:opaque:7', { lines: 9, bytes: 123 });
+
+    assert.equal(listed.channels.length, 1);
+    assert.deepEqual(listed.channels[0].capabilities, ['read', 'write-text', 'control']);
+    assert.equal(inspected.channel.channel_id, 'tmux:opaque:7');
+    assert.equal(read.read.text, 'lines=9 bytes=123');
   });
 
-  it('gets one channel by opaque channel id', async () => {
-    const payload = await getChannel(new FakeBackend(), 'tmux:opaque:7');
-    assert.equal(payload.channel.channel_id, 'tmux:opaque:7');
+  it('returns mechanical write/control acknowledgements through the backend abstraction', async () => {
+    const backend = new FakeBackend();
+    assert.deepEqual(await writeText(backend, 'tmux:opaque:7', 'hello\nworld\t世界', true), {
+      channel_id: 'tmux:opaque:7',
+      submitted: true,
+    });
+    assert.deepEqual(await sendControl(backend, 'tmux:opaque:7', 'ESCAPE'), {
+      channel_id: 'tmux:opaque:7',
+      control: 'ESCAPE',
+    });
   });
 
-  it('passes read bounds to the backend', async () => {
-    const payload = await readChannel(new FakeBackend(), 'tmux:opaque:7', { lines: 9, bytes: 123 });
-    assert.equal(payload.read.text, 'lines=9 bytes=123');
+  it('rejects ordinary-text control characters before invoking the backend mutation', async () => {
+    const backend = new FakeBackend();
+    await assert.rejects(writeText(backend, 'tmux:opaque:7', 'bad\rtext', false), ChannelError);
+    assert.equal(backend.writeCalls, 0);
   });
 
-  it('registers only the frozen read-only Phase-1 tool names', () => {
+  it('adds exactly the two Phase-2 tools and marks mutations conservatively', () => {
     assert.deepEqual(MVP_001_TOOL_NAMES, ['list_channels', 'get_channel', 'read_channel']);
-    assert.equal(MVP_001_TOOL_NAMES.includes('write_text' as never), false);
-    assert.equal(MVP_001_TOOL_NAMES.includes('send_control' as never), false);
-    assert.equal(MVP_001_TOOL_NAMES.includes('tmux_command' as never), false);
+    assert.deepEqual(MVP_002_TOOL_NAMES, ['list_channels', 'get_channel', 'read_channel', 'write_text', 'send_control']);
+    assert.deepEqual(MUTATION_TOOL_ANNOTATIONS, {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+    });
+    assert.equal(MVP_002_TOOL_NAMES.includes('health' as never), false);
+    assert.equal(MVP_002_TOOL_NAMES.includes('tmux_command' as never), false);
   });
 });

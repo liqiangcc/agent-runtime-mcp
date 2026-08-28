@@ -1,8 +1,18 @@
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { ChannelBackend } from './backend.js';
 import { ChannelError } from './errors.js';
-import type { BackendHealth, Channel, ChannelRead, ReadChannelOptions } from './types.js';
+import { validateOrdinaryText, validateTerminalControl } from './input.js';
+import type {
+  BackendHealth,
+  Channel,
+  ChannelRead,
+  ReadChannelOptions,
+  SendControlResult,
+  TerminalControl,
+  WriteTextOptions,
+  WriteTextResult,
+} from './types.js';
 
 const PANE_FORMAT = [
   '#{pane_id}',
@@ -13,6 +23,13 @@ const PANE_FORMAT = [
   '#{pane_title}',
   '#{pane_current_path}',
 ].join('\t');
+
+const CONTROL_KEYS: Readonly<Record<TerminalControl, string>> = {
+  ENTER: 'Enter',
+  INTERRUPT: 'C-c',
+  ESCAPE: 'Escape',
+};
+const WRITE_BUFFER_PREFIX = 'agent-runtime-mcp-write-';
 
 export const HARD_MAX_READ_LINES = 5000;
 export const HARD_MAX_READ_BYTES = 1024 * 1024;
@@ -49,6 +66,7 @@ export interface CommandResult {
 export interface CommandRunOptions {
   timeoutMs: number;
   maxBufferBytes: number;
+  stdin?: string;
 }
 
 export interface CommandRunner {
@@ -62,10 +80,15 @@ type ExecFailure = NodeJS.ErrnoException & {
   stderr?: string;
 };
 
+interface RunTmuxOptions {
+  stdin?: string;
+  terminalMutation?: boolean;
+}
+
 export class NodeCommandRunner implements CommandRunner {
   async run(executable: string, args: string[], options: CommandRunOptions): Promise<CommandResult> {
     return new Promise((resolve, reject) => {
-      execFile(
+      const child = execFile(
         executable,
         args,
         {
@@ -86,6 +109,13 @@ export class NodeCommandRunner implements CommandRunner {
           resolve({ stdout, stderr });
         },
       );
+
+      if (options.stdin !== undefined && child.stdin) {
+        child.stdin.on('error', () => {
+          // The execFile callback remains the authority for the primary process failure.
+        });
+        child.stdin.end(options.stdin, 'utf8');
+      }
     });
   }
 }
@@ -164,6 +194,55 @@ export class TmuxBackend implements ChannelBackend {
     };
   }
 
+  async writeText(channelId: string, text: string, options: WriteTextOptions): Promise<WriteTextResult> {
+    validateOrdinaryText(text);
+    if (typeof options?.submit !== 'boolean') {
+      throw new ChannelError('INVALID_ARGUMENT', 'submit must be a boolean');
+    }
+
+    const paneId = this.parseChannelId(channelId);
+    await this.getChannel(channelId);
+
+    const bufferName = `${WRITE_BUFFER_PREFIX}${process.pid}-${randomUUID()}`;
+    try {
+      await this.runTmux(['load-buffer', '-b', bufferName, '-'], 'load-buffer', 64 * 1024, { stdin: text });
+      await this.runTmux(
+        ['paste-buffer', '-p', '-r', '-d', '-b', bufferName, '-t', paneId],
+        'paste-buffer',
+        64 * 1024,
+        { terminalMutation: true },
+      );
+    } catch (error) {
+      await this.cleanupBuffer(bufferName);
+      throw error;
+    }
+
+    if (options.submit) {
+      try {
+        await this.sendControlToPane(paneId, 'ENTER');
+      } catch (error) {
+        if (error instanceof ChannelError) {
+          throw new ChannelError(error.code, error.message, {
+            ...error.details,
+            text_delivered: true,
+            submit_outcome: error.code === 'TIMEOUT' ? 'unknown' : 'failed',
+          });
+        }
+        throw error;
+      }
+    }
+
+    return { channel_id: channelId, submitted: options.submit };
+  }
+
+  async sendControl(channelId: string, control: TerminalControl): Promise<SendControlResult> {
+    validateTerminalControl(control);
+    const paneId = this.parseChannelId(channelId);
+    await this.getChannel(channelId);
+    await this.sendControlToPane(paneId, control);
+    return { channel_id: channelId, control };
+  }
+
   async health(): Promise<BackendHealth> {
     try {
       await this.runTmux(['list-panes', '-a', '-F', '#{pane_id}'], 'health', 256 * 1024);
@@ -202,7 +281,7 @@ export class TmuxBackend implements ChannelBackend {
       backend_kind: 'tmux',
       backend_locator: channelId,
       state: 'available',
-      capabilities: ['read'],
+      capabilities: ['read', 'write-text', 'control'],
       ...(pane.title ? { title: pane.title } : {}),
       ...(pane.cwd ? { cwd: pane.cwd } : {}),
     };
@@ -216,6 +295,21 @@ export class TmuxBackend implements ChannelBackend {
       });
     }
     return `%${match[2]}`;
+  }
+
+  private async sendControlToPane(paneId: string, control: TerminalControl): Promise<void> {
+    const key = CONTROL_KEYS[control];
+    await this.runTmux(['send-keys', '-t', paneId, key], `send-control-${control.toLowerCase()}`, 64 * 1024, {
+      terminalMutation: true,
+    });
+  }
+
+  private async cleanupBuffer(bufferName: string): Promise<void> {
+    try {
+      await this.runTmux(['delete-buffer', '-b', bufferName], 'delete-buffer', 64 * 1024);
+    } catch {
+      // Cleanup is best effort and must not replace the primary mutation result.
+    }
   }
 
   private isSessionAllowed(sessionName: string): boolean {
@@ -243,16 +337,25 @@ export class TmuxBackend implements ChannelBackend {
     return [];
   }
 
-  private async runTmux(commandArgs: string[], operation: string, maxBufferBytes: number): Promise<string> {
+  private async runTmux(
+    commandArgs: string[],
+    operation: string,
+    maxBufferBytes: number,
+    options: RunTmuxOptions = {},
+  ): Promise<string> {
     try {
       const result = await this.runner.run(
         this.config.tmuxExecutable,
         [...this.scopeArgs(), ...commandArgs],
-        { timeoutMs: this.config.timeoutMs, maxBufferBytes },
+        {
+          timeoutMs: this.config.timeoutMs,
+          maxBufferBytes,
+          ...(options.stdin !== undefined ? { stdin: options.stdin } : {}),
+        },
       );
       return result.stdout;
     } catch (error) {
-      throw classifyTmuxFailure(error, operation);
+      throw classifyTmuxFailure(error, operation, options.terminalMutation === true);
     }
   }
 }
@@ -321,13 +424,16 @@ function parsePaneLine(line: string): TmuxPane {
   };
 }
 
-function classifyTmuxFailure(error: unknown, operation: string): ChannelError {
+function classifyTmuxFailure(error: unknown, operation: string, terminalMutation: boolean): ChannelError {
   const failure = error as ExecFailure;
   if (failure?.code === 'ENOENT') {
     return new ChannelError('BACKEND_UNAVAILABLE', 'tmux executable is unavailable', { operation });
   }
   if (failure?.killed || failure?.signal === 'SIGTERM') {
-    return new ChannelError('TIMEOUT', 'tmux operation timed out', { operation });
+    return new ChannelError('TIMEOUT', 'tmux operation timed out', {
+      operation,
+      ...(terminalMutation ? { delivery_outcome: 'unknown' } : {}),
+    });
   }
 
   const stderr = typeof failure?.stderr === 'string' ? failure.stderr.toLowerCase() : '';
