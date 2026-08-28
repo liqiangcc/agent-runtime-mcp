@@ -57,17 +57,26 @@ Read a bounded amount of recent terminal output with explicit truncation metadat
 
 ### UC4 — Write ordinary text
 
-Send multi-line Unicode text as data to a selected channel without shell interpolation or accidental tmux-key interpretation.
+Send bounded multi-line Unicode text as data to a selected channel without shell interpolation or accidental tmux-key interpretation.
+
+Text/control separation is explicit:
+
+- LF (`\n`) and TAB (`\t`) are allowed ordinary text characters;
+- other Unicode control characters in the `Cc` category are rejected by `write_text` so ESC/interrupt-like controls cannot bypass `send_control`;
+- `submit=false` means the MCP appends no additional Enter action; it does not promise how the foreground application interprets embedded LF characters;
+- `submit=true` performs text delivery first, then adds one explicit Enter action only after successful text delivery.
 
 ### UC5 — Send explicit control input
 
-Support a small closed set such as:
+Support a small closed set:
 
 ```text
 ENTER
 INTERRUPT
 ESCAPE
 ```
+
+Free-form terminal/tmux key grammar is not part of ordinary text input.
 
 ### UC6 — Check service/backend health
 
@@ -110,6 +119,7 @@ Key requirements:
 - channel state is mechanical (`available | unavailable | unknown`);
 - no semantic `idle`, `busy`, `working`, `done`, `blocked`, or review state;
 - output is bounded;
+- input is bounded;
 - last activity, if exposed, is an I/O observation only;
 - missing facts degrade to unknown rather than being inferred from terminal prose.
 
@@ -174,8 +184,9 @@ Terminal write access is approximately terminal-input authority for every expose
 Therefore:
 
 - unauthenticated remote write access is forbidden;
-- backend commands use structured argv/process APIs, not shell string concatenation;
-- ordinary text is transported as data;
+- backend commands use structured argv/process APIs and explicit stdin/data paths, not shell string concatenation;
+- ordinary text is transported as bounded data;
+- ordinary text cannot smuggle explicit ESC/interrupt control characters through the text API;
 - control input is a closed enum;
 - reads are bounded and potentially sensitive;
 - service logs do not record full terminal text/write payloads by default;
@@ -200,7 +211,9 @@ TIMEOUT
 AUTHENTICATION_REQUIRED
 ```
 
-Operations have finite timeouts and do not wait for semantic completion.
+Operations have finite input/output bounds and finite timeouts and do not wait for semantic completion.
+
+Mutation calls are non-idempotent. An ambiguous timeout must not trigger a blind automatic retry inside the core MCP.
 
 ## 12. Non-goals
 
@@ -224,8 +237,8 @@ The first usable version is successful when an authenticated remote MCP client c
 1. discover an already-existing tmux pane as a Channel;
 2. inspect that Channel through structured metadata;
 3. read bounded recent output;
-4. write multi-line Unicode text safely as data;
-5. send Enter/interrupt explicitly;
+4. write bounded multi-line Unicode text safely as ordinary data;
+5. send Enter/interrupt/escape explicitly through the closed control API;
 6. receive structured failure when the pane/backend disappears;
 7. reconnect and rediscover currently existing panes without a separate Worker registry;
 8. perform all of the above without knowing Codex, Worker, Issue, Task, worktree, or collaboration semantics;
