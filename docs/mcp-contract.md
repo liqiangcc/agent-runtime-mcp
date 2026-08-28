@@ -73,11 +73,16 @@ submit: boolean
 
 Rules:
 
-- multi-line Unicode supported;
+- multi-line Unicode is supported within a finite UTF-8 byte bound;
+- LF (`\n`) and TAB (`\t`) are allowed ordinary text characters;
+- other Unicode `Cc` control characters are rejected so ESC/interrupt-like controls cannot bypass `send_control`;
 - text is data, not shell syntax;
-- text is not interpreted as tmux key grammar;
-- backend implementation avoids command-string interpolation;
-- `submit=true` adds explicit Enter after text delivery.
+- text is not interpreted as tmux command/key grammar;
+- backend implementation uses structured process invocation plus a literal argv/stdin/data path, never shell command-string interpolation;
+- `submit=false` means the MCP adds no extra Enter action; embedded LF remains caller-supplied text and the foreground application may interpret it according to its own terminal behavior;
+- `submit=true` performs text delivery first and then adds exactly one explicit Enter only after the text-delivery operation succeeds mechanically.
+
+A successful `write_text` result proves only that the Channel transport operation completed; it does not prove the foreground application accepted, executed, or semantically understood the text.
 
 The MCP does not inspect or constrain the foreground application type. Selecting the correct channel is the caller's responsibility.
 
@@ -94,6 +99,8 @@ ESCAPE
 ```
 
 Free-form tmux key grammar is not accepted.
+
+The backend mapping is fixed by implementation and is not caller-provided grammar.
 
 ### `health`
 
@@ -130,25 +137,28 @@ Reasons:
 A project-specific system may compose tools like:
 
 ```text
-project dispatcher prepares tmux pane + starts desired CLI
+upper layer prepares tmux pane + starts desired CLI
 → list/get channel
-→ write_text(task bootstrap)
+→ write_text(application input)
 → read_channel for observation
 → send_control if needed
 ```
 
-The Channel MCP neither knows nor records the project Task mapping.
+The Channel MCP neither knows nor records upper-layer Task/application mapping.
 
 ## 5. Input safety
 
-Ordinary text must not be reinterpreted as:
+Ordinary text must not be reinterpreted by the MCP service as:
 
-- shell syntax in the MCP service;
+- shell syntax;
 - tmux command syntax;
 - tmux key names;
-- format-string control language.
+- format-string control language;
+- an alternate path for the explicit ESC/interrupt controls.
 
 Control actions use a separate closed enum.
+
+The text API is still terminal input authority: caller-supplied LF and printable content may have application-level effects. Those effects belong to the foreground application and upper-layer control policy, not Channel semantics.
 
 ## 6. Output safety
 
@@ -162,16 +172,19 @@ All operations have finite bounds.
 
 - inventory has bounded result size;
 - reads have max lines/bytes;
+- writes have a finite UTF-8 byte maximum;
 - backend commands have timeouts;
 - no call waits indefinitely for application-level state.
 
-## 8. Idempotency
+## 8. Idempotency and ambiguous mutation
 
 - list/get/read/health are read-only;
 - `write_text` is not idempotent;
 - `send_control` is not idempotent.
 
-Clients must not blindly retry mutation calls after an ambiguous timeout without considering duplicate input risk.
+If a timeout occurs after the backend may have received input, the result can be mechanically ambiguous. The core MCP must not silently retry a mutation or claim definitive non-delivery unless it can prove it.
+
+Retry/recovery policy belongs to the upper layer.
 
 ## 9. Backend diagnostics
 
