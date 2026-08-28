@@ -14,182 +14,262 @@ Handoff profile: docs/tasks/handoffs/web-gpt.md
 Hard publication dependencies: MVP-002 Final Acceptance + live remote MCP compatibility/auth verification + explicit deployment topology
 ```
 
-> This Task is intentionally **draft**. Stable security/product Claims are planned now; current MCP transport/auth/client details must be re-verified immediately before Publication Gate.
+> This Task is intentionally **draft**. Stable use cases and security boundaries are planned now; current MCP transport/auth/client details must be re-verified immediately before Publication Gate.
+
+Planning method: `docs/tasks/planning-principles.md`.
 
 ## Goal
 
-Expose the accepted Channel MCP capabilities through a secure authenticated remote MCP ingress and prove real client compatibility, including read and write/control operations, without expanding Channel MCP into collaboration, host administration, endpoint lifecycle, or generic remote shell functionality.
+Allow an authorized remote MCP client to use the accepted Channel capabilities across a network boundary while keeping remote transport/authentication separate from Channel communication logic and keeping infrastructure provisioning outside the product.
+
+## Primary Use Cases
+
+### UC1 — Authorized remote Channel access
+
+```text
+Actor: supported remote MCP client
+Trigger: client connects to the published Channel MCP endpoint
+Preconditions: secure reachable topology exists; valid authorization is available
+Main flow: authenticate/authorize → MCP request → unchanged Channel operation → structured result
+Success: authorized client can use accepted read/write/control capabilities remotely
+Failure: invalid/missing auth is rejected before Channel authority is exercised
+Degradation: ingress may be unavailable while local Channel/backend logic remains independently valid
+Evidence: automated auth/transport tests + real remote client invocation
+```
+
+### UC2 — Reject unauthorized terminal authority
+
+```text
+Actor: unauthenticated/unauthorized caller
+Trigger: caller attempts tool discovery/invocation
+Main flow: ingress/auth boundary rejects request
+Success: caller cannot discover/read/write/control protected Channels
+Failure: any unauthorized terminal access succeeds
+Evidence: negative remote/auth tests
+```
+
+### UC3 — Prove client compatibility without distorting product semantics
+
+```text
+Actor: Coordinator / integration verifier
+Trigger: accepted Channel tools are exposed through chosen remote transport
+Success: intended client can invoke required read and write/control tools as designed
+Failure: implementation bug breaks otherwise-supported client path
+Degradation/BLOCKED: client/platform lacks required write capability; product contract is not weakened to compensate
+Evidence: dated live-client compatibility record tied to Candidate/deployment
+```
+
+These use cases are one Task because they define one coherent **remote trust/transport boundary** around the already-accepted Channel service.
+
+## Separation Points
+
+### Remote ingress/auth | Channel application logic
+
+```text
+Ingress/auth owns:
+- network protocol/session handling
+- authentication/authorization
+- request bounds/timeouts
+- transport-specific protections
+
+Channel logic owns:
+- channel discovery/read/write/control semantics
+- channel scope/identity/errors
+```
+
+Remote transport must wrap, not rewrite, Channel semantics.
+
+### Deployment provisioning | MCP product
+
+DNS, tunnel/account setup, host bootstrap and other environment provisioning are prerequisites/operator concerns. The product may document/configure the selected topology but must not expose them as Channel tools.
+
+### Client compatibility | product contract
+
+Compatibility testing proves whether the intended client can use the frozen contract. A client limitation does not authorize adding Task/Worker/lifecycle semantics or weakening security.
+
+### Ingress failure | backend/channel failure
+
+Transport/auth failures must remain distinguishable from Channel/backend failures. Neither class of failure implies endpoint lifecycle action.
+
+### Authentication | authorization
+
+Identity/credential validity and permission to use protected Channel operations are explicit trust-boundary responsibilities; UI confirmation is not authority.
+
+## Single Responsibilities
+
+```text
+Remote MCP ingress = protocol/session/request transport
+Auth boundary = authenticate/authorize protected terminal access
+Channel Service = unchanged Channel operation semantics
+TmuxBackend = local tmux communication mechanics
+Deployment/operator layer = provision reachable secure infrastructure
+Client compatibility check = prove real integration, not redefine product
+GitHub Actions = automated verification Evidence
+```
+
+## Logic / Control Separation
+
+Product logic owns:
+
+- how a protected remote request reaches the same Channel operation;
+- auth enforcement at the trust boundary;
+- bounded request/response behavior;
+- structured ingress/auth errors.
+
+External control/orchestration owns:
+
+- provisioning tunnel/domain/network environment;
+- credential issuance/rotation policy unless explicitly delegated to selected auth layer;
+- selecting which deployment to operate;
+- deciding what the remote terminal interaction means;
+- Task/workflow decisions.
+
+Remote ingress must not become host administration or workflow control.
+
+## Success / Failure / Degradation
+
+### Success
+Authorized intended client can remotely exercise the accepted Channel contract; unauthorized callers cannot.
+
+### Hard failure
+Unauthorized terminal access, credential leakage, transport bypass, Channel semantic drift, or insecure public exposure.
+
+### Safe degradation / BLOCKED
+
+- ingress unavailable → remote access unavailable; local Channel logic not reinterpreted;
+- backend unavailable → backend error through remote path;
+- intended client lacks required write capability → integration BLOCKED, not product weakening;
+- fast-changing SDK/auth requirement unresolved → keep Task draft/blocked until current evidence exists.
+
+## Required Capabilities
+
+```text
+UC1 → authenticated remote MCP transport + request bounds + unchanged Channel composition
+UC2 → enforceable authorization + negative-access behavior
+UC3 → real-client discovery/invocation verification + compatibility evidence
+```
+
+Concrete transport/provider mapping is intentionally deferred until the live Publication Gate.
 
 ## Canonical / Process Sources
 
 Before publication/execution read:
 
 - `AGENTS.md`
-- `docs/requirements.md`
-- `docs/channel-architecture.md`
-- `docs/channel-model.md`
-- `docs/mcp-contract.md`
-- `docs/security.md`
-- `docs/deployment.md`
-- `docs/technology-stack.md`
-- `docs/mvp-plan.md`
-- repository Task protocols under `docs/tasks/`
-- accepted MVP-001 and MVP-002 Candidates/Reviews
-- current official MCP SDK/transport/auth documentation
-- current intended remote client capability documentation/evidence
+- `docs/tasks/planning-principles.md`
+- all canonical Channel/security/deployment/technology docs;
+- repository Task protocols;
+- accepted MVP-001/002 Candidates/Reviews;
+- current authoritative MCP SDK/transport/auth docs;
+- current intended client capability evidence.
 
-## Publication dependency / live-compatibility gate
+## Publication Dependency / Live-Compatibility Gate
 
 Before `status:ready`, Coordinator must:
 
 1. confirm MVP-002 Final Acceptance;
-2. re-read accepted server/tool implementation surfaces;
-3. verify the current supported remote MCP transport and authorization model from authoritative sources;
-4. verify the intended client can discover/invoke the required read and write tools;
-5. select the concrete deployment topology and credential boundary;
-6. update this draft if SDK/transport/auth/client realities differ from current assumptions.
+2. re-read accepted server/tool surfaces;
+3. verify current supported remote MCP transport/auth requirements;
+4. verify intended client read/write capability;
+5. select concrete deployment topology and credential boundary;
+6. update implementation-specific requirements from live evidence.
 
-Do not freeze provider-specific tunnel commands, plan/workspace capability assumptions, or obsolete protocol details before this gate.
+Do not freeze provider-specific commands or stale plan/workspace assumptions in advance.
 
 ## In Scope
 
-1. Add the current supported remote MCP server transport around the accepted Channel service/tool layer.
-2. Add server-side authentication/authorization appropriate to the selected topology.
-3. Enforce request/body/operation bounds and finite timeouts.
-4. Enforce active transport requirements such as Host/Origin/session/auth handling as required by the current SDK/spec/topology.
-5. Preserve the same Channel semantics and backend visibility policy used locally.
-6. Provide deployment configuration/documentation for the selected secure topology.
-7. Prove unauthenticated/unauthorized callers cannot read or write exposed terminal Channels.
-8. Prove an authorized real remote client can discover and invoke `list_channels`, `get_channel`, `read_channel`, `write_text`, `send_control`, and `health` as applicable.
-9. Add automated transport/auth tests and CI where possible, plus durable real-client integration evidence for claims that Actions cannot establish.
-10. Ensure logs/errors do not expose bearer credentials or full terminal payloads by default.
+- supported remote MCP transport around accepted Channel service;
+- enforceable authentication/authorization;
+- request/session/timeout bounds required by chosen current transport;
+- same Channel identity/scope/semantics remotely;
+- secure deployment configuration/docs;
+- automated auth/transport tests;
+- real remote read/write client compatibility evidence;
+- safe logging/error behavior.
 
 ## Out of Scope
 
 - Worker/Task/Issue/scheduler semantics;
-- tmux session/pane lifecycle;
-- process/Codex startup or restart;
-- worktree management;
-- generic shell or raw tmux command tools;
-- provisioning a full host operating system;
-- automatic DNS/account/domain purchasing;
-- remote SSH Runtime Backend / multi-host terminal routing;
-- changing Channel tool semantics merely to match a client limitation;
-- treating UI confirmation as server authorization.
+- endpoint/process/worktree lifecycle;
+- raw shell/tmux command API;
+- host administration;
+- DNS/account purchasing automation;
+- SSH multi-host backend;
+- weakening Channel tools to fit a client limitation;
+- UI confirmation as authorization.
 
 ## Architecture Invariants
 
-1. Remote ingress wraps the Channel MCP; it does not become a second product domain.
-2. Authentication/authorization is enforced server-side or by an explicitly trusted ingress boundary.
-3. ChannelBackend/TmuxBackend semantics remain independent from remote transport.
-4. Remote access does not add Worker/Task/lifecycle knowledge.
-5. Unauthenticated public terminal read/write/control is forbidden.
-6. Credentials are not accepted in URL query strings or logged in clear text.
-7. Existing Channel visibility scope remains enforced remotely.
-8. Remote request failure never creates/restarts/destroys an endpoint.
-9. Client capability gaps produce BLOCKED/compatibility evidence, not product-scope expansion.
-10. Normal operation requires no root.
+1. ingress/auth wraps Channel logic rather than absorbing it;
+2. unauthenticated public terminal authority is forbidden;
+3. ChannelBackend/TmuxBackend stay transport-independent;
+4. Channel visibility scope remains enforced remotely;
+5. credentials are not query-string/log payloads;
+6. remote failure has no lifecycle side effect;
+7. client limitation may block integration but not expand/warp product scope;
+8. no root required for normal operation.
+
+## Implementation Requirements
+
+Only after the live compatibility gate, choose the minimum current supported implementation satisfying UC1–UC3 and the separation boundaries.
+
+Do not bake obsolete protocol/provider assumptions into this draft.
 
 ## Verification Claims
 
-### C1 — Authenticated boundary
-Protected remote MCP operations require valid authorization according to the selected topology.
-
-### C2 — Unauthorized rejection
-Missing/invalid credentials cannot discover, read, write or control Channels.
-
-### C3 — Remote read compatibility
-An authorized intended remote client can discover and invoke the accepted read/health tool surface.
-
-### C4 — Remote write compatibility
-An authorized intended remote client can invoke accepted `write_text` / `send_control` operations with actual write capability.
-
-### C5 — Channel semantic preservation
-Remote transport does not alter channel identity, visibility, bounded-read, text/control separation or lifecycle boundaries.
-
-### C6 — Transport safety
-Request bounds/timeouts and required current transport/session/Host/Origin protections are covered by tests or trusted gateway/SDK evidence.
-
-### C7 — Secret/log safety
-Auth credentials and full terminal payloads are not emitted by default logs/errors.
-
-### C8 — Failure separation
-Ingress/auth failures are distinguishable from backend/channel failures and do not mutate terminal lifecycle.
-
-### C9 — Current compatibility evidence
-Execution Report records the actual SDK/spec/client environment and date used to validate compatibility rather than relying on stale planning assumptions.
-
-### C10 — Product boundary
-No host-admin, Worker/Task, endpoint-lifecycle, raw shell/tmux capability is introduced.
+- C1 protected remote operations require valid authorization;
+- C2 invalid/missing authorization cannot access Channels;
+- C3 authorized intended client can invoke accepted read/health tools;
+- C4 authorized intended client can invoke accepted write/control tools when required by frozen Goal;
+- C5 Channel semantics/scope remain unchanged across transport;
+- C6 current transport bounds/protections are satisfied;
+- C7 credentials/full terminal payloads are absent from default logs/errors;
+- C8 ingress/auth and backend/channel failures remain distinct with no lifecycle mutation;
+- C9 Execution Report records current SDK/spec/client environment/date;
+- C10 no host-admin/Worker/Task/lifecycle/raw-command scope is introduced.
 
 ## Verification Plan
 
-### J1 — Automated transport/auth tests
-GitHub Actions should cover protected endpoint behavior, malformed/oversized requests, timeout handling, auth rejection, safe logging and regression of local Channel semantics.
+### J1 Automated
+Actions covers auth rejection, malformed/oversized requests, timeouts, safe logging and regression of Channel semantics.
 
-### J2 — Remote integration
-Required against the selected deployed topology. Prove authorized discovery/read and, when current client support permits the frozen Goal, `write_text`/`send_control` invocation.
+### J2 Real remote integration
+Use the selected deployed topology and intended client to prove required authorized read/write/control invocation.
 
-### J3 — Negative security checks
-Prove unauthenticated/invalid-auth requests cannot access Channel tools and do not receive secret-bearing diagnostics.
+### J3 Negative security
+Invalid/no auth cannot discover or invoke protected Channel tools.
 
-### J4 — Exact Candidate / config identity
-Evidence must identify Candidate SHA, deployment configuration revision, relevant SDK/runtime versions and real-client compatibility environment/date.
+### J4 Identity
+Evidence identifies Candidate SHA, deployment configuration revision, relevant versions and real-client environment/date.
 
 ## Security Review
 
-Security-sensitive: **yes — highest MVP security gate**.
+Security-sensitive: **yes — highest MVP trust-boundary gate**.
 
-Primary risks:
-
-- unauthenticated terminal authority;
-- token/auth validation mistakes;
-- proxy/Host/Origin trust mistakes;
-- credential leakage;
-- denial-of-service via unbounded requests;
-- confusing remote transport errors with Channel/backend state;
-- weakening tool semantics to accommodate a client.
+Primary separation to protect: network caller authority must stop at the auth boundary unless explicitly authorized for Channel operations.
 
 ## Success Criteria
 
-Reviewer may ACCEPT only when:
+ACCEPT only when C1–C10 are supported by exact Candidate/deployment/live-client Evidence, required automated tests pass, and the remote boundary remains a transport/auth layer rather than a workflow/host-management layer.
 
-1. MVP-002 accepted Channel tools are exposed through the selected supported remote MCP transport.
-2. Protected operations require valid server-side/trusted-ingress authorization.
-3. Unauthorized callers cannot read/write/control Channels.
-4. Authorized real remote read tool invocation is proven.
-5. Authorized real remote write/control invocation is proven when required by the frozen Goal; otherwise Task is BLOCKED rather than declared complete.
-6. request bounds/timeouts and current transport protection requirements are satisfied.
-7. Channel scope/product boundaries remain unchanged.
-8. credentials/full terminal payloads are absent from default logs/errors.
-9. required automated CI passes on exact Candidate.
-10. real compatibility Evidence records actual environment/date/versions.
-11. deployment docs explain the selected secure topology without making infrastructure provisioning a Channel MCP tool.
-12. `[EXECUTION REPORT]` includes C1–C10 results and exact Evidence.
+If required real write capability is unavailable in the chosen current client environment, mark BLOCKED rather than claiming the remote-control goal complete.
 
 ## Failure / Blocked Rules
 
-### FAIL
-Examples: unauthenticated access succeeds; write tools bypass auth; logs expose credentials; transport changes Channel semantics; required tests fail due implementation.
+BLOCKED while MVP-002 is unaccepted, current transport/auth/client path is unresolved, required write capability is unavailable, or external secure-topology prerequisites prevent valid evidence.
 
-### BLOCKED
-Examples: MVP-002 not accepted; current intended client lacks required write capability; no supported secure remote transport/topology can be established; external auth/tunnel prerequisite unavailable; required real-client evidence cannot be produced.
-
-### Resume condition
-Accepted MVP-002 plus a current verified remote MCP/auth/client path capable of exercising the frozen Goal.
+Resume when current authoritative remote MCP/auth/client path is known and can exercise the frozen Goal.
 
 ## Completion Protocol
 
 When eventually published:
 
 ```text
-Coordinator publishes to env:web-gpt
-→ separate GPT Web Worker claims one Attempt
-→ implementation + CI + real remote compatibility Evidence
-→ [EXECUTION REPORT] | [BLOCKER REPORT]
-→ review/blocked + owner:none
-→ STOP
-→ original GPT Web Coordinator reviews
+Coordinator → ready/env:web-gpt
+→ separate Web GPT Worker claim
+→ implementation + Actions + real-client Evidence
+→ report → review/blocked + owner:none → STOP
+→ original Coordinator Review
 ```
 
 Do not start MVP-004 from this Task.
