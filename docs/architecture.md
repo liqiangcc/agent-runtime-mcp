@@ -2,7 +2,7 @@
 
 ## 1. System context
 
-`agent-runtime-mcp` separates durable project coordination from interactive Worker execution.
+`agent-runtime-mcp` separates durable project coordination from interactive Worker execution, and separates remote MCP ingress from the concrete runtime backend.
 
 ```text
                     Human
@@ -11,14 +11,18 @@
                   GPT Web
                  Coordinator
                       │
-          ┌───────────┴───────────┐
-          │                       │
-      GitHub MCP          agent-runtime-mcp
-          │                       │
-          ▼                       ▼
-     GitHub Issues           Runtime Service
+          ┌───────────┴────────────┐
+          │                        │
+      GitHub MCP          Remote MCP connection
+          │                        │
+          ▼                        ▼
+     GitHub Issues        Secure ingress / tunnel
    task.md / prompt.md             │
      PR / CI / logs                ▼
+                           agent-runtime-mcp
+                           Runtime Service
+                                  │
+                                  ▼
                            RuntimeBackend
                                   │
                                   ▼
@@ -30,6 +34,8 @@
                                   ▼
                            Codex processes
 ```
+
+The first deployment keeps `agent-runtime-mcp`, tmux and Codex Workers on the same trusted runtime host. GPT Web reaches that service remotely through a supported authenticated MCP path.
 
 ## 2. Plane separation
 
@@ -48,9 +54,24 @@ Responsibilities:
 - review decisions;
 - final acceptance and closure.
 
+### MCP Ingress Plane
+
+Connects GPT Web to the Runtime Service.
+
+Responsibilities:
+
+- supported remote MCP transport;
+- authentication/authorization;
+- endpoint exposure/tunnel policy;
+- protocol compatibility;
+- request bounds/timeouts;
+- transport-level security.
+
+Ingress lifetime is not Worker lifetime.
+
 ### Execution Plane
 
-Owned by `agent-runtime-mcp` and its backends.
+Owned by `agent-runtime-mcp` and its Runtime Backends.
 
 Responsibilities:
 
@@ -87,24 +108,41 @@ If runtime state cannot be determined, return `unknown`/structured errors. Do no
 
 ### A6 — Persistence without hidden ownership
 
-The MCP process may restart while tmux Workers continue. Managed Worker identity must be reconcilable after restart, and native tmux remains an operator escape hatch.
+The MCP request/client may disconnect and the MCP process may restart while tmux Workers continue. Managed Worker identity must be reconcilable after restart, and native tmux remains an operator escape hatch.
 
 ### A7 — No implicit destructive action
 
 Observation/input failures never destroy or restart a Worker automatically unless an explicit future policy layer requests it.
 
+### A8 — Authenticated remote ingress
+
+Because GPT Web connects remotely, remote MCP ingress is part of MVP. Do not expose shell-equivalent control through an unauthenticated public endpoint.
+
+### A9 — Remote ingress != remote backend
+
+The MVP may have:
+
+```text
+GPT Web remotely reaches MCP server
++
+MCP server locally controls tmux on the same host
+```
+
+without implementing SSH/multi-host Runtime Backends.
+
 ## 4. Internal layering
 
 ```text
+Remote MCP Transport Adapter
+    │
+    ▼
 MCP Adapter
     │
     ▼
 Runtime Application Service
     │
     ├── Worker Registry
-    │
     ├── Policy / Validation
-    │
     └── RuntimeBackend interface
               │
               ▼
@@ -117,9 +155,16 @@ Runtime Application Service
              tmux
 ```
 
+### Remote MCP Transport Adapter
+
+- uses the current supported MCP HTTP transport/official SDK path;
+- authenticates protected remote calls;
+- validates transport-level request/security constraints;
+- does not contain tmux logic or Task scheduling logic.
+
 ### MCP Adapter
 
-- validates protocol-facing input shape;
+- validates protocol-facing tool input shape;
 - maps domain results/errors into MCP results;
 - contains no tmux command construction.
 
@@ -220,11 +265,14 @@ Exact semantics are defined in `runtime-model.md`.
 
 ## 8. Failure domains
 
-Separate failure domains so recovery is explicit:
+Keep failures separated so recovery is explicit:
 
 ```text
 GitHub unavailable
 → Task coordination impaired; existing Worker runtime may remain alive
+
+remote MCP ingress/auth unavailable
+→ GPT Web cannot control runtime; local tmux/Workers may remain alive
 
 MCP server unavailable/restarted
 → tmux Worker remains alive; registry reconciles after restart
@@ -239,7 +287,20 @@ Worker hangs
 → Coordinator may observe and explicitly interrupt/restart; no automatic Task acceptance/rejection
 ```
 
-## 9. Future backend expansion
+## 9. Deployment boundary
+
+Initial deployment:
+
+```text
+one authenticated remote MCP endpoint/tunnel
+→ one runtime host
+→ one configured tmux account/server boundary
+→ multiple managed Codex Workers
+```
+
+See `deployment.md` for transport/auth and compatibility gates.
+
+## 10. Future backend expansion
 
 The architecture must permit:
 
@@ -253,8 +314,8 @@ SystemdBackend    # possible service-managed runtime
 
 Adding a backend should primarily implement `RuntimeBackend`; it should not require redefining Issue collaboration semantics or public Task concepts.
 
-## 10. Dogfooding boundary
+## 11. Dogfooding boundary
 
-Before the runtime is stable, implementation Tasks may be executed by Codex through existing means. After the MVP reaches create/observe/input/recovery capability, the project should execute at least one later Issue through its own tmux runtime.
+Before the runtime is stable, implementation Tasks may be executed by Codex through existing means. After the MVP reaches secure remote ingress plus create/observe/input/recovery capability, the project should execute at least one later Issue through its own tmux runtime from GPT Web.
 
-Dogfooding proves the Execution Plane. GitHub remains the Control Plane throughout.
+Dogfooding proves the remote ingress + Execution Plane. GitHub remains the Control Plane throughout.
