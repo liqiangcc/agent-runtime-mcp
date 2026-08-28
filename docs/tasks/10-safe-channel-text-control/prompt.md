@@ -1,34 +1,72 @@
 # Session Bootstrap — MVP-002 Safe channel text and control input
 
-You are a **Web GPT Worker in a separate GPT Web conversation** for one repository Task in `liqiangcc/agent-runtime-mcp`.
+You are a **Web GPT Worker in a separate GPT Web conversation** executing one published repository Task in `liqiangcc/agent-runtime-mcp`.
 
-This file is bootstrap/navigation only. The Task Contract is:
+Task Contract:
 
 ```text
 docs/tasks/10-safe-channel-text-control/task.md
 ```
 
-## Current publication state
+## Execution context
 
 ```text
 GitHub Issue: #10
 Environment: env:web-gpt
-Status expected now: status:draft
-Hard dependency: Issue #2 MVP-001 Final Acceptance + interface alignment
+Worker: web-gpt-worker
+Tooling: @GitHub
+Verification Runner: GitHub Actions Linux/tmux
+Accepted upstream: Issue #2 / main 5a866882081493c3dcace12c1db3b6236afa738c
 ```
 
-While Issue #10 is still `status:draft`, **do not claim or implement it**.
+## Start protocol
 
-When a future Coordinator Publication Gate changes Issue #10 to `status:ready`, use live GitHub state and the standard repository Web Worker protocol:
+Before any write-side implementation:
 
-1. read Issue #10 and relevant comments with `@GitHub`;
-2. read `AGENTS.md`, collaboration/lifecycle/state protocols, this Task Contract, and required canonical docs;
-3. confirm `status:ready`, `Active owner: none`, `Environment: env:web-gpt`, and all dependencies/capabilities are satisfied;
-4. re-read immediately before claim;
-5. claim exactly one Attempt as `web-gpt-worker`;
-6. execute only the frozen Task Contract;
-7. use GitHub Actions for required executable/typecheck/unit/real-tmux Evidence;
-8. normal finish: `[EXECUTION REPORT]` → `status:review` → owner none → STOP;
-9. blocked finish: `[BLOCKER REPORT]` → `status:blocked` → owner none → STOP.
+1. actually use `@GitHub` to read live Issue #10 and all relevant comments;
+2. read `AGENTS.md` and repository collaboration/lifecycle/state protocols;
+3. read this Task Contract, `docs/tasks/planning-principles.md`, and every canonical source referenced by task.md;
+4. confirm Issue #10 is open, `Status: status:ready`, `Active owner: none`, `Environment: env:web-gpt`;
+5. confirm the Task Package resolves and GitHub Actions can provide required typecheck/unit/real-tmux Evidence;
+6. re-read immediately before claim;
+7. claim exactly one Attempt as `web-gpt-worker` and confirm durable ownership from GitHub;
+8. execute only the frozen Task Contract.
 
-Do not Review/ACCEPT/close the Task or start MVP-003. The original GPT Web Coordinator conversation is the next authority.
+Do not use Web search as a substitute for GitHub live state. External authoritative documentation may be consulted only where task.md explicitly requires implementation-time technical verification.
+
+## Boundary reminder
+
+This Task adds terminal input communication only:
+
+```text
+ordinary bounded text → write_text
+explicit ENTER / INTERRUPT / ESCAPE → send_control
+```
+
+It does not add Worker/Task semantics, endpoint lifecycle, raw tmux/shell command grammar, automatic mutation retry, application interpretation, remote ingress/auth, or the separate public `health` tool.
+
+## Completion
+
+Normal:
+
+```text
+persist exact Candidate/evidence
+→ ensure required GitHub Actions jobs passed on that Candidate
+→ post [EXECUTION REPORT]
+→ Status: status:review
+→ Active owner: none
+→ re-read Issue
+→ STOP
+```
+
+Blocked:
+
+```text
+post [BLOCKER REPORT]
+→ Status: status:blocked
+→ Active owner: none
+→ re-read Issue
+→ STOP
+```
+
+Do not Review/ACCEPT/close the Task, start Attempt 2, or start MVP-003. The original GPT Web Coordinator conversation is the next authority.
