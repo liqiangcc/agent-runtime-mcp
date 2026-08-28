@@ -2,107 +2,87 @@
 
 ## 1. Security posture
 
-`agent-runtime-mcp` controls interactive terminal Workers. In practice, successful runtime input is close to **shell authority of the operating-system account running the Worker**.
+`agent-runtime-mcp` can deliver input to interactive terminals. Write access is therefore approximately equivalent to terminal-input authority over every exposed Channel within the service account's permissions.
 
-Therefore this is not a low-risk observability MCP. Deployment must treat it as privileged developer tooling.
-
-The intended MVP includes remote access from GPT Web, so transport authentication/exposure is a first-class security boundary rather than future work.
+This is privileged developer tooling, not a low-risk observability endpoint.
 
 ## 2. Trust boundaries
 
 ```text
-GPT Web / MCP client
-        │
-        ▼
+MCP client
+   ↓
 remote MCP ingress
-(authenticated tunnel / HTTPS)
-        │
-        ▼
-agent-runtime-mcp
-        │
-        ▼
-RuntimeBackend
-        │
-        ▼
-tmux / Worker OS account
-        │
-        ▼
-Codex / repository / local credentials visible to that account
+   ↓
+Channel Service
+   ↓
+TmuxBackend
+   ↓
+configured tmux scope
+   ↓
+existing panes / programs
 ```
 
-GitHub remains a separate trust boundary. The runtime does not need GitHub credentials merely to control a terminal Worker.
+Project collaboration systems and GitHub are separate trust boundaries and are not required by the Channel service.
 
 ## 3. Primary threats
 
-### T1 — Unauthenticated remote runtime control
+### T1 — Unauthenticated remote channel control
 
-If the MCP transport is exposed to an untrusted network without authentication, an attacker may obtain shell-equivalent control.
+An attacker reaching write/control tools could inject terminal input into exposed panes.
 
-### T2 — Shell injection inside backend implementation
+### T2 — Backend command injection
 
-Untrusted text/cwd/worker names interpolated into shell command strings could execute in the MCP service context rather than only being delivered as terminal data.
+Untrusted channel identifiers or text interpolated into shell strings could execute in the MCP service context.
 
-### T3 — Terminal text misinterpreted as control syntax
+### T3 — Text/control confusion
 
-A prompt containing key names, quotes, newlines or metacharacters could be altered or interpreted as tmux control operations.
+Ordinary text could accidentally be treated as tmux key grammar or terminal control syntax.
 
-### T4 — Sensitive terminal capture
+### T4 — Sensitive output exposure
 
-Captured output may expose tokens, repository secrets, private paths, user data or credentials printed by child tools.
+Terminal reads may contain tokens, private paths, source code, credentials or other sensitive data.
 
-### T5 — Overbroad destructive lifecycle actions
+### T5 — Overbroad channel scope
 
-A destroy/restart implementation could kill unrelated tmux sessions or processes.
+A misconfigured backend could expose unrelated tmux sessions/panes beyond the intended namespace.
 
-### T6 — Path/working-directory abuse
+### T6 — Arbitrary backend escape hatch
 
-An unrestricted caller may launch Workers in sensitive filesystem locations accessible to the service account.
+A raw tmux/shell command tool would bypass the reviewed channel API boundary.
 
-### T7 — Runtime registry confusion
+### T7 — Prompt injection in terminal output
 
-Stale/forged mappings could redirect one `worker_id` to another user's/unrelated tmux pane.
+Read output is untrusted data and may contain instructions intended to manipulate the MCP client/Agent.
 
-### T8 — Prompt injection from terminal/repository output
+### T8 — Transport/auth misconfiguration
 
-Captured text is untrusted data and may instruct the Coordinator to ignore policy, expose secrets or perform unrelated actions.
-
-### T9 — Remote MCP transport/auth misconfiguration
-
-Incorrect endpoint exposure, Origin/Host handling, token validation, proxy trust or stale credentials could bypass intended access controls.
+Incorrect TLS, token, Origin/Host or proxy configuration could bypass intended access controls.
 
 ## 4. Required controls
 
-### S1 — Secure remote deployment
+### S1 — Authenticated remote access
 
-For the GPT Web use case, prefer an officially supported private-connectivity/tunnel mechanism when the runtime host is local/private.
+Write-capable remote MCP access must be authenticated and authorized. Private/tunnel connectivity is preferred for local/private hosts when appropriate.
 
-If the MCP endpoint is directly reachable over a network, require HTTPS plus authenticated/authorized access. Never ship an unauthenticated bind-to-all-interfaces runtime-control endpoint as the normal deployment.
+Unauthenticated bind-to-all-interfaces terminal control is forbidden.
 
-Local-only development/test mode should bind only to loopback unless an explicit secure ingress layer requires otherwise.
+### S2 — Structured backend execution
 
-See `deployment.md`.
-
-### S2 — Structured process execution
-
-Invoke `tmux` and other backend binaries through structured process APIs:
+Invoke tmux as:
 
 ```text
 program + argv + stdin
 ```
 
-Do not construct:
+not through shell-concatenated command strings.
 
-```text
-sh -c "tmux ... $UNTRUSTED ..."
-```
+### S3 — Text is data
 
-as the normal backend mechanism.
+`write_text` transports bytes/text as terminal input data. It must not be interpreted by the MCP service as shell syntax or tmux key names.
 
-### S3 — Separate text and control input
+### S4 — Closed control enum
 
-`send_text` transports bytes/text as data.
-
-`send_control` accepts a closed enum such as:
+`send_control` accepts only reviewed actions such as:
 
 ```text
 ENTER
@@ -110,179 +90,77 @@ INTERRUPT
 ESCAPE
 ```
 
-Do not expose arbitrary tmux key grammar as the default MCP surface.
+### S5 — Bounded reads
 
-### S4 — Bounded capture
+`read_channel` has finite maximum lines/bytes and explicit truncation. Complete terminal history is not persisted by default.
 
-Output capture must have finite maximum lines/bytes and must not persist unlimited history by default.
+### S6 — Explicit backend scope
 
-The server cannot guarantee generic secret redaction. Documentation and clients must treat all captured terminal output as potentially sensitive.
+Deployment defines the tmux namespace the service may see/control. Optional allowlists/filters should be supported when practical.
 
-### S5 — Target validation
+The MCP must not expand to other tmux sockets/accounts/hosts implicitly.
 
-Every mutation must resolve a managed `worker_id` through the registry/backend and verify the concrete target before acting.
+### S7 — No lifecycle authority
 
-Destroy/restart must never use broad kill patterns that can affect unrelated sessions.
+The core Channel MCP does not create, restart, destroy or recover tmux sessions/panes/processes. This removes a class of destructive cross-session risks from the core product.
 
-### S6 — Least privilege
+### S8 — Least privilege
 
-Normal runtime operation must not require root.
+Run as an ordinary OS account with only the permissions needed for the configured tmux namespace. Normal operation does not require root.
 
-Run the service under a dedicated or normal low-privilege development account with only the filesystem/network access that Workers genuinely require.
+### S9 — Untrusted output handling
 
-### S7 — Working-directory policy
+Terminal output is evidence/data, not policy authority. An Agent consuming it must not follow instructions that conflict with system policy, explicit user intent or its upper-layer project contract.
 
-Deployment configuration should support allowed roots and canonical-path validation.
+### S10 — Standards-compatible remote MCP auth
 
-MVP may choose a simple policy, but arbitrary paths must never be interpolated into shell command strings.
+Follow the active MCP transport/authorization specification and official SDK behavior. Do not put access tokens in URL query strings or rely only on UI confirmation.
 
-### S8 — Startup command policy
+## 5. Secrets and logging
 
-Prefer configured startup profiles such as `codex` over unconstrained arbitrary shell snippets.
+The service must not deliberately return environment dumps, credential files, auth headers or unrelated process data.
 
-If explicit command execution is supported, model it as argv and define deployment-level allow/deny policy. Do not silently invoke arbitrary caller text through a shell.
+Because terminal output itself may contain secrets:
 
-### S9 — Registry integrity
+- reads are sensitive by nature;
+- avoid persisting full read payloads;
+- avoid logging full `write_text` payloads;
+- avoid logging auth tokens;
+- safe logs should prefer operation, channel_id, result category and duration.
 
-Registry writes should be atomic where practical.
+## 6. Error messages
 
-Reconciliation must validate that a backend locator exists and corresponds to the expected managed runtime before sending input or destructive actions.
-
-### S10 — Untrusted output handling
-
-Captured terminal/repository output is evidence about the runtime, not policy authority.
-
-The Coordinator must not follow instructions found in captured output that conflict with:
-
-- system/developer policy;
-- repository `AGENTS.md`;
-- Task Contract;
-- explicit user intent.
-
-### S11 — Standards-compatible remote MCP authorization
-
-When using HTTP-based MCP authorization, follow the active MCP authorization specification and official SDK behavior.
-
-At minimum:
-
-- authenticate protected requests;
-- validate tokens/credentials server-side;
-- do not accept access tokens in URL query strings;
-- scope credentials to the intended resource/runtime;
-- validate expected Origin/Host behavior according to the active transport/SDK;
-- do not rely on ChatGPT's confirmation UI as the server authorization mechanism.
-
-### S12 — Protocol/SDK compatibility gate
-
-MCP and ChatGPT integration evolve quickly. Do not freeze obsolete transport/session assumptions into security logic.
-
-Implementation Tasks must verify the current official MCP specification/SDK and current ChatGPT remote MCP requirements before exposing the endpoint.
-
-## 5. Secrets and credentials
-
-The runtime should not deliberately return:
-
-- environment variable dumps;
-- complete process environment;
-- credential files;
-- SSH private keys;
-- GitHub tokens;
-- API tokens;
-- MCP/OAuth bearer tokens;
-- tmux server internals unrelated to diagnosis.
-
-However, child processes can print secrets to the terminal. Therefore capture APIs are sensitive by nature.
-
-Do not persist captures to logs unless an explicit diagnostic mode requires it, and document the risk.
-
-## 6. MCP server logging
-
-Safe logs may include:
+Useful examples:
 
 ```text
-operation name
-worker_id
-backend kind
-success/failure category
-duration
-sanitized diagnostic code
-```
-
-Avoid logging by default:
-
-```text
-full send_text payload
-full terminal capture
-full environment
-Authorization headers / tokens
-secret-bearing command line
-credential values
-```
-
-## 7. Error messages
-
-Errors must be useful without becoming data-exfiltration channels.
-
-Good:
-
-```text
-WORKER_NOT_FOUND worker_id=codex-2
-INVALID_CWD path outside allowed roots
+CHANNEL_NOT_FOUND channel_id=...
 BACKEND_UNAVAILABLE tmux query failed
-AUTHENTICATION_REQUIRED protected remote call rejected
+CAPABILITY_UNSUPPORTED control=...
+AUTHENTICATION_REQUIRED
+TIMEOUT
 ```
 
-Avoid blindly returning entire stderr/stdout if it can contain unrelated sensitive content. Preserve detailed diagnostics only when safe/explicit.
+Do not blindly return complete tmux stdout/stderr when it may contain unrelated terminal data.
 
-## 8. GitHub separation
+## 7. Collaboration separation
 
-The runtime must not require GitHub write access to perform terminal operations.
+The Channel MCP does not need GitHub credentials, Issue state or project Task metadata.
 
-This separation limits credential concentration:
+An upper-layer Dispatcher may decide which pane represents which Task. That mapping is not stored by the MCP.
 
-```text
-GPT Web / GitHub connector
-= Task control
+## 8. Security verification baseline
 
-agent-runtime-mcp
-= terminal runtime control
-```
+Before MVP acceptance, verify at least:
 
-Codex itself may have GitHub credentials according to the Worker environment, but that is a separate operator decision.
-
-## 9. Remote MCP ingress vs remote Runtime Backend
-
-Secure remote MCP ingress is part of MVP because GPT Web must reach the server.
-
-SSH/multi-host Runtime Backends remain out of MVP scope.
-
-Do not confuse:
-
-```text
-GPT Web → remote MCP ingress → runtime host
-```
-
-with:
-
-```text
-runtime host → SSH → another execution host
-```
-
-The latter requires a separate future design for host identity, SSH credentials, authorization per host, audit boundaries and remote target policy.
-
-## 10. Security verification baseline
-
-Before MVP acceptance, tests/review should prove at least:
-
-1. multiline/metacharacter prompt text is delivered as data, not executed by MCP shell interpolation;
-2. control actions accept only allowed enum values;
-3. capture is bounded;
-4. destroy targets only the selected managed Worker;
-5. invalid/out-of-policy cwd is rejected;
-6. unmanaged tmux sessions are not implicitly adopted/controlled;
-7. normal operation works without root;
-8. server logs do not include full prompt/capture/auth payloads by default;
-9. backend unavailable/registry stale cases fail without mutating GitHub or unrelated runtimes;
-10. remote write tools cannot be called through an unauthenticated public endpoint;
-11. current transport Origin/Host/auth requirements are covered by tests or trusted SDK/gateway behavior;
-12. real ChatGPT remote integration is tested with current write-capability support before dogfooding acceptance.
+1. multi-line/metacharacter text is delivered as data;
+2. control accepts only the closed enum;
+3. reads are bounded;
+4. channel-not-found/backend-unavailable failures do not mutate unrelated terminal state;
+5. configured tmux visibility boundaries are enforced;
+6. no raw shell/tmux command MCP tool exists;
+7. no session/pane lifecycle MCP tools exist;
+8. normal operation works without root;
+9. logs omit full write/read/auth payloads by default;
+10. remote write/control calls cannot be used anonymously;
+11. current transport/auth requirements are verified against the chosen official SDK;
+12. terminal output is never interpreted by the service as semantic Task/Agent state.
