@@ -10,6 +10,7 @@ Product sequence:
 channel discovery
 → bounded read
 → safe text/control write
+→ public Channel health
 → secure remote ingress
 → upper-layer dogfooding
 ```
@@ -54,7 +55,7 @@ Channel MCP
 = secure terminal communication logic only
 
 remote ingress/auth
-= network trust/transport boundary around Channel logic
+= network trust/transport boundary around complete Channel logic
 
 TmuxBackend
 = backend-specific terminal mechanics only
@@ -113,22 +114,11 @@ Scope:
 - configurable tmux visibility scope;
 - tests + Linux tmux integration + CI.
 
-Explicitly not in scope:
-
-```text
-Worker registry
-create/restart/destroy
-external task references
-worktree/session creation
-Task semantics
-write/control input
-```
-
-MVP-001 is published to `env:web-gpt`; executable typecheck/unit/real-tmux verification is supplied by GitHub Actions.
+MVP-001 is accepted and integrated on main.
 
 ## 5. Phase 2 — Safe channel input
 
-Planned Task:
+Published Task:
 
 ```text
 [MVP-002] Safe channel text and control input
@@ -136,47 +126,107 @@ Planned Task:
 
 Primary use cases:
 
-- send ordinary text as literal terminal data;
+- send bounded ordinary text as literal terminal data;
 - send one explicit terminal control.
 
 Key separation points:
 
 ```text
-text data != terminal control
+ordinary text != terminal control
 Channel communication logic != retry/workflow/lifecycle control
 Channel semantics != tmux mechanics
 ```
 
-Planned public mapping:
+Public mapping:
 
 - `write_text`;
 - `send_control` with ENTER / INTERRUPT / ESCAPE.
 
-Planning rule:
+MVP-002 is currently the active executable capability Task. Remote ingress remains outside it.
 
-> MVP-002 is materialized as `status:draft` while MVP-001 executes. Before Publication Gate, re-read accepted MVP-001 ChannelBackend/channel-id/error/tool-registration surfaces and align the concrete Contract.
+## 6. Phase 2.5 — Public Channel health
 
-## 6. Phase 3 — Secure remote MCP ingress
+Planned Task:
+
+```text
+[MVP-002.5] Public Channel health surface
+Issue #14
+```
+
+Planning discovered this missing capability through responsibility analysis:
+
+- canonical Channel contract requires public `health`;
+- MVP-001 already implemented `ChannelBackend.health()` / `TmuxBackend.health()`;
+- MVP-002 correctly excludes public health because its responsibility is terminal input;
+- MVP-003 must consume a complete Channel surface rather than implement Channel health inside remote ingress.
+
+Primary use case:
+
+> A client can distinguish service/backend mechanical health from existence or semantic status of any particular terminal Channel.
+
+Key separation:
+
+```text
+backend/service health
+!= channel existence
+!= application/Agent status
+!= remote-ingress reachability
+!= recovery control
+```
+
+Issue #14 stays draft until the Coordinator chooses a conflict-safe publication/integration sequence relative to MVP-002.
+
+## 7. Phase 3 — Secure remote MCP ingress
 
 Planned Task:
 
 ```text
 [MVP-003] Secure remote MCP ingress and client compatibility
+Issue #11
 ```
 
-Primary use case: an authorized remote client reaches the same accepted Channel logic through a network trust boundary.
+MVP-003 consumes the **complete already-accepted Channel surface**:
+
+```text
+list_channels
+get_channel
+read_channel
+write_text
+send_control
+health
+```
+
+It must not implement missing Channel capabilities merely because remote integration needs them.
+
+Primary use cases:
+
+- authorized remote Channel operation;
+- reject unauthorized terminal authority;
+- disconnect/reconnect without owning Channel/pane lifecycle;
+- preserve Channel visibility/scope remotely;
+- prove intended-client compatibility without distorting the contract.
 
 Key separation points:
 
 ```text
+network reachable != authenticated != authorized
 remote ingress/auth != Channel application logic
+MCP connection/session lifetime != Channel/tmux lifetime
 infrastructure provisioning != MCP product
 client compatibility evidence != product semantics
+ingress failure != Channel failure != backend failure
 ```
 
-Before publication, re-verify current authoritative remote MCP transport/auth/client write capability and choose the concrete secure topology. Fast-changing provider/client details are not frozen during early planning.
+Hard Publication dependencies:
 
-## 7. Phase 4 — Upper-layer dogfooding
+- MVP-002 Final Acceptance;
+- Issue #14 Final Acceptance;
+- current authoritative remote MCP transport/auth/client verification;
+- selected concrete secure topology and credential boundary.
+
+Fast-changing provider/client/SDK details are frozen only at Publication Gate.
+
+## 8. Phase 4 — Upper-layer dogfooding
 
 Planned Task:
 
@@ -200,7 +250,7 @@ A dogfooding scenario that requires Channel MCP to learn its Task/application se
 
 Before publication, select the concrete accepted deployment, remote client, externally prepared endpoint, upper-layer scenario, and separate transport Evidence from application/workflow Evidence.
 
-## 8. Deferred / separate products
+## 9. Deferred / separate products
 
 Not part of core MVP:
 
@@ -218,13 +268,15 @@ Not part of core MVP:
 
 If lifecycle automation is later useful, design it as a separate higher-level capability/module consuming the Channel layer rather than silently redefining the core.
 
-## 9. Task sizing
+## 10. Task sizing
 
 Implementation Tasks follow coherent use cases/capability slices, not upper-layer workflow primitives, source-file boundaries or individual tmux commands.
 
 Create a separate Task when responsibility, lifecycle, Success Criteria or Evidence authority is independently reviewable.
 
-## 10. Publication rule
+A Task may be small when the separation point is important. Issue #14 is deliberately small because public Channel health and remote ingress have different reasons to change.
+
+## 11. Publication rule
 
 Before an implementation Task becomes executable:
 
