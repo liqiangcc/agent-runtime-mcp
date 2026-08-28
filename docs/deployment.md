@@ -1,186 +1,129 @@
 # Deployment and Remote Access
 
-## 1. Why this is part of MVP
+## 1. Deployment goal
 
-The product goal is not only local tmux automation. The intended path is:
+Expose the Channel MCP securely to a remote MCP client while leaving terminal/session lifecycle outside the service.
 
 ```text
-GPT Web
-→ remote MCP connection
-→ agent-runtime-mcp on the runtime host
-→ tmux
-→ Codex Worker
+MCP client
+→ authenticated remote MCP ingress
+→ agent-runtime-mcp
+→ configured tmux scope
+→ existing panes
 ```
 
-Therefore **remote MCP ingress is an MVP requirement**.
+The service does not create the panes it exposes.
 
-This is different from a future `SshBackend`:
+## 2. Remote MCP requirement
+
+Remote access is part of MVP because the intended use includes GPT Web or another remote MCP client.
+
+The active implementation must use the currently supported remote MCP transport from the chosen official SDK rather than hand-rolled protocol framing.
+
+Private/local hosts should prefer a supported private-connectivity/tunnel mechanism where appropriate. Direct public exposure requires HTTPS plus explicit authentication/authorization.
+
+## 3. Write-capability gate
+
+The product is not complete as a remote control channel if the active client can only perform read operations.
+
+Before dogfooding, verify live support for:
 
 ```text
-remote MCP ingress
-= how GPT Web reaches agent-runtime-mcp
-
-RuntimeBackend
-= how agent-runtime-mcp controls the Worker runtime
+list_channels
+get_channel
+read_channel
+write_text
+send_control
+health
 ```
 
-MVP may run `agent-runtime-mcp` and tmux on the same host while still exposing the MCP server to GPT Web through a secure remote connection.
+If write/control actions are unavailable in the active client/workspace, record the integration as BLOCKED.
 
-## 2. ChatGPT integration constraint
-
-Current OpenAI product documentation states that ChatGPT connects to **remote MCP servers**, not directly to an arbitrary local stdio MCP server.
-
-For an MCP server running on a private network, on-premises machine or developer machine, OpenAI documents a **Secure MCP Tunnel** option so the server can be connected without directly exposing it to the public internet.
-
-Current product support for write/modify MCP actions is also plan/workspace dependent and can change. Since this project needs actions such as `send_text`, `send_control`, `restart_worker` and `destroy_worker`, deployment must include a **ChatGPT write-capability compatibility gate** before dogfooding.
-
-A read-only ChatGPT MCP integration can validate `list_workers`/`get_worker`/`capture_output`, but it cannot satisfy the core remote-control goal.
-
-## 3. Preferred deployment topology
-
-Initial preferred topology:
+## 4. Initial topology
 
 ```text
-ChatGPT Web
-     │
-     │ authenticated MCP connection
-     ▼
-Secure ingress / tunnel
-     │
-     ▼
+remote MCP client
+      │
+secure ingress
+      │
 agent-runtime-mcp
-(runtime host)
-     │
-     ▼
-tmux server
-     │
-     ▼
-Codex Workers
+      │
+configured tmux socket/server/account
+      │
+existing panes
 ```
 
-The Runtime MCP service and tmux should initially run on the same trusted host/account boundary. Remote multi-host execution is deferred.
-
-## 4. Transport
-
-The remote server should target the current standard MCP HTTP transport supported by the chosen official SDK and ChatGPT integration.
-
-As of the 2026-07-28 MCP specification generation, the protocol has a stateless HTTP-oriented core and current SDKs provide Streamable HTTP support/compatibility paths.
-
-Implementation must not hand-roll protocol framing when an official/current MCP SDK can provide transport compatibility.
-
-The transport layer is separate from Runtime state:
-
-```text
-MCP request lifetime
-!= Worker lifetime
-```
-
-A Codex/tmux Worker remains persistent after the web request/client connection ends.
+The MCP service and tmux initially run under the same intended low-privilege account boundary.
 
 ## 5. Authentication and authorization
 
-Remote runtime control is shell-equivalent authority and therefore requires authenticated ingress.
+Terminal write/control is privileged. Protected calls require server-side authentication/authorization.
 
-Preferred order:
+Do not:
 
-1. Secure MCP Tunnel or another officially supported private-connectivity mechanism when available and appropriate.
-2. Otherwise, HTTPS remote MCP endpoint with standards-compatible authentication/authorization.
-3. Never expose an unauthenticated runtime-control endpoint directly to the public internet.
+- expose unauthenticated write tools publicly;
+- place access tokens in URL query strings;
+- rely only on client UI confirmation;
+- trust arbitrary proxy headers without reviewed configuration.
 
-When HTTP MCP authorization is implemented, follow the current MCP authorization specification and official SDK behavior rather than inventing custom bearer-token query parameters or ad-hoc auth semantics.
+Follow the active MCP authorization specification and official SDK behavior.
 
-Deployment must scope access to the intended user/workspace/runtime. UI confirmation in ChatGPT is defense-in-depth, not the server's authorization boundary.
+## 6. HTTP security
 
-## 6. HTTP security requirements
+For network-exposed deployments:
 
-For any directly hosted HTTP MCP endpoint:
+- TLS/HTTPS outside a trusted private tunnel boundary;
+- authenticate protected requests;
+- validate token/resource scope;
+- apply finite request/body bounds;
+- apply timeouts;
+- follow current Origin/Host guidance from the active transport/SDK;
+- expose only the Channel MCP endpoint, not unrelated host services.
 
-- TLS/HTTPS outside a strictly local tunnel boundary;
-- validate expected Origin/Host behavior according to the active MCP transport specification/SDK;
-- authenticate every protected request;
-- reject invalid/expired credentials;
-- do not put access tokens in URL query strings;
-- apply finite request/body/tool input bounds;
-- apply server-side timeouts;
-- avoid exposing unrelated host services through the MCP process;
-- rate-limit/restrict destructive actions when appropriate.
+## 7. Tmux visibility configuration
 
-## 7. Deployment modes
-
-### Mode A — Secure tunnel to private runtime host (preferred for early dogfooding)
+Deployment explicitly selects the terminal namespace available to the MCP, such as:
 
 ```text
-ChatGPT
-→ supported secure MCP tunnel
-→ localhost/private agent-runtime-mcp
-→ local tmux
+one tmux socket/server
+one OS account
+optional allowed session-name pattern/list
 ```
 
-Benefits:
+This configuration is the primary authority boundary for what panes can be listed/read/written.
 
-- avoids public direct exposure of a shell-equivalent service;
-- preserves local tmux/operator access;
-- simpler initial trust boundary.
+The service does not keep a Worker registry or Issue mapping.
 
-Exact tunnel installation/configuration is operational integration work and must be verified against current OpenAI documentation at implementation time.
+## 8. External lifecycle preparation
 
-### Mode B — Authenticated public HTTPS endpoint
+A human or upper-layer automation prepares terminals before use, for example:
 
 ```text
-ChatGPT
-→ HTTPS reverse proxy / gateway
-→ authenticated MCP endpoint
-→ agent-runtime-mcp
-→ local tmux
+create workspace
+→ create tmux session/pane
+→ start desired interactive program
+→ Channel MCP discovers it
 ```
 
-Requires explicit design/review for:
+Installation of tmux, starting Codex, creating worktrees, session restart and cleanup are deployment/orchestration responsibilities outside the core MCP.
 
-- identity provider / OAuth integration;
-- token audience/scopes;
-- proxy trust headers;
-- TLS lifecycle;
-- rate limiting;
-- audit logging;
-- public attack surface.
-
-Do not use this mode merely because binding `0.0.0.0` is easier.
-
-## 8. Initial host model
-
-MVP:
+## 9. Lifetime semantics
 
 ```text
-one runtime host
-one configured tmux server/account boundary
-multiple managed Codex Workers
+MCP request lifetime
+!= tmux pane lifetime
 ```
 
-The MCP service should run without root and only inherit the permissions intentionally granted to the Worker account.
+A pane may continue running after clients disconnect. The MCP later rediscovers whatever panes currently exist in configured scope.
 
-A future multi-host model can add host identity and backend routing separately.
+No persistent logical Worker identity is promised across pane destruction/recreation.
 
-## 9. Compatibility Gate
+## 10. Compatibility checks
 
-Before publishing the dogfooding Task, verify live current integration capabilities:
+Because MCP/ChatGPT integration evolves, implementation and deployment Tasks must verify current official documentation for:
 
-```text
-ChatGPT Web can register/connect the MCP endpoint
-+ required tool actions are visible
-+ write/modify tool calls are enabled for the active workspace/account
-+ authentication remains valid across normal use
-+ list/get/capture work remotely
-+ send_text/send_control can be invoked remotely
-```
-
-If write actions are unavailable in the active ChatGPT environment, mark remote-control dogfooding `BLOCKED`; do not weaken the product goal to read-only and call the MVP complete.
-
-## 10. References to re-check at implementation time
-
-Because ChatGPT/MCP integration is evolving quickly, implementation Tasks must verify the live official documentation rather than freezing product-plan assumptions in code.
-
-Relevant authorities:
-
-- OpenAI Help Center: ChatGPT developer mode / MCP apps / remote MCP / Secure MCP Tunnel.
-- Model Context Protocol current specification: transport and authorization.
-- Official MCP SDK documentation for the selected implementation language/version.
+- supported remote transport;
+- authentication/authorization requirements;
+- write/modify tool support;
+- tunnel/private-connectivity options where applicable;
+- current SDK behavior.
