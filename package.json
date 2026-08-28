@@ -12,7 +12,8 @@
     "test": "npm run build --silent && node --test dist/tests/unit/*.test.js",
     "test:integration": "npm run build --silent && node --test dist/tests/integration/*.test.js",
     "test:discovery": "npm run build --silent && node --test dist/tests/discovery/*.test.js",
-    "test:all": "npm run typecheck && npm run test && npm run test:integration && npm run test:discovery",
+    "test:dogfood": "npm run build --silent && node --test dist/tests/dogfood/*.test.js",
+    "test:all": "npm run typecheck && npm run test && npm run test:integration && npm run test:discovery && npm run test:dogfood",
     "start": "node dist/src/server.js"
   },
   "dependencies": {
