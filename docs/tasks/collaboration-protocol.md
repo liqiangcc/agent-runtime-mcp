@@ -1,142 +1,132 @@
 # Repository Collaboration Protocol
 
-This document defines how **this repository** is developed. It is not the public Channel MCP product protocol.
+This document defines how **this repository** is developed. It is separate from the public Channel MCP product protocol.
 
 ## 1. Default execution model
 
-The default route for `agent-runtime-mcp` is **Web GPT-first**:
-
 ```text
-GPT Web
-→ define/freeze Task Contract
-→ GitHub Issue status:ready
-→ direct Web GPT implementation on a Task branch
-→ GitHub Actions verification
-→ Web GPT read-back/review
+GPT Web Coordinator
+→ define / split / publish Task
+→ status:ready
+→ Task Dispatcher
+→ isolated execution context
+→ Codex Task Worker
+→ claim / Attempt N / implementation / evidence
+→ status:review | status:blocked
+→ GPT Web Coordinator / Task Reviewer
 → ACCEPT | REVISE | BLOCK | SPLIT
 ```
 
-GitHub is durable project state. GitHub Actions is the primary automated verification Runner.
+GitHub is durable project state. GitHub Actions is verification infrastructure.
 
-## 2. Logical roles vs physical agent
+## 2. GPT Web Coordinator
 
-The repository preserves logical phases even when one Web GPT performs them sequentially:
+GPT Web owns:
 
-```text
-Publisher phase
-= materialize/freeze Task
+- project goals and priorities;
+- architecture/product-boundary decisions;
+- Task decomposition and Publication Gate;
+- routing to an eligible Worker;
+- review/recovery/iteration decisions;
+- Final Acceptance and closure.
 
-Executor phase
-= author code/docs on a Task branch and record exact Candidate
+GPT Web does **not** act as the repository implementation Worker for normal Tasks.
 
-Reviewer phase
-= re-read frozen Contract + Candidate + CI evidence and decide result
-```
+## 3. Dispatcher
 
-One physical Web GPT may perform all three phases, but must not skip the boundaries between them. Review must use durable GitHub state and actual CI evidence rather than relying on memory of implementation intent.
+Dispatcher bridges a published handoff to an isolated Codex execution context.
 
-## 3. Web GPT execution route
+It may:
 
-For `env:web-gpt` Tasks:
+- verify ready/no-owner/capability state;
+- prepare/reconcile an Issue-specific worktree;
+- prepare/reconcile tmux/Codex runtime;
+- deliver the canonical Worker handoff unchanged;
+- report runtime/worktree recovery evidence.
 
-1. live-read Issue and Task Package;
-2. confirm `status:ready + Active owner:none`;
-3. create/reuse a Task-specific Git branch;
-4. claim the Issue as `status:in-progress`, owner `web-gpt`;
-5. author repository changes through GitHub;
-6. use GitHub Actions for typecheck/unit/real-tmux integration where required;
-7. inspect failed jobs/logs and fix on the same branch;
-8. post durable `[EXECUTION REPORT]` with exact Candidate SHA and CI evidence;
-9. move Issue to `status:review`, owner none;
-10. perform a separate read-back Reviewer phase against the frozen Contract;
-11. ACCEPT/REVISE/BLOCK/SPLIT as appropriate.
+It must not claim, implement, Review, accept or close the Task.
 
-A Web GPT Task does not require tmux, Dispatcher, Codex CLI, or a local development workspace merely to be executable.
+## 4. Codex Worker
 
-## 4. Optional Codex/Dispatcher route
-
-The repository retains `$task-dispatcher` / `$task-worker` as an optional route for Tasks that genuinely benefit from an external coding environment or capabilities unavailable to Web GPT.
-
-That route remains:
+Codex claims and executes exactly one Attempt:
 
 ```text
-Publisher
-→ Dispatcher
-→ isolated worktree/tmux
-→ Codex Worker
-→ Reviewer
+status:ready + owner:none
+→ Worker claim
+→ status:in-progress
+→ Attempt N
+→ implementation / tests / CI evidence
+→ [EXECUTION REPORT] | [BLOCKER REPORT]
+→ status:review | status:blocked
+→ owner:none
+→ STOP
 ```
 
-It is not the default for this project.
+Worker never self-accepts or automatically selects the next Task.
 
-## 5. Product separation
+## 5. Reviewer
 
-`agent-runtime-mcp` itself remains a generic terminal Channel MCP.
-
-Repository development mechanisms—Web GPT, Issues, branches, Actions, Dispatcher, worktrees, tmux and Codex—are all outside the MCP product boundary.
-
-## 6. Branch/evidence rule
-
-Non-trivial implementation should use a Task-specific branch such as:
+GPT Web / `$task-reviewer` reads the frozen Contract, Candidate/PR and actual Evidence, then decides:
 
 ```text
-web/issue-<N>-<slug>
+ACCEPT | REVISE | BLOCK | SPLIT | NOT_PLANNED
 ```
 
-Evidence records:
+Unchanged-contract REVISE returns the same Issue to ready for Attempt N+1. Contract changes return to draft and Publication Gate.
 
-- base SHA;
-- exact Candidate SHA;
-- branch/PR when used;
-- Actions run/job IDs;
-- required Claim results;
-- known limitations.
+## 6. GitHub Actions
 
-Do not report PASS for checks that were not run.
+Actions is a Runner/Evidence source, not a Worker and not Task authority.
 
-## 7. Review rule
+For this project, Linux Actions should perform portable checks and real tmux integration when required by the Task Contract.
 
-Web GPT self-review is allowed for this lightweight repository, but only as a distinct durable phase:
+## 7. Product separation
+
+The repository workflow is not MCP product behavior.
+
+Channel MCP remains limited to existing-terminal communication:
 
 ```text
-implementation complete
-→ post EXECUTION REPORT
-→ status:review
-→ re-read Issue/task.md/current files/CI
-→ COORDINATOR REVIEW
+list/get channel
+read channel
+write text
+send control
+health
 ```
 
-Do not accept directly from implementation context without read-back.
+The collaboration layer owns Issue/worktree/tmux/Codex lifecycle and Task meaning.
 
-## 8. Retry
+## 8. Isolation
 
-Unchanged Contract:
+Default Codex route:
 
 ```text
-Review REVISE
-→ status:ready
-→ next Web GPT Attempt on same Issue/branch when reusable
+one concurrent Issue
+→ one isolated mutable worktree
+→ one issue-linked tmux/Codex execution context
 ```
 
-Contract change:
+Dispatcher owns that execution mapping. Channel MCP does not store it.
+
+## 9. Recovery
 
 ```text
-status:draft
-→ canonical/task/bootstrap revision
-→ Publication Gate
-→ status:ready
+status:in-progress + live runtime
+→ active Attempt
+
+status:in-progress + dead/missing runtime
+→ Coordinator/Reviewer recovery required
 ```
 
-## 9. Optional Channel-MCP dogfooding
-
-Once Channel write/control is available, a future optional Dispatcher flow may use Channel MCP for terminal communication, but that is dogfooding—not a requirement for ordinary repository implementation.
+Dispatcher must not automatically create Attempt N+1.
 
 ## 10. Core principle
 
 ```text
-Web GPT = default project executor/coordinator
-GitHub = durable project authority
+GPT Web = Coordinator / Review authority
+Dispatcher = execution delivery
+Codex = implementation Worker
 GitHub Actions = verification Runner
-Codex/Dispatcher = optional execution route
-Channel MCP = product being built, not the repository workflow engine
+GitHub = durable Task authority
+Channel MCP = product being built, not collaboration engine
 ```
