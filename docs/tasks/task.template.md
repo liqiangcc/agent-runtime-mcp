@@ -30,6 +30,7 @@ Explain the product goal, architecture gap, risk or MVP milestone that makes thi
 - Required runtime/tooling:
 - Required permissions:
 - Required test environment:
+- Current external integration assumptions to verify (if any):
 - Existing candidate/branch/PR to reuse:
 
 ## In Scope
@@ -49,8 +50,10 @@ Examples when relevant:
 - GitHub remains Task authority.
 - Runtime state must not become Task state.
 - tmux-specific behavior remains behind `RuntimeBackend`.
+- remote MCP ingress is separate from Runtime Backend routing.
 - ordinary text input is separate from control input.
 - backend commands use structured process execution, not shell string concatenation.
+- remote runtime control must not be exposed through an unauthenticated public endpoint.
 
 ## Files Expected to Change
 
@@ -80,12 +83,15 @@ Verification must identify the exact Candidate SHA when behavior depends on code
 
 Do not report tests as PASS when they were not run.
 
+For external integration claims such as ChatGPT remote MCP support, record the actual live capability/environment/date rather than relying only on design assumptions.
+
 ## Security Review
 
 ```text
 Security-sensitive: yes | no
-Threats touched: <T1..T8 from docs/security.md or n/a>
-Required controls: <S1..S10 or n/a>
+Threats touched: <T1..T9 from docs/security.md or n/a>
+Required controls: <S1..S12 from docs/security.md or n/a>
+Remote ingress affected: yes | no
 ```
 
 If the implementation weakens a canonical security control, stop and require a formal design change rather than silently proceeding.
@@ -116,6 +122,8 @@ Define behavior/evidence that means the implementation or claim failed.
 
 Define missing capability/dependency/environment conditions that prevent further valid execution.
 
+For plan/workspace-dependent external integrations, lack of required write capability is a legitimate blocker when write behavior is part of the frozen Goal.
+
 ### Resume condition
 
 State the minimum concrete condition required to resume.
@@ -133,6 +141,7 @@ PR:
 Commands / CI run:
 Environment:
 Relevant versions:
+External integration capability/date (if relevant):
 Claim results:
 Artifacts / logs:
 Known limitations:
