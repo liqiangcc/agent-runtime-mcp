@@ -206,9 +206,12 @@ export class TmuxBackend implements ChannelBackend {
     const bufferName = `${WRITE_BUFFER_PREFIX}${process.pid}-${randomUUID()}`;
     try {
       await this.runTmux(['load-buffer', '-b', bufferName, '-'], 'load-buffer', 64 * 1024, { stdin: text });
-      await this.runTmux(['paste-buffer', '-p', '-d', '-b', bufferName, '-t', paneId], 'paste-buffer', 64 * 1024, {
-        terminalMutation: true,
-      });
+      await this.runTmux(
+        ['paste-buffer', '-p', '-r', '-d', '-b', bufferName, '-t', paneId],
+        'paste-buffer',
+        64 * 1024,
+        { terminalMutation: true },
+      );
     } catch (error) {
       await this.cleanupBuffer(bufferName);
       throw error;
