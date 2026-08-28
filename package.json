@@ -9,11 +9,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run tests/unit",
-    "test:integration": "vitest run tests/integration",
+    "test": "npm run build --silent && node --test dist/tests/unit/*.test.js",
+    "test:integration": "npm run build --silent && node --test dist/tests/integration/*.test.js",
     "test:all": "npm run typecheck && npm run test && npm run test:integration",
-    "start": "node dist/src/server.js",
-    "dev": "tsx src/server.ts"
+    "start": "node dist/src/server.js"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.0.0",
@@ -21,8 +20,6 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "tsx": "^4.20.0",
-    "typescript": "^5.9.0",
-    "vitest": "^3.2.0"
+    "typescript": "^5.9.0"
   }
 }
