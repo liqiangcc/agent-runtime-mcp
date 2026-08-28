@@ -16,13 +16,15 @@ channel discovery
 
 Do not build Worker registry/lifecycle/scheduler features into the core MCP.
 
-Repository development still uses its separate Issue-driven collaboration workflow:
+Repository development is separate from product scope and defaults to:
 
 ```text
-Publisher → Dispatcher → Worker → Reviewer
+original GPT Web conversation = Coordinator / Reviewer
+→ publish Task
+→ separate GPT Web conversation = Web Worker using @GitHub
+→ GitHub Actions = executable verification Runner / Evidence
+→ original GPT Web conversation = Review / Acceptance
 ```
-
-That workflow is a consumer/development mechanism, not product scope.
 
 ## 2. Phase 0 — Channel boundary freeze
 
@@ -45,7 +47,7 @@ Exit criteria:
 
 ## 3. Phase 1 — Tmux channel discovery + bounded read
 
-First implementation Task:
+Implementation Task:
 
 ```text
 [MVP-001] Tmux channel discovery and bounded read
@@ -76,9 +78,11 @@ Task semantics
 write/control input
 ```
 
+MVP-001 is published to `env:web-gpt`; executable typecheck/unit/real-tmux verification is supplied by GitHub Actions.
+
 ## 4. Phase 2 — Safe channel input
 
-Task:
+Planned Task:
 
 ```text
 [MVP-002] Safe channel text and control input
@@ -99,11 +103,16 @@ Verification focus:
 - quotes/backticks/`$`/newlines remain data;
 - input is not interpolated through a shell;
 - control cannot be injected through text payload;
-- selected channel only is affected.
+- selected channel only is affected;
+- ambiguous mutation timeout/retry behavior is documented and tested where practical.
+
+Planning rule:
+
+> MVP-002 may be materialized as `status:draft` while MVP-001 executes, but its implementation-specific Contract must be rechecked against the accepted MVP-001 ChannelBackend/channel-id/error/tool-registration surface before Publication Gate.
 
 ## 5. Phase 3 — Secure remote MCP ingress
 
-Task:
+Planned Task:
 
 ```text
 [MVP-003] Secure remote MCP ingress and client compatibility
@@ -122,25 +131,25 @@ If the active client environment cannot invoke required write actions, mark remo
 
 ## 6. Phase 4 — Upper-layer dogfooding
 
-Use one real project collaboration flow while keeping all semantics outside Channel MCP:
+Use a real upper-layer consumer without moving its semantics into Channel MCP:
 
 ```text
-Project Dispatcher
-→ prepares worktree + tmux pane + Codex
-→ Channel MCP discovers existing pane
-→ write_text(canonical handoff)
-→ Codex uses GitHub according to project rules
-→ Channel MCP may read terminal for observation
-→ Reviewer decides project result from GitHub evidence
+upper layer prepares an existing tmux pane + interactive CLI
+→ Channel MCP discovers the pane
+→ write_text transports an instruction
+→ read_channel observes bounded terminal output
+→ upper layer interprets its own task/application semantics
 ```
 
 Acceptance proves:
 
 - Channel MCP does not know Issue/Worker/Task meaning;
-- collaboration layer owns pane creation/mapping/recovery;
+- upper layer owns endpoint creation/mapping/recovery;
 - terminal transport remains usable remotely;
-- terminal output is not treated as project truth;
+- terminal output is not treated as project truth by the MCP;
 - a missing pane is reported rather than recreated by MCP.
+
+The repository's own default Web GPT Worker workflow does not need to use Channel MCP; dogfooding tests the product as infrastructure for a suitable terminal-based upper layer.
 
 ## 7. Deferred / separate products
 
@@ -158,11 +167,11 @@ Not part of core MVP:
 - distributed host management;
 - generic shell command API.
 
-If lifecycle automation is later useful, design it as a separate higher-level capability/module that consumes or composes the Channel layer rather than silently redefining the core.
+If lifecycle automation is later useful, design it as a separate higher-level capability/module consuming the Channel layer rather than silently redefining the core.
 
 ## 8. Task sizing
 
-Implementation Tasks should follow product capability slices, not upper-layer project workflow primitives.
+Implementation Tasks follow stable product capability slices, not upper-layer project workflow primitives.
 
 A different tmux command does not automatically mean a different Task; a stable independently reviewable capability does.
 
@@ -173,11 +182,13 @@ Before an implementation Task becomes executable:
 ```text
 Goal and product boundary defined
 + task.md / prompt.md committed and read back
-+ required canonical Channel docs resolve
++ canonical Channel docs resolve
++ Worker route = separate GPT Web conversation / env:web-gpt unless explicitly overridden
 + capabilities/dependencies explicit
++ GitHub Actions Evidence route sufficient for required executable checks
 + security implications reviewed
 + Success Criteria frozen
 + Publication Gate PASS
 ```
 
-The repository Dispatcher may then prepare whatever execution environment the project collaboration protocol requires. That environment preparation is not part of Channel MCP implementation semantics.
+The Coordinator then emits only the short `docs/tasks/handoffs/web-gpt.md` entry. The Web Worker claims exactly one Attempt and returns durable Evidence to GitHub.
