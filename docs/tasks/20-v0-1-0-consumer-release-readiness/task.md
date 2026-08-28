@@ -1,10 +1,10 @@
-# Task — v0.1.0 consumer and release readiness
+# Task — v0.1.0 deployment bundle readiness
 
 ## Metadata
 
 ```text
 GitHub Issue: #20
-Task kind: post-MVP consumer/release readiness + deployment bundle
+Task kind: post-MVP deployment-bundle readiness
 Environment: env:web-gpt
 Preferred worker: web-gpt-worker
 Handoff profile: docs/tasks/handoffs/web-gpt.md
@@ -15,34 +15,32 @@ Planning method: `docs/tasks/planning-principles.md`.
 
 ## Goal
 
-Turn the accepted Channel MCP MVP into one coherent consumer-facing **v0.1.0 deployment bundle** without adding or changing MCP capabilities.
+Package the accepted Channel MCP MVP as a runnable **v0.1.0 deployment archive** without adding or changing MCP capabilities.
 
-This Task packages the accepted runtime for consumption. It does not add deployment infrastructure or a new product phase.
+This Task packages runtime bytes. It does not add deployment infrastructure, endpoint lifecycle or a new product capability.
 
 ## Primary Use Case
 
-### UC1 — external upper-layer integrator deploys the accepted Channel MCP
-
 ```text
-Actor: external upper-layer integrator/operator
-Trigger: wants to run the completed Channel MCP on a host
-Preconditions: Node >=20, npm and tmux are available; terminal endpoint lifecycle is prepared externally
+Actor: operator / upper-layer integrator
+Trigger: wants to run agent-runtime-mcp on a target host
+Preconditions: target has Node >=20, npm and tmux; tmux endpoint lifecycle is external
 Main flow:
   obtain agent-runtime-mcp-v0.1.0.tar.gz
-  → unpack
+  → extract
   → npm ci --omit=dev
-  → configure TMUX_* backend scope
-  → launch npm start from the unpacked bundle
-  → MCP client consumes the six accepted public Tools
-Success: integrator can run v0.1.0 without cloning TypeScript source or building the project on the target host
-Failure: archive is incomplete, requires source/dev tooling, or cannot launch the accepted stdio server
-Degradation: operator still owns process supervision/network reachability; the bundle only supplies the runnable MCP application
-Evidence: deterministic package contents + clean-room extracted-bundle verification + existing public MCP CI + release artifact checksum
+  → configure TMUX_*
+  → npm start
+  → consume the accepted stdio MCP Tools
+Success: target runs the accepted MCP without cloning TypeScript source or compiling on the target
+Failure: archive is incomplete, needs dev/source build tooling, or cannot launch/serve the accepted MCP path
+Degradation: host supervision/network/security remain operator concerns
+Evidence: package contents + SHA-256 + clean-room extracted-bundle verification + full existing CI
 ```
 
-## Accepted Product Contract
+## Frozen Product Contract
 
-Exactly these six Tools remain authoritative:
+Exactly six public Tools:
 
 ```text
 list_channels
@@ -53,72 +51,9 @@ send_control
 health
 ```
 
-No Tool/schema/runtime-semantic change is in scope.
+No Tool/schema/runtime-semantic change is authorized.
 
-## Separation Points
-
-### Deployment bundle | deployment infrastructure
-
-The bundle contains the runnable MCP application. It does **not** own:
-
-```text
-systemd/supervisor policy
-tunnel/proxy/network reachability
-TLS/auth/DNS/firewall
-host provisioning
-Node/tmux installation
-endpoint creation/restart
-```
-
-### Runtime distribution | npm publication
-
-A downloadable runtime archive is the v0.1.0 distribution contract. `package.json` remains `private: true`; publishing the project to the npm registry is not part of this Task.
-
-### Runtime artifact | source repository
-
-The deployment bundle should not require TypeScript compilation on the target host and should not ship repository collaboration history, tests or source merely because they exist in the repository.
-
-### License policy | packaging mechanics
-
-Choosing a license is an owner/policy decision. A Worker may package the frozen license decision, but must not invent one.
-
-### Repository identity | runtime semantics
-
-Repository description/README/package metadata should describe the Channel-only product accurately but do not change behavior.
-
-### MCP client launch config | endpoint lifecycle
-
-Consumer docs may show how a local stdio MCP client launches the unpacked runtime and passes `TMUX_*`. The terminal endpoint is still prepared externally.
-
-## Single Responsibilities
-
-```text
-runtime deployment bundle
-= compiled application + production dependency manifests + deployment/consumer docs
-
-consumer docs
-= explain unpack/install/configure/start/use
-
-repository/package metadata
-= identify product/version/distribution policy
-
-release checkpoint
-= immutable v0.1.0 accepted commit + same deployment archive/checksum
-
-Channel MCP runtime
-= unchanged six capabilities
-
-deployment/operator layer
-= host/network/security/process supervision + endpoint lifecycle
-```
-
-## Logic / Control Separation
-
-No Channel data-path logic changes are planned.
-
-Packaging decides only how accepted runtime bytes are assembled and verified. Runtime orchestration remains external.
-
-## D1 — Distribution — FROZEN: deployment bundle
+## D1 — Deployment Bundle — FROZEN
 
 Canonical artifact:
 
@@ -126,7 +61,7 @@ Canonical artifact:
 agent-runtime-mcp-v0.1.0.tar.gz
 ```
 
-Target-host contract:
+Target runtime requirements:
 
 ```text
 Node >=20
@@ -134,7 +69,7 @@ npm
 tmux
 ```
 
-Expected flow:
+Canonical target flow:
 
 ```text
 tar -xzf agent-runtime-mcp-v0.1.0.tar.gz
@@ -143,162 +78,181 @@ npm ci --omit=dev
 TMUX_SOCKET_NAME=<existing-socket> npm start
 ```
 
-The bundle must be runnable without TypeScript compilation on the target host.
+Target host must not need TypeScript compilation.
 
-### Required bundle contents
-
-At minimum:
+### Required archive contents
 
 ```text
-dist/src/**            # compiled runtime only
+dist/src/**
 package.json
 package-lock.json
-README.md or focused deployment/consumer guide
-LICENSE                # according to frozen D2 decision
+consumer/deployment README or equivalent focused guide
 ```
 
-A small start/config helper may be included if it only wraps the documented stdio startup and `TMUX_*` configuration. It must not create tmux panes or own supervision/network setup.
+If the repository contains a LICENSE under the owner's current policy, include it. This Task does not create or choose a new license.
 
-### Excluded from bundle
+### Excluded archive contents
 
 ```text
 src/**
 tests/**
 dist/tests/**
-TypeScript/compiler tooling
-devDependencies/node_modules snapshot
-repository task/collaboration history
+TypeScript/compiler/dev build tooling
+node_modules snapshot
+repository Task/collaboration history
 Node runtime
 tmux binary
-systemd/docker/tunnel/provider configuration unless separately justified outside this Task
+systemd/docker/tunnel/provider/network configuration
 ```
 
-Production `node_modules` are **not** embedded in the portable v0.1.0 archive; `npm ci --omit=dev` installs the exact production dependency graph from the lockfile on the target host.
-
-`package.json` remains:
+Production dependencies are installed on the target with:
 
 ```text
-private: true
-version: 0.1.0
+npm ci --omit=dev
+```
+
+Keep:
+
+```text
+package.json private: true
+package.json version: 0.1.0
 ```
 
 No npm registry publication occurs.
 
-## D2 — License — UNRESOLVED OWNER DECISION
-
-Owner must select the repository/license policy. The Worker must not choose a license.
-
-Until D2 is frozen:
+## Separation Points
 
 ```text
-status:draft
-owner:none
-Blocker: awaiting-license-policy-decision
+deployment bundle
+= runnable application artifact
+
+Channel MCP
+= six accepted communication capabilities
+
+endpoint lifecycle
+= external
+
+process supervision
+= external
+
+network/tunnel/TLS/auth
+= external
+
+public license/repository distribution policy
+= separate owner decision, not a packaging precondition
 ```
 
-The selected LICENSE must be included in the final deployment bundle.
+Calling this a deployment bundle does not authorize Docker/systemd/tunnel/provider scope.
 
-## D3 — Release checkpoint — FROZEN
+## Product Identity — FROZEN
 
-After readiness/package changes are accepted and canonical-main CI is green:
-
-```text
-accepted canonical commit
-→ build exact agent-runtime-mcp-v0.1.0.tar.gz
-→ compute SHA-256 checksum
-→ verify extracted bundle
-→ v0.1.0 tag
-→ GitHub Release on the same commit
-→ attach the accepted deployment archive + checksum
-```
-
-The Worker prepares package/release Evidence. Coordinator remains final release authority.
-
-## D4 — Product identity — FROZEN
-
-Canonical identity meaning:
+Canonical meaning:
 
 > Generic MCP communication layer for already-existing interactive terminal Channels, with tmux as the first backend.
 
-Concise metadata wording may be equivalent but must not reintroduce Worker/Task/Agent-runtime lifecycle ownership.
+Consumer-facing metadata/docs must not reintroduce Worker/Task/Agent-runtime lifecycle ownership.
 
-## Package Verification Claims
+## Implementation Scope
 
-- **C1 Product identity:** consumer-facing metadata/docs describe generic existing-terminal Channel MCP.
-- **C2 Contract preservation:** exactly six public Tools remain unchanged.
-- **C3 Runtime-only archive:** deployment package contains compiled runtime and production manifests but not TypeScript source/tests/dev build tooling.
-- **C4 Clean-room install:** extracting the archive into an empty directory and running `npm ci --omit=dev` succeeds.
-- **C5 Clean-room launch:** the extracted bundle launches `dist/src/server.js` through `npm start` with the documented backend env.
-- **C6 Public MCP verification:** a test harness outside the bundle can connect to the extracted runtime and prove at least health/discovery; the existing full public dogfood suite remains green against repository main.
-- **C7 Endpoint boundary:** package/start helpers never create/restart/destroy tmux panes.
-- **C8 Deployment boundary:** bundle does not require or own tunnel/network/TLS/auth/supervisor configuration.
-- **C9 Distribution clarity:** `private: true` remains and no npm publication occurs.
-- **C10 License clarity:** LICENSE in repository and bundle matches owner D2 decision.
-- **C11 Artifact integrity:** exact release candidate produces a named tar.gz plus SHA-256 evidence.
-- **C12 Regression:** typecheck/unit/tmux/public-discovery/public-dogfood/static-boundary remain green.
-
-## Expected Implementation Surface
-
-After D2 is frozen, Worker may add/modify only what is necessary for release readiness, for example:
+Expected changes may include:
 
 ```text
-README / deployment consumer docs
-package.json packaging scripts
+package.json packaging script
 scripts/package-runtime.*
-CI package + clean-room verification job
-repository identity metadata checklist/evidence
-LICENSE according to D2
+focused deployment/consumer documentation
+CI deployment-bundle job
+clean-room package verification harness
+repository identity/documentation correction
 ```
 
-Product `src/` behavior is not expected to change. If packaging requires changing MCP semantics or runtime behavior, Worker must BLOCK and return to Coordinator.
+Product `src/` behavior is not expected to change.
+
+If packaging requires changing MCP semantics, Tool schemas or endpoint lifecycle authority, Worker must BLOCK and return to Coordinator.
+
+## Verification Claims
+
+- **C1 Contract preserved:** exactly six public Tools remain unchanged.
+- **C2 Runtime-only artifact:** archive contains compiled `dist/src` runtime and production manifests, not source/tests/dev tooling.
+- **C3 Deterministic name/version:** exact Candidate produces `agent-runtime-mcp-v0.1.0.tar.gz`.
+- **C4 Integrity:** exact Candidate produces SHA-256 for that archive.
+- **C5 Clean-room install:** empty-directory extraction + `npm ci --omit=dev` succeeds.
+- **C6 Clean-room launch:** packaged `npm start` launches `dist/src/server.js` without TypeScript tooling.
+- **C7 Public MCP package proof:** an external test harness connects to the extracted packaged runtime and proves at least public `health + list_channels` against an externally prepared disposable tmux endpoint.
+- **C8 Existing regression:** typecheck/unit/real-tmux/public-discovery/public-dogfood/static-boundary remain green.
+- **C9 Endpoint boundary:** package scripts/helpers never create/restart/destroy tmux endpoints.
+- **C10 Deployment boundary:** no systemd/docker/tunnel/network/TLS/auth ownership is introduced.
+- **C11 Distribution policy:** `private:true` remains and no npm publication occurs.
+- **C12 Consumer identity:** README/package guidance describes generic existing-terminal Channel MCP.
+
+## CI / Artifact Evidence
+
+Exact Candidate CI should add one package verification path:
+
+```text
+build
+→ stage runtime-only directory
+→ create agent-runtime-mcp-v0.1.0.tar.gz
+→ sha256sum
+→ extract into empty directory
+→ npm ci --omit=dev
+→ prepare disposable tmux endpoint externally
+→ launch packaged stdio server
+→ external official MCP client verifies packaged health/list_channels
+→ prove archive excludes src/tests/dist/tests
+→ preserve all existing jobs
+```
+
+The CI-produced tar.gz + checksum should be retained as workflow artifact Evidence when supported.
 
 ## Out of Scope
 
 - seventh MCP Tool;
-- Tool/schema changes;
-- Channel/backend semantic changes;
+- public schema/runtime behavior changes;
 - endpoint lifecycle APIs;
 - Worker/Task/application semantics;
-- tunnel/provider/network/auth implementation;
-- Docker/systemd/supervisor ownership;
+- Docker image;
+- systemd unit or process supervisor policy;
+- tunnel/provider/network/TLS/auth implementation;
 - bundling Node or tmux;
+- embedding node_modules;
 - npm registry publication;
-- changing `private: true`;
-- automatically choosing a license;
+- choosing/changing repository license policy;
+- public GitHub Release/tag policy;
 - post-v0.1.0 feature roadmap.
 
 ## Publication Gate
 
-Coordinator may publish only after D2 is explicitly resolved and live accepted main is re-read.
+PASS.
 
-Current gate state:
+Frozen inputs:
 
 ```text
-D1 deployment tar.gz distribution: FROZEN
-D2 license: UNRESOLVED
-D3 v0.1.0 release attaches exact bundle + checksum: FROZEN
-D4 generic Channel MCP identity: FROZEN
+D1 deployment tar.gz: frozen
+runtime contents/exclusions: frozen
+clean-room package verification: frozen
+package remains private: true
+product identity: frozen
+license/public-release policy: explicitly separate, not blockers
 ```
 
-Therefore current Issue state remains:
+Live Issue must be:
 
 ```text
-status:draft
+status:ready
 owner:none
-Blocker: awaiting-license-policy-decision
+env:web-gpt
+Blocker:none
 ```
 
 ## Completion Protocol
 
 ```text
-Coordinator freezes D2 and re-runs Publication Gate
-→ status:ready/env:web-gpt
-→ separate Web GPT Worker claims one Attempt
-→ package + consumer/release-readiness changes + Evidence
+Worker claims one Attempt
+→ package implementation + exact artifact/checksum Evidence
 → [EXECUTION REPORT] | [BLOCKER REPORT]
 → status:review | status:blocked + owner:none
 → STOP
 → Coordinator Review
-→ accepted canonical main CI + clean-room bundle verification
-→ Coordinator creates v0.1.0 release checkpoint with accepted archive/checksum
+→ Integration Gate + canonical-main package verification
+→ Final Acceptance
 ```
