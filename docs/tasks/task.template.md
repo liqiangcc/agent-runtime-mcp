@@ -10,11 +10,12 @@ Base commit: <sha>
 Candidate commit: <sha or n/a>
 Session bootstrap: docs/tasks/<issue>-<slug>/prompt.md
 Preferred worker: codex
+Dispatch route: task-dispatcher
 Required capabilities: <capability list>
 Hard dependencies: <none or explicit dependencies>
 ```
 
-> Live status, owner, blocker, active branch/PR and Attempt results belong in the GitHub Issue, not this file.
+> Live status, owner, blocker, active branch/PR/runtime and Attempt results belong in the GitHub Issue / durable execution records, not this file.
 
 ## Goal
 
@@ -24,6 +25,16 @@ A single verifiable statement of what this Task must accomplish.
 
 Explain the product goal, architecture gap, risk or MVP milestone that makes this Task necessary now.
 
+## Canonical / Process Sources
+
+Worker must read at least:
+
+- `AGENTS.md`
+- `docs/tasks/collaboration-protocol.md`
+- `docs/tasks/issue-state-convention.md`
+- `docs/tasks/issue-lifecycle-protocol.md`
+- task-relevant canonical docs listed here
+
 ## Preconditions
 
 - Required prior Issue/Task:
@@ -32,6 +43,19 @@ Explain the product goal, architecture gap, risk or MVP milestone that makes thi
 - Required test environment:
 - Current external integration assumptions to verify (if any):
 - Existing candidate/branch/PR to reuse:
+
+## Dispatch Requirements
+
+```text
+Expected child environment/capabilities:
+Bootstrap dispatch allowed: yes | no
+Runtime-backed dispatch required: yes | no
+Isolation requirement: one Issue = one isolated mutable worktree/runtime
+```
+
+Dispatcher transports the canonical Worker handoff only. It does not claim or implement the Task.
+
+If an existing issue-linked worktree/runtime is present, reconcile it rather than overwriting it.
 
 ## In Scope
 
@@ -43,11 +67,12 @@ Explain the product goal, architecture gap, risk or MVP milestone that makes thi
 
 ## Architecture Invariants
 
-List only the invariants directly relevant to this Task. Reference canonical docs rather than copying all architecture text.
+List only invariants directly relevant to this Task. Reference canonical docs rather than copying everything.
 
 Examples when relevant:
 
 - GitHub remains Task authority.
+- Publisher/Dispatcher/Worker/Reviewer authorities remain separate.
 - Runtime state must not become Task state.
 - tmux-specific behavior remains behind `RuntimeBackend`.
 - remote MCP ingress is separate from Runtime Backend routing.
@@ -81,48 +106,42 @@ C2: <claim>
 
 Verification must identify the exact Candidate SHA when behavior depends on code identity.
 
-Do not report tests as PASS when they were not run.
-
-For external integration claims such as ChatGPT remote MCP support, record the actual live capability/environment/date rather than relying only on design assumptions.
+Do not report tests as PASS when they were not run. For external integration claims, record actual live capability/environment/date rather than relying on design assumptions.
 
 ## Security Review
 
 ```text
 Security-sensitive: yes | no
-Threats touched: <T1..T9 from docs/security.md or n/a>
-Required controls: <S1..S12 from docs/security.md or n/a>
+Threats touched: <T1.. from docs/security.md or n/a>
+Required controls: <S1.. from docs/security.md or n/a>
 Remote ingress affected: yes | no
 ```
 
-If the implementation weakens a canonical security control, stop and require a formal design change rather than silently proceeding.
+If implementation weakens a canonical security control, stop and require formal design change.
 
 ## Success Criteria
 
-Freeze these before execution.
+Freeze before execution.
 
 1. SC1:
 2. SC2:
-
-For verification claims:
 
 ```text
 C1 PASS when:
 C2 PASS when:
 ```
 
-Do not lower the criteria after observing results simply to obtain PASS.
+Do not lower criteria after observing results merely to obtain PASS.
 
 ## Failure / Blocked Rules
 
 ### FAIL
 
-Define behavior/evidence that means the implementation or claim failed.
+Define behavior/evidence that means implementation or claim failed.
 
 ### BLOCKED
 
 Define missing capability/dependency/environment conditions that prevent further valid execution.
-
-For plan/workspace-dependent external integrations, lack of required write capability is a legitimate blocker when write behavior is part of the frozen Goal.
 
 ### Resume condition
 
@@ -138,6 +157,7 @@ Worker: codex
 Base commit:
 Candidate commit:
 PR:
+Dispatcher/runtime mapping when relevant:
 Commands / CI run:
 Environment:
 Relevant versions:
@@ -158,6 +178,24 @@ Do not commit or paste secrets, credentials, private terminal history or unneces
 
 ## Completion Protocol
 
+Publisher:
+
+```text
+status:draft
+→ materialize/read-back Publication Gate
+→ status:ready + no owner
+→ canonical Worker handoff
+```
+
+Dispatcher:
+
+```text
+re-read ready/no-owner/capabilities
+→ isolated Worker runtime
+→ deliver handoff unchanged
+→ no Task-state mutation
+```
+
 Worker:
 
 ```text
@@ -172,14 +210,16 @@ status:ready
 → STOP
 ```
 
-Coordinator:
+Reviewer:
 
 ```text
-read Issue + task.md + candidate/evidence
-→ [COORDINATOR REVIEW]
-→ ACCEPT | REVISE | BLOCK | SPLIT
+read Issue + Contract + candidate/evidence
+→ ACCEPT | REVISE | BLOCK | SPLIT | NOT_PLANNED
 ```
 
-Only Coordinator can post `[FINAL ACCEPTANCE]`, set `status:done`, and close the Issue.
+Unchanged-contract REVISE returns to ready and emits a fresh handoff for Dispatcher. Contract change returns to Publisher. Only Final Acceptance may set `status:done` and close.
 
-Full protocol: `docs/tasks/issue-lifecycle-protocol.md`.
+Full protocols:
+
+- `docs/tasks/collaboration-protocol.md`
+- `docs/tasks/issue-lifecycle-protocol.md`
