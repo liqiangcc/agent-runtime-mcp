@@ -70,6 +70,15 @@ jobs:
             echo 'Product boundary violation detected in src/' >&2
             exit 1
           fi
+          health_prohibited='worker_status|task_status|application_ready|pane_count_as_health|needs_restart|remote_ingress|network_reachability|monitoring_scheduler|recovery_control'
+          if grep -R -n -E "$health_prohibited" src; then
+            echo 'Health semantic boundary violation detected in src/' >&2
+            exit 1
+          fi
+          if ! grep -q 'return { health: await backend.health() };' src/handlers.ts; then
+            echo 'Public health handler must remain a thin ChannelBackend.health() adapter.' >&2
+            exit 1
+          fi
           if grep -R -n -E 'shell:[[:space:]]*true|(^|[^[:alnum:]_])sh[[:space:]]+-c' src; then
             echo 'Unsafe shell execution detected in src/' >&2
             exit 1
@@ -82,4 +91,4 @@ jobs:
             echo 'Missing ordinary-text control separation guard.' >&2
             exit 1
           fi
-          echo 'Static Channel/input boundary check passed.'
+          echo 'Static Channel/input/health boundary check passed.'

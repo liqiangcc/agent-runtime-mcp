@@ -2,16 +2,22 @@ import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import type { ChannelBackend } from './backend.js';
 import { toStructuredError } from './errors.js';
-import { getChannel, listChannels, readChannel, sendControl, writeText } from './handlers.js';
+import { getChannel, health, listChannels, readChannel, sendControl, writeText } from './handlers.js';
 import { TERMINAL_CONTROLS } from './input.js';
 import { HARD_MAX_READ_BYTES, HARD_MAX_READ_LINES } from './tmux-backend.js';
 
 export const MVP_001_TOOL_NAMES = ['list_channels', 'get_channel', 'read_channel'] as const;
 export const MVP_002_TOOL_NAMES = [...MVP_001_TOOL_NAMES, 'write_text', 'send_control'] as const;
+export const MVP_002_5_TOOL_NAMES = [...MVP_002_TOOL_NAMES, 'health'] as const;
 export const MUTATION_TOOL_ANNOTATIONS = {
   readOnlyHint: false,
   destructiveHint: true,
   idempotentHint: false,
+} as const;
+export const HEALTH_TOOL_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
 } as const;
 
 export function createMcpServer(backend: ChannelBackend): McpServer {
@@ -84,6 +90,15 @@ export function createMcpServer(backend: ChannelBackend): McpServer {
       annotations: MUTATION_TOOL_ANNOTATIONS,
     },
     async ({ channel_id, control }) => runTool(() => sendControl(backend, channel_id, control)),
+  );
+
+  server.registerTool(
+    'health',
+    {
+      description: 'Report mechanical backend/service health independently of Channel inventory or application state.',
+      annotations: HEALTH_TOOL_ANNOTATIONS,
+    },
+    async () => runTool(() => health(backend)),
   );
 
   return server;

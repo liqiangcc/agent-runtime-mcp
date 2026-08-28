@@ -52,9 +52,9 @@ Outside product:
 
 Those concerns belong to whatever upper-layer collaboration or automation system uses this MCP.
 
-## Phase 2 implementation
+## Phase 2.5 implementation
 
-MVP-001 established the read-only Channel slice and MVP-002 adds safe input. The current stdio server registers:
+MVP-001 established the read-only Channel slice, MVP-002 added safe input, and MVP-002.5 exposes the already-established backend health capability. The current stdio server registers:
 
 ```text
 list_channels
@@ -62,9 +62,10 @@ get_channel
 read_channel
 write_text
 send_control
+health
 ```
 
-The separate public `health` tool and secure remote ingress remain later MVP work.
+Secure remote ingress remains later MVP work.
 
 ### Requirements
 
@@ -116,6 +117,12 @@ TMUX_READ_MAX_BYTES          maximum accepted UTF-8 byte bound
 ```
 
 A missing pane or unavailable tmux server returns a structured error; the service does not recreate or restart anything.
+
+### Health contract
+
+`health` takes no `channel_id`. It reports only the configured backend/service mechanical state through `backend_kind`, `available`, and optional bounded `detail`. Backend health is independent of visible Channel inventory: a queryable tmux server may be healthy while `TMUX_ALLOWED_SESSIONS` exposes zero Channels.
+
+Health does not inspect foreground application meaning, Worker/Task readiness, remote-ingress reachability, or recovery policy. It never creates, restarts, or destroys terminal endpoints.
 
 ### Safe input contract
 
