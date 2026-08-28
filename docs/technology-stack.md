@@ -4,18 +4,20 @@
 
 Initial implementation uses **TypeScript on Node.js with the official Model Context Protocol TypeScript SDK v2**.
 
-At implementation time, re-check current official MCP SDK and transport documentation before pinning exact versions.
+Re-check current official MCP SDK documentation before changing the pinned major line.
 
 ## 2. Why TypeScript first
 
-The primary MVP risks are MCP compatibility, safe terminal I/O transport, schema design and remote integration rather than CPU-bound performance.
+The primary MVP risks are MCP contract compatibility, safe terminal I/O transport, schema design and tmux integration rather than CPU-bound performance.
 
-TypeScript/Node is preferred initially because:
+TypeScript/Node is preferred because:
 
 - the official MCP TypeScript SDK is a first-class implementation path;
-- Node process APIs support structured `tmux` executable/argv/stdin handling;
+- Node process APIs support structured tmux executable/argv/stdin handling;
 - schema/tool definitions are concise and strongly typed;
-- the ecosystem supports fast iteration while MCP transport details evolve.
+- the ecosystem supports fast iteration around MCP capability contracts.
+
+Deployment/tunnel/provider integration is not a technology-selection requirement for the Channel product.
 
 ## 3. Initial assumptions
 
@@ -23,15 +25,16 @@ TypeScript/Node is preferred initially because:
 Language: TypeScript
 Runtime: Node.js
 MCP SDK: official TypeScript server SDK
+Current MCP transport adapter: stdio
 Primary backend: tmux CLI
 Backend execution: structured child-process APIs
-Primary host: Linux
-Package management: standard lockfile-backed Node package manager selected in MVP-001
+Primary host for backend verification: Linux
+Package management: lockfile-backed npm
 ```
 
 ## 4. Process execution rule
 
-Allowed shape:
+Allowed:
 
 ```text
 executable = "tmux"
@@ -39,13 +42,13 @@ args = ["list-panes", ...]
 stdin = <terminal text when applicable>
 ```
 
-Forbidden design:
+Forbidden:
 
 ```text
 shell("tmux ... " + untrusted_input)
 ```
 
-Terminal text must remain data.
+Terminal text remains data.
 
 ## 5. Dependency rule
 
@@ -54,23 +57,26 @@ Prefer a small dependency surface:
 - official MCP SDK;
 - dependencies required by that SDK;
 - focused schema/test tooling;
-- no tmux wrapper library unless it provides a clear audited advantage over structured argv execution.
+- no tmux wrapper unless it provides a clear audited advantage over structured argv execution.
 
-The core implementation does not require a database/registry because Channel discovery comes from the configured backend.
+The core requires no database/registry because Channel discovery comes from the configured backend.
 
 ## 6. Verification rule
 
-MVP-001 establishes at least:
+The repository baseline includes:
 
 ```text
 typecheck
 unit tests
 real tmux integration
+static product-boundary checks
 CI
 ```
 
-Integration tests create external test panes in their harness, but the product MCP API itself does not expose tmux lifecycle operations.
+Integration tests may create temporary panes in the test harness. The product MCP API itself does not expose endpoint lifecycle operations.
 
 ## 7. Change rule
 
-Changing implementation language or SDK major line is a canonical technology decision and requires Coordinator review/document update first.
+Changing implementation language, MCP SDK major line, or the public MCP capability semantics is a canonical technology/product decision and requires Coordinator review.
+
+Adding a deployment mechanism is not a Channel-core technology change unless it genuinely changes the MCP capability contract.
