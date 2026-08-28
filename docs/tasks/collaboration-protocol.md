@@ -5,84 +5,89 @@ This document defines how **this repository** is developed. It is separate from 
 ## 1. Default execution model
 
 ```text
-GPT Web Coordinator
+GPT Web Coordinator conversation
 → define / split / publish Task
-→ status:ready
-→ Task Dispatcher
-→ isolated execution context
-→ Codex Task Worker
-→ claim / Attempt N / implementation / evidence
+→ status:ready + env:web-gpt
+→ Web GPT Worker conversation
+→ claim / Attempt N / implementation / evidence through @GitHub
 → status:review | status:blocked
-→ GPT Web Coordinator / Task Reviewer
-→ ACCEPT | REVISE | BLOCK | SPLIT
+→ original GPT Web Coordinator conversation
+→ ACCEPT | REVISE | BLOCK | SPLIT | NOT_PLANNED
 ```
 
 GitHub is durable project state. GitHub Actions is verification infrastructure.
 
-## 2. GPT Web Coordinator
+## 2. Coordinator
 
-GPT Web owns:
+The original GPT Web conversation owns:
 
 - project goals and priorities;
 - architecture/product-boundary decisions;
 - Task decomposition and Publication Gate;
-- routing to an eligible Worker;
+- routing and downstream Worker handoff;
 - review/recovery/iteration decisions;
 - Final Acceptance and closure.
 
-GPT Web does **not** act as the repository implementation Worker for normal Tasks.
+The Coordinator does **not** implement normal repository Tasks.
 
-## 3. Dispatcher
+## 3. Web GPT Worker
 
-Dispatcher bridges a published handoff to an isolated Codex execution context.
+The default Worker is a **different GPT Web conversation** using `@GitHub`.
 
-It may:
+It:
 
-- verify ready/no-owner/capability state;
-- prepare/reconcile an Issue-specific worktree;
-- prepare/reconcile tmux/Codex runtime;
-- deliver the canonical Worker handoff unchanged;
-- report runtime/worktree recovery evidence.
+- reads live Issue/Task Package/canonical docs;
+- confirms `status:ready + env:web-gpt + owner:none`;
+- claims exactly one Attempt;
+- authors repository changes through GitHub;
+- uses GitHub Actions as the Runner for required tests and real tmux integration;
+- records exact Candidate/Evidence;
+- posts `[EXECUTION REPORT]` or `[BLOCKER REPORT]`;
+- releases ownership and stops.
 
-It must not claim, implement, Review, accept or close the Task.
+It must not Review/ACCEPT/close the Task or autonomously choose another Task.
 
-## 4. Codex Worker
+Standard handoff is defined in `docs/tasks/handoffs/web-gpt.md`.
 
-Codex claims and executes exactly one Attempt:
+## 4. Optional Codex route
 
-```text
-status:ready + owner:none
-→ Worker claim
-→ status:in-progress
-→ Attempt N
-→ implementation / tests / CI evidence
-→ [EXECUTION REPORT] | [BLOCKER REPORT]
-→ status:review | status:blocked
-→ owner:none
-→ STOP
-```
-
-Worker never self-accepts or automatically selects the next Task.
-
-## 5. Reviewer
-
-GPT Web / `$task-reviewer` reads the frozen Contract, Candidate/PR and actual Evidence, then decides:
+Dispatcher/Codex remains an optional route for a future Task that genuinely requires an external coding/runtime environment:
 
 ```text
-ACCEPT | REVISE | BLOCK | SPLIT | NOT_PLANNED
+Coordinator
+→ Dispatcher
+→ isolated worktree/tmux
+→ Codex Worker
+→ Coordinator Review
 ```
 
-Unchanged-contract REVISE returns the same Issue to ready for Attempt N+1. Contract changes return to draft and Publication Gate.
+That is not the default route for this lightweight repository.
 
-## 6. GitHub Actions
+## 5. GitHub Actions
 
 Actions is a Runner/Evidence source, not a Worker and not Task authority.
 
-For this project, Linux Actions should perform portable checks and real tmux integration when required by the Task Contract.
+Linux Actions should perform portable checks and real tmux integration when required by the Task Contract.
+
+## 6. Review
+
+Only the Coordinator conversation performs normal Review:
+
+```text
+status:review
+→ re-read Issue/comments
+→ read frozen Task Contract
+→ inspect Candidate/PR
+→ inspect Actions evidence
+→ [COORDINATOR REVIEW]
+→ ACCEPT | REVISE | BLOCK | SPLIT | NOT_PLANNED
+```
+
+Unchanged-contract REVISE returns the same Issue to ready for Attempt N+1 and emits a fresh Web GPT Worker handoff. Contract changes return to draft and Publication Gate.
 
 ## 7. Product separation
 
-The repository workflow is not MCP product behavior.
+Repository collaboration is not MCP product behavior.
 
 Channel MCP remains limited to existing-terminal communication:
 
@@ -94,39 +99,15 @@ send control
 health
 ```
 
-The collaboration layer owns Issue/worktree/tmux/Codex lifecycle and Task meaning.
+Web Worker/Issue/Actions semantics do not appear in product code.
 
-## 8. Isolation
-
-Default Codex route:
+## 8. Core principle
 
 ```text
-one concurrent Issue
-→ one isolated mutable worktree
-→ one issue-linked tmux/Codex execution context
-```
-
-Dispatcher owns that execution mapping. Channel MCP does not store it.
-
-## 9. Recovery
-
-```text
-status:in-progress + live runtime
-→ active Attempt
-
-status:in-progress + dead/missing runtime
-→ Coordinator/Reviewer recovery required
-```
-
-Dispatcher must not automatically create Attempt N+1.
-
-## 10. Core principle
-
-```text
-GPT Web = Coordinator / Review authority
-Dispatcher = execution delivery
-Codex = implementation Worker
+original GPT Web = Coordinator / Review authority
+separate GPT Web conversation = default Worker
 GitHub Actions = verification Runner
 GitHub = durable Task authority
+Dispatcher/Codex = optional execution route
 Channel MCP = product being built, not collaboration engine
 ```
