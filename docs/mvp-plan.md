@@ -14,6 +14,20 @@ channel discovery
 
 Deployment/tunnel/network integration is not a product phase.
 
+**MVP status: ACCEPTED AND INTEGRATED.**
+
+Accepted canonical main after dogfooding:
+
+```text
+88b939d3112e755f37bf57856347bb7b8acaf517
+```
+
+Canonical-main CI:
+
+```text
+33148103167 SUCCESS
+```
+
 ## 2. Planning discipline
 
 Every Task is planned use-case-first:
@@ -133,7 +147,7 @@ backend/service health
 != deployment reachability
 ```
 
-The complete accepted product surface is now:
+The complete accepted product surface is:
 
 ```text
 list_channels
@@ -166,9 +180,32 @@ Historical #11 planning is retained for audit only and has no execution authorit
 Issue #12
 ```
 
-Status: **scenario selected; Publication Gate pending**.
+Status: **accepted and integrated**.
 
-### Frozen use case
+Accepted Attempt:
+
+```text
+Attempt 2
+Candidate: 9482acf7ee1529f52c27d408708430d8a7e4fd4e
+PR: #19
+Integrated main: 88b939d3112e755f37bf57856347bb7b8acaf517
+Exact-Candidate CI: 33147710571 SUCCESS
+PR-context CI: 33147799648 SUCCESS
+Canonical-main CI: 33148103167 SUCCESS
+```
+
+Attempt 1 correctly exposed a real product defect in the public stdio discovery path. That defect was split into Issue #17 instead of being repaired inside the validation Task.
+
+```text
+Issue #17
+[BUG] Fix tmux pane metadata parsing on public list_channels
+Candidate: d30cdec61278258827f21577288ebf03632e6f04
+Integrated main: ea47668d6966b60e90c70c29ee70611216876977
+```
+
+The accepted fix keeps the strict metadata parser and forces tmux UTF-8 output with global `-u`, so metadata parsing no longer depends on ambient locale inherited by the MCP stdio client.
+
+### Accepted dogfood use case
 
 ```text
 external fixture creates disposable tmux pane
@@ -181,69 +218,89 @@ agent-runtime-mcp stdio server
 health / list / get / read / write / control
 ```
 
-The upper layer sends a deterministic shell marker command, observes it through `read_channel`, starts a long `sleep`, interrupts it through `send_control(INTERRUPT)`, then proves later write/read remains usable. Finally the external fixture destroys the pane and verifies MCP reports the missing endpoint without recreation.
-
-### Separation proof
+Accepted Evidence proves:
 
 ```text
-fixture / upper layer
+exact six public Tools
++ mechanical health
++ existing Channel discovery/inspection
++ bounded read
++ literal write and upper-layer marker observation
++ send_control(INTERRUPT)
++ successful post-control write/read
++ external endpoint destruction
++ mechanical failure after destruction
++ no endpoint recreation by MCP
+```
+
+### Final separation proof
+
+```text
+upper layer
 = endpoint create/destroy
-+ shell command meaning
-+ call sequencing
-+ marker interpretation
-+ final success/recovery decision
++ application meaning
++ MCP call sequencing
++ observation interpretation
++ retry/recovery policy
++ final success authority
 
 Channel MCP
-= six accepted mechanical capabilities only
+= six generic mechanical terminal communication capabilities
+
+TmuxBackend
+= tmux-specific mechanics
+
+deployment
+= external concern
 ```
 
-Local stdio is sufficient. No tunnel/provider/network proof is required.
+Dogfooding required no Task/Worker/application/deployment semantics and added no seventh product Tool.
 
-### Validation-only change rule
+## 9. MVP outcome
 
-Expected Task changes are test/client/CI/documentation infrastructure. If the public-MCP dogfood scenario requires changing product-source behavior, Tool schemas or adding a seventh capability, the Worker must stop and return the finding for Coordinator REVISE/SPLIT rather than silently expanding MVP-003.
-
-### Publication Gate
-
-Before `status:ready`, confirm:
+The first Channel MCP MVP is complete when viewed as a capability product:
 
 ```text
-complete six-tool surface accepted
-frozen bash scenario recorded
-external endpoint lifecycle explicit
-official public MCP client path selected
-application interpretation belongs to upper layer
-negative missing-endpoint path defined
-exact-Candidate CI Evidence route defined
-product-source change gate explicit
+existing terminal endpoint
+        ↓
+Channel discovery / inspection
+        ↓
+bounded observation
+        ↓
+safe ordinary text input
+        ↓
+explicit ENTER / INTERRUPT / ESCAPE
+        ↓
+mechanical backend health
 ```
 
-## 9. Deferred / separate concerns
+It has also been proven through the public MCP protocol rather than only through private backend integration.
 
-Not part of core MVP:
+The accepted MVP does **not** own:
 
+- deployment/tunnel/provider/network integration;
 - Worker registry/lifecycle;
 - tmux session/pane lifecycle;
 - process startup profiles;
 - Issue/task correlation storage;
 - workspace/worktree management;
 - scheduler/automatic assignment;
-- semantic Agent/application state parser;
-- full terminal recording;
-- distributed host management;
-- generic shell command API;
-- tunnel/provider/network deployment;
-- TLS/DNS/firewall/workspace authorization management.
+- semantic Agent/application state parsing;
+- retry/recovery policy;
+- application success interpretation;
+- generic shell command execution.
+
+No follow-up feature Task is created automatically. Future capabilities require a new use case, separation analysis and Publication Gate.
 
 ## 10. Task sizing
 
 Tasks follow independently reviewable use cases/responsibilities, not files or individual tmux commands.
 
-A small Task is appropriate when a separation point has an independent reason to change. Issue #14 is the canonical example.
+A small Task is appropriate when a separation point has an independent reason to change. Issue #14 and the Issue #12 → #17 blocker split are canonical examples.
 
 ## 11. Publication rule
 
-Before a Task becomes executable:
+Before a future Task becomes executable:
 
 ```text
 Goal defined
