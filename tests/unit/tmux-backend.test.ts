@@ -65,6 +65,17 @@ describe('TmuxBackend', () => {
     assert.deepEqual(channels[0].capabilities, ['read', 'write-text', 'control']);
     assert.equal(channels[0].title, 'Visible pane');
     assert.equal(channels[0].cwd, '/work/visible');
+    assert.deepEqual(channels[0].backend_metadata, {
+      tmux: {
+        session_name: 'visible',
+        window_id: '@1',
+        window_index: 0,
+        pane_id: '%1',
+        pane_index: 0,
+      },
+    });
+    assert.equal(typeof channels[0].backend_metadata?.tmux?.window_index, 'number');
+    assert.equal(typeof channels[0].backend_metadata?.tmux?.pane_index, 'number');
     assert.match(channels[0].channel_id, /^tmux:[a-f0-9]{12}:1$/);
     assert.equal(runner.calls[0].executable, 'tmux');
     assert.deepEqual(runner.calls[0].args.slice(0, 4), ['-u', '-L', 'isolated', 'list-panes']);
@@ -81,6 +92,24 @@ describe('TmuxBackend', () => {
     const backend = new TmuxBackend({ socketName: 'isolated' }, runner);
 
     await assertRejectCode(backend.listChannels(), 'BACKEND_OPERATION_FAILED');
+  });
+
+  it('fails closed on malformed required tmux identity indices', async () => {
+    for (const [windowIndex, paneIndex] of [
+      ['-1', '0'],
+      ['0', '-1'],
+      ['1.5', '0'],
+      ['0', '2.5'],
+      ['not-a-number', '0'],
+      ['0', '9007199254740992'],
+    ]) {
+      const runner = new QueueRunner({
+        stdout: `%1\tvisible\t@1\t${windowIndex}\t${paneIndex}\tVisible pane\t/work/visible\n`,
+        stderr: '',
+      });
+      const backend = new TmuxBackend({ socketName: 'isolated' }, runner);
+      await assertRejectCode(backend.listChannels(), 'BACKEND_OPERATION_FAILED');
+    }
   });
 
   it('rejects channel ids from another configured tmux scope', async () => {
