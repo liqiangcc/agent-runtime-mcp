@@ -1,296 +1,346 @@
-# Task — MVP-004 End-to-end Channel dogfooding
+# Task — MVP-003 End-to-end Channel capability dogfooding
 
 ## Metadata
 
 ```text
 GitHub Issue: #12
-MVP phase: Phase 4
+MVP phase: Phase 3 validation
 Task kind: verification / integration
-Planning base commit: d5e61a31b33154a7e20d152084c759d0a2955600
 Session bootstrap: docs/tasks/12-end-to-end-channel-dogfooding/prompt.md
 Preferred worker: web-gpt-worker
 Environment: env:web-gpt
 Handoff profile: docs/tasks/handoffs/web-gpt.md
-Hard publication dependencies: MVP-003 Final Acceptance + concrete reachable deployment + externally prepared terminal endpoint + chosen upper-layer scenario
+Hard publication dependency: complete six-tool Channel surface accepted + one selected upper-layer scenario + externally prepared disposable endpoint
 ```
 
-> This Task is intentionally **draft**. It freezes the separation proof and use-case shape, not the final application/provider details. The actual upper-layer scenario must be selected from live accepted state before Publication Gate.
+> This Task remains `status:draft` until the Coordinator selects the concrete scenario. It has **no tunnel/provider/remote-deployment dependency**.
 
 Planning method: `docs/tasks/planning-principles.md`.
 
 ## Goal
 
-Prove that the completed Channel MCP is useful as a generic communication channel in one real upper-layer workflow while remaining ignorant of endpoint lifecycle, application semantics and workflow/Task meaning.
+Prove that one real upper layer can use the completed generic Channel MCP as a communication capability while endpoint lifecycle, application semantics and workflow control remain outside the product.
+
+## Accepted product baseline
+
+Already accepted before this Task:
+
+```text
+list_channels
+get_channel
+read_channel
+write_text
+send_control
+health
+```
+
+Accepted implementation comes from Issues #2, #10 and #14.
+
+Issue #11 remote deployment/tunnel planning is `NOT_PLANNED` and is not an upstream dependency.
 
 ## Primary Use Case
 
-### UC1 — Upper layer communicates with an already-existing interactive terminal through Channel MCP
+### UC1 — Upper layer communicates with an existing interactive terminal through the six MCP capabilities
 
 ```text
-Actor: upper-layer system/operator/client
-Trigger: upper layer has prepared an interactive terminal endpoint and needs remote terminal communication
+Actor: upper-layer system / operator / MCP client
+Trigger: an interactive terminal endpoint already exists and the upper layer needs to communicate with it
 Preconditions:
-- accepted secure remote Channel MCP deployment is reachable
-- terminal endpoint already exists outside Channel MCP
-- upper layer knows what the terminal/application interaction means
+- terminal endpoint was prepared outside Channel MCP
+- an MCP client/harness can connect to the server; local stdio is sufficient
+- upper layer owns the meaning of the interaction
 Main flow:
-1. upper layer prepares/identifies endpoint externally
-2. Channel MCP discovers the existing Channel
-3. client inspects Channel metadata
-4. client reads bounded output
-5. client writes one meaningful ordinary instruction/data payload
-6. client sends at least one explicit terminal control when appropriate
-7. upper layer interprets application/workflow result using its own authority
-Success outcome:
-- Channel operations work end to end
-- application/workflow goal can proceed using the transport
-- Channel MCP never needs application/Task/lifecycle knowledge
-Failure outcome:
-- transport/auth/channel failure is reported mechanically and upper layer decides recovery
-Degraded outcome:
-- missing endpoint remains CHANNEL_NOT_FOUND/unavailable; MCP does not recreate it
-Authoritative evidence:
-- Channel transport evidence from MCP/deployment
-- application/workflow meaning from the selected upper layer, not Channel MCP
+1. upper layer identifies/prepares endpoint externally
+2. client calls list_channels
+3. client calls get_channel
+4. client calls health independently of Channel/application readiness
+5. client calls read_channel
+6. client calls write_text with meaningful ordinary input
+7. client calls send_control when explicitly required
+8. upper layer interprets the application result itself
+Success:
+- six accepted MCP capabilities work coherently
+- Channel MCP never learns Task/application/lifecycle meaning
+Failure:
+- MCP reports mechanical Channel/backend/input failure
+- upper layer decides what to do next
+Degradation:
+- missing endpoint remains CHANNEL_NOT_FOUND/unavailable
+- unexpected application output remains upper-layer interpretation
+Evidence:
+- MCP capability Evidence
+- separate upper-layer application/workflow Evidence
 ```
 
-This Task is verification/integration, not a request to add scenario-specific features.
+This is a validation Task, not a feature-expansion Task.
 
 ## Separation Points
+
+### MCP capability | deployment mechanism
+
+The MCP client connection mechanism is test/integration infrastructure. Local stdio is sufficient.
+
+Tunnel/provider/network topology is not part of this Task or the product.
 
 ### Upper-layer semantics | Channel MCP
 
 ```text
 Upper layer owns:
 - why endpoint exists
-- how it is created/restarted/cleaned up
+- endpoint creation/restart/cleanup
 - what program runs there
-- which instruction to send
+- which Channel corresponds to its workflow
+- what input to send
 - what output means
-- success/retry/recovery/next-step decisions
+- retry/recovery/next-step decisions
+- application success
 
 Channel MCP owns:
-- discover existing Channel
-- inspect mechanical metadata
-- bounded read
-- literal text write
-- explicit terminal control
-- mechanical transport/auth/backend errors
+- Channel discovery
+- mechanical metadata
+- bounded output read
+- bounded literal text write
+- explicit terminal controls
+- backend/service health
+- structured mechanical errors
 ```
-
-This is the primary dogfooding proof.
 
 ### Endpoint lifecycle | Channel discovery
 
-Endpoint creation/destruction occurs outside the product. Discovery reflects reality; it does not create desired state.
+Discovery reflects already-existing state. It never creates desired terminal state.
 
 ### Observation | interpretation
 
-Terminal output is untrusted transport data. Channel MCP may return it but cannot conclude application completion, Task success or acceptance.
+Terminal output is transport data. Channel MCP never promotes output text to Task/application completion authority.
 
 ### Communication logic | workflow control
 
-Channel communication semantics remain product logic. Sequencing/retry/recovery/application workflow remains upper-layer control.
+Channel operations are product logic. Sequencing, retry, recovery and application workflow belong to the upper layer.
 
-### Remote trust boundary | application meaning
+### Backend health | application readiness
 
-MVP-003 auth/transport controls who may access Channels. Authorization to use the channel does not make Channel MCP responsible for what the upper-layer workflow means.
+A healthy backend does not prove a Channel exists or an application is ready.
 
 ## Single Responsibilities
 
 ```text
-Channel MCP = secure terminal communication with existing endpoints
-upper-layer consumer = endpoint lifecycle + application/workflow semantics
-remote ingress/auth = protect network access to Channel capabilities
-terminal application = execute its own interactive behavior
-verification scenario = prove composition without adding coupling
+Channel MCP
+= six generic terminal communication capabilities
+
+TmuxBackend
+= tmux-specific mechanics and scope
+
+upper-layer consumer
+= lifecycle + application/workflow meaning + control policy
+
+MCP client/harness
+= exercise the public MCP contract
+
+verification scenario
+= prove composition without adding product coupling
 ```
 
 ## Logic / Control Separation
 
-Channel MCP logic owns only mechanical terminal communication.
+Product logic owns only mechanical Channel communication and health.
 
 Upper-layer control owns:
-
 - endpoint preparation;
-- selecting which Channel corresponds to its workflow;
-- deciding when to read/write/control;
-- interpreting responses;
-- retry/recovery/recreate policy;
+- selecting the workflow-relevant Channel;
+- deciding call order for application purposes;
+- interpreting output;
+- retries/recovery;
 - deciding whether the use case succeeded.
 
-Dogfooding fails architecturally if product code must learn Task/Issue/application-specific state to make the scenario work.
+Dogfooding fails architecturally if Channel code needs scenario-specific Task/application state.
 
 ## Success / Failure / Degradation
 
 ### Success
-A real useful interaction crosses the secure Channel MCP and the upper layer independently determines its application/workflow result.
+
+One useful interaction is completed through the six MCP capabilities while the upper layer independently owns application meaning.
 
 ### Hard failure
 
-- Channel MCP requires scenario-specific Task/Worker/application semantics;
-- MCP creates/restarts the terminal to make the scenario pass;
-- terminal output is used by MCP as semantic completion authority;
-- secure remote access or required Channel operation does not work.
+- scenario requires Task/Worker/application fields in Channel schemas;
+- MCP creates/restarts endpoints to make the scenario pass;
+- terminal output becomes semantic completion authority inside MCP;
+- raw tmux/shell escape hatch is needed;
+- deployment/tunnel behavior is added as a Channel capability;
+- a seventh product tool is added merely for the scenario.
 
 ### Safe degradation
 
-- endpoint disappears → Channel not found/unavailable;
-- remote ingress unavailable → remote transport unavailable;
-- application returns unexpected output → upper layer interprets it; MCP remains transport-only;
-- retry/recovery decision remains outside product.
+- Channel disappears → structured Channel failure;
+- tmux backend unavailable → backend health/error remains mechanical;
+- application rejects input → upper layer interprets it;
+- retry/recovery remains outside product.
 
 ## Required Capabilities
 
+Exactly the accepted six-tool surface:
+
 ```text
-existing endpoint discovery
-+ mechanical inspection
-+ bounded read
-+ literal text write
-+ explicit control
-+ secure remote ingress/auth
+list_channels
+get_channel
+read_channel
+write_text
+send_control
+health
 ```
 
-No new Channel capability is planned by default. If the scenario requires a new product capability, Coordinator must decide whether that reveals a genuine generic Channel gap or merely scenario-specific coupling; this Task stays draft/revised rather than silently expanding scope.
+No new generic capability is assumed.
+
+If the scenario appears to need a seventh product capability, stop and return it to Coordinator review rather than expanding this Task implicitly.
 
 ## Scenario-Selection Gate
 
-Before `status:ready`, Coordinator must select and record:
+Before `status:ready`, Coordinator must record:
 
 ```text
-1. accepted reachable Channel MCP deployment
-2. intended remote client
-3. externally prepared terminal endpoint
-4. interactive program / upper-layer consumer
-5. one narrow meaningful interaction
-6. transport Evidence expected from Channel MCP
-7. application/workflow Evidence expected from upper layer
-8. explicit endpoint cleanup/recovery owner outside MCP
+1. one narrow upper-layer use case
+2. one externally prepared disposable terminal endpoint
+3. one foreground interactive program
+4. one MCP client/harness; stdio is acceptable
+5. one meaningful ordinary input
+6. one explicit control to exercise where meaningful
+7. MCP capability Evidence expected
+8. application/workflow Evidence expected from the upper layer
+9. external cleanup/recovery owner
 ```
 
 Selection criteria:
-
-- scenario must exercise read + write + at least one explicit control where meaningful;
-- endpoint lifecycle must be external;
-- application semantics must be external;
-- no bespoke Channel API should be needed;
-- evidence must clearly distinguish transport success from application success.
-
-## Canonical / Process Sources
-
-Before publication/execution read:
-
-- `AGENTS.md`
-- `docs/tasks/planning-principles.md`
-- all canonical Channel/security/deployment docs;
-- accepted MVP-001/002/003 Candidates/Reviews;
-- repository Task protocols;
-- scenario-specific upper-layer authority/evidence sources selected at Publication Gate.
+- scenario is useful but narrow;
+- all endpoint lifecycle is external;
+- all application semantics are external;
+- all six MCP capabilities can be exercised or explicitly justified;
+- no tunnel/provider is required;
+- Evidence separates mechanical MCP success from application success.
 
 ## In Scope
 
 - select one real upper-layer use case;
-- prepare endpoint externally;
-- invoke accepted remote Channel tools end to end;
-- prove separation points and failure behavior;
-- collect durable transport + upper-layer evidence;
-- document any genuine generic gaps without implementing new scope inside this Task unless formally revised.
+- externally prepare a disposable endpoint;
+- use an MCP client/harness against the accepted server;
+- exercise the six accepted capabilities;
+- verify missing/backend failure behavior;
+- prove architecture separation;
+- record genuine generic gaps for Coordinator review without implementing them implicitly.
 
 ## Out of Scope
 
-- adding Worker/Task/Issue semantics to Channel MCP;
-- endpoint/session/process lifecycle product APIs;
-- scenario-specific parser/scheduler/automation in Channel MCP;
-- raw shell/tmux command API;
-- silently weakening auth/security;
-- declaring application success from terminal text inside Channel MCP;
-- starting a new feature Task automatically from a discovered gap.
+- remote deployment/tunnel/provider verification;
+- network/TLS/DNS/firewall/workspace auth;
+- Worker/Task/Issue semantics in Channel MCP;
+- endpoint/session/process lifecycle APIs;
+- scenario-specific parser/scheduler/automation inside Channel MCP;
+- raw shell/tmux command APIs;
+- product-side application completion inference;
+- automatic creation of follow-up Tasks.
 
 ## Architecture Invariants
 
 1. Channel MCP remains application-agnostic.
-2. endpoint lifecycle remains external.
-3. communication logic and workflow control remain separate.
-4. observation and semantic interpretation remain separate.
-5. secure remote authorization remains enforced.
-6. missing endpoint is reported, not recreated.
-7. no scenario-specific fields/tools are added merely for dogfooding.
+2. MCP capability and deployment mechanism remain separate.
+3. Endpoint lifecycle remains external.
+4. Communication logic and workflow control remain separate.
+5. Observation and semantic interpretation remain separate.
+6. Backend health and application readiness remain separate.
+7. Missing endpoints are reported, not recreated.
+8. No scenario-specific public fields/tools are added.
+9. No seventh product capability is added without Contract republication.
+10. The server remains usable over its accepted local MCP transport.
 
 ## Verification Claims
 
-- C1 Existing externally prepared endpoint is discovered remotely.
-- C2 Bounded output can be read without semantic interpretation by Channel MCP.
-- C3 Meaningful ordinary input is delivered literally to the selected Channel.
-- C4 At least one accepted explicit terminal control works where scenario requires it.
-- C5 Endpoint/application lifecycle remains completely outside Channel MCP.
-- C6 Upper layer, not Channel MCP, owns application/workflow result interpretation.
-- C7 Missing endpoint/transport failure remains mechanical and does not trigger product-side recovery.
-- C8 Remote auth boundary remains effective during real use.
-- C9 No Worker/Task/application-specific product coupling is introduced.
-- C10 Evidence distinguishes Channel transport success from upper-layer application/workflow success.
+- **C1 Public surface:** the MCP client sees exactly the accepted six Channel tools relevant to the product.
+- **C2 Discovery/inspection:** an externally prepared endpoint is discovered and inspected mechanically.
+- **C3 Bounded read:** recent output is read within the accepted bounds without semantic inference.
+- **C4 Literal write:** meaningful ordinary input is delivered through `write_text` with accepted text/control separation.
+- **C5 Explicit control:** an accepted explicit control is delivered where the scenario requires it.
+- **C6 Health separation:** `health` reports backend/service state and is not used as application readiness.
+- **C7 Lifecycle separation:** endpoint creation/restart/cleanup remains outside Channel MCP.
+- **C8 Interpretation separation:** upper layer, not Channel MCP, decides application/workflow outcome.
+- **C9 Failure behavior:** missing/backend/input failure remains mechanical and triggers no product-side recovery.
+- **C10 Product boundary:** no Task/Worker/application/deployment/raw-command coupling is introduced.
 
 ## Verification Plan
 
-### J1 — Preflight
-Confirm exact accepted MVP-003 deployment/Candidate and selected endpoint/scenario before execution.
+### J1 — Local regression
 
-### J2 — End-to-end run
-Capture sanitized evidence for discovery, read, write, control and upper-layer result without storing unnecessary sensitive terminal history.
+Exact Candidate/main must keep typecheck, unit, real tmux and static-boundary CI green if repository files change.
 
-### J3 — Negative path
-Externally remove/disable the selected endpoint or otherwise test an accepted missing/unavailable condition; prove MCP reports it and does not recreate it.
+### J2 — MCP client/harness end-to-end
 
-### J4 — Separation review
-Static/config/evidence review confirms no scenario-specific Task/application/lifecycle semantics entered product code/config contract.
+Use the selected MCP client/harness to exercise the accepted public server surface rather than calling only private backend methods.
+
+### J3 — Real terminal scenario
+
+Use one externally prepared disposable tmux endpoint and capture sanitized Evidence for discovery, health, read, write and control.
+
+### J4 — Negative path
+
+Externally remove the endpoint or make an accepted backend/missing condition observable; prove Channel MCP reports it and does not recreate/recover it.
+
+### J5 — Separation review
+
+Confirm product code/schema contains no scenario-specific or deployment semantics.
 
 ## Security Review
 
-Security-sensitive: yes, because real remote terminal authority is exercised. Use the already-accepted MVP-003 trust boundary; do not expand credentials, terminal visibility or logging beyond what the scenario minimally requires.
+Security-sensitive terminal I/O rules from `docs/security.md` remain active.
+
+Deployment security is outside this Task. Use local/disposable test infrastructure and do not persist unnecessary terminal contents or secrets.
 
 ## Success Criteria
 
-Reviewer may ACCEPT only when C1–C10 are evidenced in one real scenario and the scenario demonstrates, rather than weakens, the separation:
+Reviewer may ACCEPT only when:
 
-```text
-upper layer = lifecycle + meaning + control
-Channel MCP = secure communication logic only
-```
-
-A useful scenario that only works after product learns its Task/application semantics is a design failure, not successful dogfooding.
+1. C1-C10 have durable Evidence;
+2. one real upper-layer scenario uses the public MCP surface end to end;
+3. endpoint lifecycle remains external;
+4. application interpretation remains external;
+5. no deployment/tunnel requirement enters the product;
+6. no scenario-specific Channel coupling is introduced;
+7. required CI remains green for repository changes.
 
 ## Evidence Contract
 
 Record:
 
 ```text
-accepted MVP-003 Candidate/deployment identity
-selected remote client
-selected externally prepared Channel/terminal kind
-upper-layer scenario and authority
-sanitized discovery/read/write/control evidence
-upper-layer result evidence
-negative missing/unavailable evidence
+Attempt
+Worker
+Base/Candidate SHA if changed
+selected MCP client/harness
+selected disposable Channel/terminal kind
+upper-layer scenario
+sanitized six-tool MCP Evidence
+separate upper-layer result Evidence
+negative failure Evidence
 Claims C1-C10
-known limitations / generic gaps found
+known limitations / generic gaps
 ```
 
 Do not persist secrets or unnecessary full terminal transcripts.
 
 ## Failure / Blocked Rules
 
-BLOCKED while MVP-003 is not finally accepted, no suitable externally prepared reachable endpoint/scenario exists, or required real integration evidence cannot be produced.
+BLOCKED while no suitable scenario/endpoint/client harness exists or required evidence cannot be produced.
 
-If dogfooding reveals a genuine new generic capability need, record it for Coordinator review/SPLIT; do not expand this Task implicitly.
+If a genuine new generic MCP capability need appears, report it for Coordinator review/SPLIT. Do not expand this Task implicitly.
 
 ## Completion Protocol
 
-When eventually published:
+When published:
 
 ```text
 Coordinator → ready/env:web-gpt
-→ separate Web GPT Worker executes one verification/integration Attempt
-→ durable Evidence + report
-→ review/blocked + owner:none → STOP
+→ separate Web GPT Worker claims one Attempt
+→ verification/integration + durable Evidence
+→ [EXECUTION REPORT] | [BLOCKER REPORT]
+→ status:review | status:blocked + owner:none
+→ STOP
 → original Coordinator Review
 ```
 
