@@ -88,6 +88,11 @@ describe('real tmux Channel backend', () => {
     expect(read.text).not.toContain('\uFFFD');
   });
 
+  it('returns BACKEND_UNAVAILABLE for a configured tmux server that is not running', async () => {
+    const backend = new TmuxBackend({ socketName: `${socketName}-missing` });
+    await expect(backend.listChannels()).rejects.toMatchObject({ code: 'BACKEND_UNAVAILABLE' });
+  });
+
   it('returns CHANNEL_NOT_FOUND after the externally prepared pane is destroyed', async () => {
     const backend = new TmuxBackend({ socketName, allowedSessions: [visibleSession] });
     const [channel] = await backend.listChannels();
