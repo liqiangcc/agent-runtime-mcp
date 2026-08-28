@@ -93,9 +93,16 @@ test('official stdio client discovers only the allowed externally prepared tmux 
     assert.deepEqual(channel.capabilities, ['read', 'write-text', 'control']);
     assert.match(String(channel.channel_id), /^tmux:[a-f0-9]{12}:\d+$/);
 
+    const backendMetadata = asRecord(channel.backend_metadata, 'channel.backend_metadata');
+    const tmuxIdentity = asRecord(backendMetadata.tmux, 'channel.backend_metadata.tmux');
+    assert.equal(tmuxIdentity.session_name, allowedSession);
+    assert.match(String(tmuxIdentity.window_id), /^@\d+$/);
+    assert.equal(Number.isInteger(tmuxIdentity.window_index) && (tmuxIdentity.window_index as number) >= 0, true);
+    assert.match(String(tmuxIdentity.pane_id), /^%\d+$/);
+    assert.equal(Number.isInteger(tmuxIdentity.pane_index) && (tmuxIdentity.pane_index as number) >= 0, true);
+
     const serialized = JSON.stringify(channel);
     assert.equal(serialized.includes(socketName), false);
-    assert.equal(serialized.includes(allowedSession), false);
     assert.equal(serialized.includes(hiddenSession), false);
   } finally {
     await client.close().catch(() => undefined);
