@@ -1,4 +1,4 @@
-# Session Bootstrap — v0.1.0 consumer and deployment-bundle readiness
+# Session Bootstrap — v0.1.0 deployment bundle readiness
 
 You are a **Web GPT Worker in a separate GPT Web conversation** for Issue #20 in `liqiangcc/agent-runtime-mcp`.
 
@@ -10,62 +10,45 @@ docs/tasks/20-v0-1-0-consumer-release-readiness/task.md
 
 Use `@GitHub` live state.
 
-## Current publication state
-
-Expected now:
+Expected executable state:
 
 ```text
 Issue: #20
-Status: status:draft
+Status: status:ready
 Active owner: none
-Blocker: awaiting-license-policy-decision
+Environment: env:web-gpt
+Blocker: none
 ```
 
-While draft, do not claim or execute.
-
-This Task packages the already accepted six-Tool Channel MCP runtime. It is not a new MCP capability and not deployment-infrastructure work.
-
-Coordinator decisions already frozen:
+Your responsibility is only to produce and verify the accepted runtime deployment bundle:
 
 ```text
-D1 distribution:
-agent-runtime-mcp-v0.1.0.tar.gz deployment bundle
-compiled dist/src runtime + package manifests + consumer/deployment docs + LICENSE
-no src/tests/dev build tooling in bundle
-no embedded Node/tmux
+agent-runtime-mcp-v0.1.0.tar.gz
+```
+
+Frozen bundle contract:
+
+```text
+include compiled dist/src runtime
+include package.json + package-lock.json + focused deployment docs
+exclude src/tests/dist tests/dev build tooling/node_modules
+Node >=20 + npm + tmux remain target prerequisites
 unpack → npm ci --omit=dev → TMUX_* → npm start
 package.json remains private:true
 no npm registry publication
-
-D3 release checkpoint:
-after readiness Final Acceptance, accepted archive + SHA-256 are bound to the same v0.1.0 canonical release checkpoint
-
-D4 product identity:
-Generic MCP communication layer for already-existing interactive terminal Channels, with tmux as the first backend.
 ```
 
-Only D2 remains unresolved:
+Protocol:
 
-```text
-D2 license policy
-= owner decision
-```
+1. read live Issue #20/comments, `AGENTS.md`, Task Contract and canonical Channel docs;
+2. confirm ready/no-owner/env:web-gpt and claim exactly one Attempt;
+3. implement runtime-only packaging and focused deployment instructions;
+4. add exact-Candidate CI that builds tar.gz + SHA-256, extracts into an empty directory, installs production dependencies, launches the packaged stdio server, and verifies at least public health/list_channels with an externally prepared disposable tmux endpoint;
+5. retain the generated tar.gz/checksum as executable Evidence when CI artifact upload is available;
+6. preserve all existing CI including full public dogfood;
+7. do not modify MCP Tool/schema/runtime semantics or endpoint lifecycle authority;
+8. do not add Docker/systemd/tunnel/provider/network/TLS/auth scope;
+9. do not choose/change repository license policy and do not publish to npm;
+10. finish with `[EXECUTION REPORT]` or `[BLOCKER REPORT]`, set review/blocked + owner none, then STOP.
 
-When and only when Issue #20 is published to `status:ready` after D2 is frozen:
-
-1. read live Issue/comments, `AGENTS.md`, Task Contract and canonical Channel docs;
-2. confirm D1-D4 are frozen, owner none, env:web-gpt;
-3. claim exactly one Attempt as `web-gpt-worker`;
-4. implement only consumer/release-readiness + runtime deployment-bundle work authorized by D1-D4;
-5. preserve `private:true` and do not publish to npm;
-6. produce `agent-runtime-mcp-v0.1.0.tar.gz` with compiled runtime, production manifests, docs and the frozen LICENSE;
-7. exclude source/tests/dist tests/dev tooling, Node/tmux and deployment infrastructure from the archive;
-8. add CI clean-room verification: extract to empty dir → `npm ci --omit=dev` → launch the packaged stdio server and verify the accepted public path;
-9. produce SHA-256 Evidence for the exact deployment artifact;
-10. align consumer-facing identity/docs and include concrete local stdio + external tmux configuration;
-11. do not create the final v0.1.0 release checkpoint before Coordinator acceptance;
-12. do not change MCP Tools/schemas/runtime semantics or endpoint lifecycle authority;
-13. preserve full existing CI including public discovery/dogfood;
-14. finish with `[EXECUTION REPORT]` or `[BLOCKER REPORT]`, set review/blocked + owner none, then STOP.
-
-Do not choose a license yourself. Do not add Docker/systemd/tunnel/provider scope merely because this is called a deployment bundle. Do not create a post-v0.1.0 feature roadmap.
+Do not create a post-v0.1.0 feature roadmap and do not self-review/close the Issue.
