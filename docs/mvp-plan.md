@@ -2,32 +2,32 @@
 
 ## 1. Strategy
 
-Build the smallest useful remote terminal communication channel first.
+Build the smallest useful terminal Channel core, then prove secure remote composition around it.
 
 ```text
 channel discovery
 → bounded read
 → safe text/control write
 → public Channel health
-→ secure remote ingress
+→ secure remote composition
 → upper-layer dogfooding
 ```
 
-Do not build Worker registry/lifecycle/scheduler features into the core MCP.
+Do not build Worker registry/lifecycle/scheduler or infrastructure provisioning into the Channel core.
 
-Repository execution remains separate from product scope:
+Repository execution remains separate:
 
 ```text
 original GPT Web conversation = Coordinator / Reviewer
 → publish Task
 → separate GPT Web conversation = Web Worker using @GitHub
-→ GitHub Actions = executable verification Runner / Evidence
+→ GitHub Actions = executable Runner / Evidence
 → original GPT Web conversation = Review / Acceptance
 ```
 
 ## 2. Planning discipline
 
-Every Task is planned use-case-first according to `docs/tasks/planning-principles.md`:
+Every Task is planned use-case-first:
 
 ```text
 Goal
@@ -47,27 +47,25 @@ Recurring separation:
 upper layer
 = endpoint lifecycle + application/workflow meaning + orchestration/recovery
 
-Channel MCP
-= terminal communication semantics only
+Channel MCP core
+= terminal communication semantics + local MCP surface
 
-remote ingress/auth
-= network trust/transport boundary around complete Channel logic
+secure remote ingress
+= deployment/trust adapter around the Channel core
 
 TmuxBackend
 = backend-specific terminal mechanics only
 ```
-
-Implementation-specific details remain behind an Alignment Gate until upstream Candidates are accepted and re-read.
 
 ## 3. Phase 0 — Channel boundary freeze
 
 Accepted design establishes:
 
 - Channel as the only core domain object;
-- Worker/Task/Issue/worktree/session lifecycle outside the public MCP;
+- Worker/Task/Issue/worktree/session lifecycle outside public MCP;
 - existing terminal endpoints only;
-- bounded read, safe text, explicit control and backend health as Channel capabilities;
-- security and repository collaboration as separate concerns.
+- bounded read, safe text, explicit control and backend health;
+- remote ingress separable from Channel semantics.
 
 ## 4. Phase 1 — Discovery + bounded read
 
@@ -77,14 +75,6 @@ Issue #2
 ```
 
 Status: **accepted and integrated**.
-
-Separation proof:
-
-```text
-Channel discovery/read
-!= endpoint lifecycle
-!= application/Task interpretation
-```
 
 Accepted public tools:
 
@@ -109,24 +99,19 @@ Accepted main:
 1f81527f0687dff535faa27150d70b23dd1af444
 ```
 
-Primary use cases:
-
-- bounded ordinary Unicode terminal text;
-- explicit ENTER / INTERRUPT / ESCAPE.
-
-Key separation:
-
-```text
-ordinary text != terminal control
-Channel communication logic != retry/workflow/lifecycle control
-Channel semantics != tmux mechanics
-```
-
 Accepted public additions:
 
 ```text
 write_text
 send_control
+```
+
+Key separation:
+
+```text
+ordinary text != terminal control
+Channel communication != retry/workflow/lifecycle control
+Channel semantics != tmux mechanics
 ```
 
 ## 6. Phase 2.5 — Public Channel health
@@ -136,47 +121,37 @@ send_control
 Issue #14
 ```
 
-Status: **next capability Task / eligible for Publication Gate**.
+Status: **accepted and integrated**.
 
-Why it is separate:
-
-- canonical Channel contract requires public `health`;
-- `ChannelBackend.health()` / `TmuxBackend.health()` already exist;
-- MVP-002 correctly excluded health because its responsibility was terminal input;
-- MVP-003 must consume a complete accepted Channel surface instead of implementing missing Channel capability inside remote ingress.
-
-Primary use case:
-
-> A client can query mechanical backend/service health without treating Channel inventory, pane existence, application readiness or recovery policy as health semantics.
-
-Key separation:
+Accepted Candidate:
 
 ```text
-backend/service health
-!= channel existence
-!= application/Agent status
-!= remote-ingress reachability
-!= recovery control
+5c8b917b9ade04a102d76328ed3cd67c47ed98e5
 ```
 
-Target public addition:
+Integrated main:
+
+```text
+4e990bd60dc5bb78f40de26dad9d3732e4e97101
+```
+
+Accepted public addition:
 
 ```text
 health
 ```
 
-Issue #14 remains small by design because health and remote ingress have different reasons to change.
-
-## 7. Phase 3 — Secure remote MCP ingress
+Separation proof:
 
 ```text
-[MVP-003] Secure remote MCP ingress and client compatibility
-Issue #11
+backend/service health
+!= Channel existence
+!= application/Agent status
+!= remote ingress reachability
+!= recovery control
 ```
 
-Status: **draft**.
-
-MVP-003 consumes the complete already-accepted Channel surface:
+The complete accepted local Channel surface is now:
 
 ```text
 list_channels
@@ -187,34 +162,66 @@ send_control
 health
 ```
 
-It must not implement missing Channel capabilities merely because remote integration needs them.
-
-Primary use cases:
-
-- authorized remote Channel operation;
-- reject unauthorized terminal authority;
-- disconnect/reconnect without owning Channel/pane lifecycle;
-- preserve Channel visibility/scope remotely;
-- prove intended-client compatibility without distorting product semantics.
-
-Key separation:
+## 7. Phase 3 — Secure remote composition and client compatibility
 
 ```text
-network reachable != authenticated != authorized
-remote ingress/auth != Channel logic
-MCP connection/session lifetime != Channel/tmux lifetime
-infrastructure provisioning != product capability
-client compatibility evidence != product semantics
-ingress failure != Channel failure != backend failure
+[MVP-003] Secure remote MCP ingress and client compatibility
+Issue #11
 ```
 
-Hard Publication dependencies:
+Status: **draft — topology selected, environment Evidence pending**.
 
-- Issue #14 Final Acceptance;
-- current authoritative MCP transport/auth/client verification;
-- selected concrete secure topology and credential boundary.
+### Live architecture decision — 2026-08-28
 
-Provider/client/SDK mechanics are frozen only at the live Publication Gate.
+Current OpenAI Secure MCP Tunnel tooling can bridge private/local MCP servers, including a local stdio MCP command, to supported OpenAI MCP clients.
+
+Therefore the selected MVP topology is:
+
+```text
+ChatGPT / supported remote OpenAI MCP client
+→ OpenAI Secure MCP Tunnel
+→ customer-run tunnel-client
+→ existing agent-runtime-mcp stdio server
+→ complete Channel surface
+→ TmuxBackend
+```
+
+This discovery sharpens the separation point:
+
+```text
+secure remote ingress/auth
+!= Channel core implementation
+```
+
+MVP-003 should be an **integration + deployment verification Task**, not a default request to implement public HTTP/OAuth inside `agent-runtime-mcp`.
+
+### Direct-public HTTP
+
+Direct Streamable HTTP + OAuth resource-server support is a possible future alternate deployment adapter if a real use case requires it. It is not required to prove MVP remote usability while the official tunnel can wrap the accepted stdio server.
+
+### Phase-3 primary use cases
+
+- authorized intended client can use the complete six-tool Channel surface remotely;
+- unauthorized/unpermissioned client cannot gain tunnel/terminal authority;
+- disconnect/reconnect does not own Channel/tmux lifecycle;
+- remote composition preserves backend scope and Channel semantics;
+- tunnel/client compatibility is proven by dated real evidence.
+
+### Hard Publication Gate
+
+Do not publish #11 until Coordinator can verify all of:
+
+```text
+#14 Final Acceptance                    = satisfied
+complete local six-tool surface          = satisfied
+current Secure MCP Tunnel path           = verified from authoritative docs
+target ChatGPT workspace supports write  = must be proven for actual environment
+tunnel availability/permissions          = must be proven for actual environment
+real integration Evidence is feasible    = must be proven
+no secret persisted                      = required
+```
+
+If the target client/workspace exposes only read/fetch MCP behavior, keep #11 draft/BLOCKED rather than weakening write/control Success Criteria.
 
 ## 8. Phase 4 — Upper-layer dogfooding
 
@@ -235,7 +242,9 @@ Channel MCP
 = communication logic only
 ```
 
-If dogfooding requires the Channel MCP to learn Task/application semantics, that is an architecture failure.
+If dogfooding requires Channel MCP to learn Task/application semantics, that is an architecture failure.
+
+Do not publish until MVP-003 has real accepted remote Evidence.
 
 ## 9. Deferred / separate products
 
@@ -250,19 +259,19 @@ Not part of core MVP:
 - semantic Agent state parser;
 - full terminal recording;
 - distributed host management;
-- generic shell command API.
-
-If lifecycle automation is later useful, build it as an upper layer consuming Channel MCP.
+- generic shell command API;
+- tunnel/provider provisioning APIs;
+- direct-public HTTP/OAuth transport unless a later independent use case requires it.
 
 ## 10. Task sizing
 
-Tasks follow independently reviewable use cases/responsibilities, not source files or individual tmux commands.
+Tasks follow independently reviewable use cases/responsibilities, not files or individual tmux commands.
 
-A Task may be intentionally small when a separation point is important. Issue #14 is the canonical example: public backend health and remote ingress are separate responsibilities.
+Small Tasks are appropriate when the separation point is important. Issue #14 proved this: public health had a different reason to change from terminal input and remote ingress.
 
 ## 11. Publication rule
 
-Before an implementation Task becomes executable:
+Before an implementation/integration Task becomes executable:
 
 ```text
 Goal defined
@@ -271,16 +280,17 @@ Goal defined
 + Separation Points explicit
 + Single Responsibilities explicit
 + Logic / Control Separation explicit
-+ required capabilities derived
++ capabilities derived
 + task.md / prompt.md committed and read back
 + canonical docs resolve
 + Worker route explicit
 + dependencies satisfied
-+ GitHub Actions Evidence route sufficient
-+ upstream accepted interfaces re-read where required
++ Evidence authority feasible
++ upstream accepted interfaces re-read
++ current external compatibility facts re-verified when applicable
 + security implications reviewed
 + Success Criteria frozen
 + Publication Gate PASS
 ```
 
-The Coordinator then emits only the short Web Worker entry. The Worker claims exactly one Attempt and returns durable Evidence to GitHub.
+The Coordinator then emits only the short Web Worker entry. The Worker claims one Attempt and returns durable Evidence.
