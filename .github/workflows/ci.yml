@@ -58,6 +58,30 @@ jobs:
       - name: Real isolated tmux integration
         run: npm run test:integration
 
+  public-mcp-dogfood:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install tmux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux
+      - name: Install dependencies
+        run: npm ci
+      - name: Record exact dogfood runtime identity
+        shell: bash
+        run: |
+          echo "candidate=${GITHUB_SHA}"
+          node --version
+          npm --version
+          tmux -V
+          node -e "const l=require('./package-lock.json'); console.log('mcp-client='+l.packages['node_modules/@modelcontextprotocol/client'].version); console.log('mcp-server='+l.packages['node_modules/@modelcontextprotocol/server'].version)"
+      - name: Public MCP stdio dogfood
+        run: npm run test:dogfood
+
   static-boundary:
     runs-on: ubuntu-latest
     steps:

@@ -72,6 +72,14 @@ npm test
 npm run test:integration
 ```
 
+The public-MCP dogfood test additionally launches the built stdio server through the official TypeScript MCP client and uses a disposable tmux/bash endpoint prepared and destroyed by the test fixture:
+
+```bash
+npm run test:dogfood
+```
+
+The harness exercises all six public Tools, interprets shell markers outside the MCP, interrupts a long-running command through `send_control(INTERRUPT)`, and verifies that destroying the endpoint externally produces a mechanical Channel/backend failure without recreation.
+
 Build and run:
 
 ```bash
