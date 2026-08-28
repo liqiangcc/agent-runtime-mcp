@@ -16,10 +16,12 @@ Before starting any independent Task, read:
 8. `docs/deployment.md`
 9. `docs/security.md`
 10. `docs/mvp-plan.md`
-11. the current GitHub Issue and relevant comments
-12. the current Task Package under `docs/tasks/<issue>-<slug>/`
-13. `docs/tasks/issue-state-convention.md`
-14. `docs/tasks/issue-lifecycle-protocol.md`
+11. `docs/tasks/README.md`
+12. `docs/tasks/collaboration-protocol.md`
+13. the current GitHub Issue and relevant comments
+14. the current Task Package under `docs/tasks/<issue>-<slug>/`
+15. `docs/tasks/issue-state-convention.md`
+16. `docs/tasks/issue-lifecycle-protocol.md`
 
 Do not infer current Task state from old chat history or terminal output when GitHub can be read directly.
 
@@ -32,35 +34,69 @@ canonical docs
 → prompt.md
 ```
 
-The required live Task-state snapshot is the machine-readable state block in the GitHub Issue body as defined by `docs/tasks/issue-state-convention.md`. Labels/assignee may mirror it for convenience. Issue comments are the append-only Attempt / Review / Acceptance history.
+The required live Task-state snapshot is the Issue body state block defined by `docs/tasks/issue-state-convention.md`. Labels/assignee may mirror it for convenience. Issue comments are append-only Attempt / Blocker / Review / Acceptance history.
 
-## 2. Roles
+## 2. Collaboration roles
 
 ```text
 GPT Web Coordinator
 = long-lived project control plane
-= goal decomposition / priority / Task publication / routing / review / acceptance / recovery
+= goal decomposition / priority / role invocation / final authority
 
-Codex Worker
-= short-lived single-Task executor
-= repository work / implementation / tests / evidence / fixes
+Task Publisher
+= materialize Issue + task.md + prompt.md
+= run Publication Gate
+= produce canonical Worker handoff
+
+Task Dispatcher
+= deliver one published handoff to one isolated Codex runtime
+= worktree/runtime orchestration + tracking/recovery evidence only
+
+Task Worker
+= claim and execute exactly one Task Attempt
+= implementation / tests / evidence / report
+
+Task Reviewer
+= Coordinator-side review / recovery / iteration / final acceptance
 
 agent-runtime-mcp
-= execution-plane runtime control
+= execution-plane runtime authority
 = worker discovery / observation / input / interrupt / lifecycle operations
-
-Remote MCP Ingress
-= authenticated path from GPT Web to the Runtime service
-= transport/auth boundary, not Task authority
 
 Runtime Backend
 = concrete terminal/process transport
 = tmux first; other backends may follow
 ```
 
-A Worker does not become Coordinator because it can modify GitHub.
+Role chain:
 
-## 3. Core invariants
+```text
+GPT Web Coordinator
+→ Task Publisher
+→ status:ready + canonical handoff
+→ Task Dispatcher
+→ isolated Codex runtime
+→ Task Worker claim / Attempt N
+→ status:review | status:blocked
+→ Task Reviewer
+→ ACCEPT | REVISE | BLOCK | SPLIT | NOT_PLANNED
+```
+
+No role gains another role's authority merely because it has technical write access.
+
+## 3. Role separation invariants
+
+- Publisher never claims, executes, dispatches, Reviews, accepts, or closes.
+- Dispatcher never claims on behalf of Worker, changes Task Contract, implements, fabricates reports, Reviews, accepts, closes, or automatically starts Attempt N+1.
+- Worker executes exactly one claimed Attempt, reports durably, releases ownership, and stops.
+- Reviewer does not implement the Task. It decides what durable Worker/evidence results mean.
+- Reviewer returning a Task to `status:ready` produces a fresh handoff; Dispatcher performs the runtime delivery.
+- Contract changes return to Publisher/Publication Gate rather than being encoded only in comments.
+- Only Coordinator/Reviewer final acceptance may set `status:done` and close an accepted Task.
+
+See `docs/tasks/collaboration-protocol.md`.
+
+## 4. Core architecture invariants
 
 - GitHub is the durable Task authority.
 - GPT Web is the coordination authority.
@@ -69,15 +105,13 @@ A Worker does not become Coordinator because it can modify GitHub.
 - Codex is a Worker, not an autonomous project scheduler.
 - Runtime state must never be interpreted as Task acceptance.
 - `idle`, prompt visibility, process exit, output text or lack of output do not prove `status:done`.
-- A Runtime may carry a `task_reference`, but that reference is correlation metadata only.
-- Worker execution outcome, verification result and Coordinator decision are distinct.
-- Worker must not silently change Scope, architecture invariants or Success Criteria.
-- Worker must not automatically start another Issue or another Attempt after reporting.
-- Only Coordinator can perform final acceptance and close a Task Issue.
+- A Runtime may carry an external Issue reference, but it is correlation metadata only.
+- Worker execution outcome, verification result, runtime liveness and Reviewer decision are distinct.
+- Task Scope, Claims, Success Criteria and architecture/security invariants cannot be silently changed during execution.
 - Secure remote MCP ingress is part of MVP because GPT Web must reach the service.
 - Remote MCP ingress is not the same as a remote SSH Runtime Backend.
 
-## 4. Use-case-first design rule
+## 5. Use-case-first design rule
 
 Do not design the MCP API by wrapping tmux commands one-for-one.
 
@@ -95,7 +129,7 @@ User / Coordinator Goal
 
 A backend-specific primitive may exist internally without becoming a public MCP tool.
 
-## 5. Runtime boundary
+## 6. Runtime boundary
 
 The runtime may know:
 
@@ -106,69 +140,61 @@ The runtime may know:
 - runtime lifecycle state;
 - last activity;
 - declared runtime capabilities;
-- optional external `task_reference` for correlation.
+- optional external Issue reference for correlation.
 
 The runtime must not own authoritative values for:
 
 - Issue status;
 - Task acceptance;
 - verification PASS/FAIL authority;
-- Coordinator review decision;
+- Reviewer decision;
 - project priority;
-- next Task selection.
+- next Task selection;
+- Attempt creation.
 
-## 6. Backend boundary
+## 7. Backend boundary
 
-Public runtime behavior must flow through a backend abstraction.
+Public runtime behavior flows through a backend abstraction:
 
 ```text
 MCP Tool
 → Runtime Service
 → RuntimeBackend
 → TmuxBackend
-→ tmux CLI / protocol
+→ tmux
 ```
 
-Do not spread direct tmux shell invocations across business logic.
+Do not spread direct tmux shell invocations across business logic. Backend-specific behavior belongs under `docs/backends/` and the corresponding implementation module.
 
-Backend-specific behavior belongs under `docs/backends/` and the corresponding implementation module.
-
-## 7. Remote ingress boundary
-
-GPT Web connects to a remote MCP service, so ingress/transport is an explicit architecture concern.
+## 8. Remote ingress boundary
 
 ```text
 GPT Web
 → authenticated remote MCP ingress
 → agent-runtime-mcp
-→ local TmuxBackend
+→ local RuntimeBackend
 ```
 
-For private/local runtime hosts, prefer an officially supported secure tunnel/private-connectivity mechanism when available. Otherwise require an explicitly reviewed HTTPS + authentication design.
+For private/local runtime hosts, prefer an officially supported secure tunnel/private-connectivity mechanism when available. Otherwise require reviewed HTTPS + authentication.
 
-Do not expose an unauthenticated shell-equivalent MCP endpoint to the public internet.
+Do not expose an unauthenticated shell-equivalent MCP endpoint to the public internet. Current ChatGPT/MCP compatibility and write-action support must be verified at integration time.
 
-Current ChatGPT/MCP product compatibility and write-action support must be verified at integration time; do not hard-code stale product assumptions into the Task Contract.
-
-See `docs/deployment.md`.
-
-## 8. Security baseline
+## 9. Security baseline
 
 Terminal control is effectively shell-level authority over the Worker account. Therefore:
 
-- use authenticated remote MCP ingress for GPT Web;
-- local-only development endpoints bind to loopback unless protected by an explicit ingress layer;
-- do not expose an unauthenticated network control endpoint;
-- execute backend commands with structured argv, not shell-concatenated strings;
-- treat terminal output as potentially secret-bearing;
-- bound capture size and avoid unnecessary persistence of captured output;
-- separate ordinary text input from special-key/control input;
-- destructive runtime lifecycle actions must be explicit;
-- never bypass OS permissions, GitHub permissions or repository security boundaries to make a Task pass.
+- authenticate remote MCP ingress;
+- local-only development endpoints bind to loopback unless explicitly protected;
+- use structured executable/argv, not shell-concatenated strings;
+- treat captured terminal output as potentially secret-bearing;
+- bound capture size and avoid unnecessary persistence;
+- separate ordinary text input from special control input;
+- destructive runtime actions are explicit;
+- never bypass OS/GitHub/repository security boundaries to make a Task pass.
 
-See `docs/security.md` for the full baseline.
+See `docs/security.md`.
 
-## 9. Issue-driven Task model
+## 10. Issue-driven Task model
 
 Independent Worker work uses:
 
@@ -180,8 +206,6 @@ docs/tasks/<issue>-<slug>/
 └── prompt.md
 ```
 
-Responsibilities:
-
 ```text
 Issue body state block
 = live status / active owner / environment / blocker / candidate pointers
@@ -190,22 +214,57 @@ Issue comments
 = append-only Attempt / Blocker / Review / Acceptance history
 
 task.md
-= stable Task execution contract
+= stable execution contract
 
 prompt.md
-= session bootstrap / navigation only
+= Worker bootstrap/navigation only
+
+canonical Worker handoff
+= minimal Issue + prompt entry produced by Publisher/Reviewer
 ```
 
-Labels/assignee may mirror the live snapshot, but Worker correctness must not depend on custom labels existing. Issue comments cannot silently redefine canonical architecture or the frozen Task Contract.
+## 11. Publication and dispatch
 
-## 10. Worker lifecycle
+Publisher publishes only after read-back Publication Gate PASS:
+
+```text
+status:draft
+→ materialize/read-back
+→ status:ready
+→ Active owner: none
+→ canonical handoff
+```
+
+Dispatcher then verifies live `status:ready + no owner + environment/capability match` before launching a child Worker.
+
+During bootstrap the Dispatcher may use:
+
+```text
+one Issue
+→ one isolated git worktree
+→ one issue-linked tmux session
+→ one Codex Worker
+```
+
+After the required runtime capabilities are accepted, Dispatcher should migrate to:
+
+```text
+Task Dispatcher
+→ agent-runtime-mcp
+→ RuntimeBackend
+→ Codex
+```
+
+This transport migration must not change Issue/Attempt semantics.
+
+## 12. Worker lifecycle
 
 Standard flow:
 
 ```text
 Status: status:ready
 Active owner: none
-→ claim
+→ Worker claim
 → Status: status:in-progress
 → Active owner: <worker>
 → Attempt N
@@ -226,21 +285,40 @@ Attempt N
 → STOP
 ```
 
-The Worker must not set `status:done` or close the Issue.
+Worker must not dispatch another Worker, start another Issue/Attempt, set `status:done`, or close the Issue.
 
-## 11. Coordinator lifecycle
+## 13. Reviewer lifecycle and redispatch
 
-Coordinator reads the Issue, current Task Contract, candidate changes and required evidence, then records:
+Reviewer reads Issue history, Task Contract, Candidate/PR and required Evidence, then chooses:
 
 ```text
-[COORDINATOR REVIEW]
-Decision: ACCEPT | REVISE | BLOCK | SPLIT | NOT_PLANNED
+ACCEPT | REVISE | BLOCK | SPLIT | NOT_PLANNED
 ```
 
-- `REVISE` with unchanged contract returns the same Issue to `status:ready` for Attempt N+1.
-- `BLOCK` moves to `status:blocked` until the concrete blocker is resolved.
-- `SPLIT` creates a child Task only when the child has independent Scope / lifecycle / Success Criteria / evidence authority.
-- `ACCEPT` permits final acceptance only when all required Task criteria and evidence are satisfied.
+Unchanged-contract REVISE:
+
+```text
+Reviewer
+→ status:ready
+→ Active owner: none
+→ fresh canonical handoff
+→ Dispatcher
+→ Worker claim
+→ Attempt N+1
+```
+
+Contract change:
+
+```text
+Reviewer
+→ status:draft
+→ canonical/task/bootstrap update
+→ Publisher Publication Gate
+→ status:ready
+→ Dispatcher
+```
+
+Interrupted `status:in-progress + dead/missing runtime` is a recovery condition. Dispatcher reports liveness; Reviewer/Coordinator reconciles durable commits/PR/evidence and decides whether to release stale ownership and create Attempt N+1. Dispatcher must not auto-replace the Worker.
 
 Final closure order:
 
@@ -251,26 +329,25 @@ Final closure order:
 → close Issue
 ```
 
-## 12. Git and evidence
+## 14. Git isolation and evidence
 
+- One concurrent Issue execution must have one isolated mutable worktree/runtime context.
+- Never run parallel child Workers from the Coordinator/Dispatcher main checkout.
 - Keep each implementation unit focused.
-- Prefer recoverable branches/PRs for non-trivial repository mutations.
-- Record exact candidate SHA when evidence depends on code identity.
-- Do not report tests as passed when they were not run.
-- Do not commit secrets, tokens, credentials, captured private terminal output or unnecessary large artifacts.
-- When an existing candidate/PR is recoverable, continue it across Attempts instead of rebuilding the same Task from scratch.
-- For current external integrations such as ChatGPT remote MCP compatibility, record the actual observed environment/capability rather than relying on stale assumptions.
+- Prefer recoverable branches/PRs for non-trivial mutations.
+- Record exact Candidate SHA when evidence depends on code identity.
+- Do not report tests as passed when not run.
+- Do not commit secrets, tokens, credentials or captured private terminal output.
+- Reuse valid existing candidate/PR across Attempts instead of rebuilding the Task from scratch.
 
-## 13. Stop conditions
+## 15. Stop conditions
 
-Stop and return control to the Coordinator when:
+A Worker stops when the Attempt is complete/blocked or cannot execute the frozen Contract safely.
 
-- the current Attempt is complete;
-- the Task is blocked;
-- the published Task Contract is no longer executable as written;
-- required capability is unavailable;
-- execution would violate an architecture or security invariant;
-- another Worker owns the Task;
-- the Issue is no longer `status:ready` at claim time.
+A Dispatcher stops launching when the Issue is not ready/unowned, routing mismatches, or an issue-linked runtime/worktree requires recovery.
 
-Chat output is a convenience. Durable GitHub state is the handoff.
+A Publisher keeps a Task draft when Publication Gate cannot pass.
+
+A Reviewer returns control to Publisher for Contract change, Dispatcher for a new unchanged-contract Attempt, or closes only after Final Acceptance.
+
+Chat output is convenience. Durable GitHub state is the handoff.
