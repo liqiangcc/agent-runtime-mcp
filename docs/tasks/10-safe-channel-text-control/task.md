@@ -15,24 +15,157 @@ Required capabilities: github-read-write, repository-code-authoring, github-acti
 Hard publication dependency: Issue #2 MVP-001 accepted and its actual ChannelBackend/channel-id/error/MCP registration surfaces re-read
 ```
 
-> This Task is intentionally **draft**. The product-level Scope/Claims are planned now, but implementation-specific interface details must be reconciled with accepted MVP-001 before Publication Gate.
+> This Task is intentionally **draft**. Stable use cases, separation points and Claims are planned now; concrete implementation interfaces must be reconciled with accepted MVP-001 before Publication Gate.
+
+Planning method: `docs/tasks/planning-principles.md`.
 
 ## Goal
 
-Add safe write/control transport to existing terminal Channels through:
+Allow an upper-layer client to send ordinary terminal text and a small explicit set of terminal controls to one already-existing Channel, while keeping terminal transport logic separate from workflow/lifecycle control and preserving literal-data safety.
+
+## Primary Use Cases
+
+### UC1 — Deliver ordinary text to an existing Channel
 
 ```text
-write_text
-send_control
+Actor: upper-layer MCP client
+Trigger: client has selected a visible channel_id and wants to send terminal text
+Preconditions: Channel exists, is visible in configured scope, and supports write-text
+Main flow: resolve channel → transport text literally → optionally submit with explicit Enter
+Success: only the selected terminal receives the intended text bytes/characters
+Failure: structured missing/backend/input/timeout error; no lifecycle side effect
+Degradation: ambiguous timeout may leave delivery outcome unknown; core does not auto-retry
+Evidence: unit + real tmux integration on exact Candidate SHA
 ```
 
-while preserving the Channel-only product boundary and ensuring ordinary text is transported as data rather than interpreted as shell syntax or free-form tmux key grammar.
+### UC2 — Send one explicit terminal control
+
+```text
+Actor: upper-layer MCP client
+Trigger: client intentionally requests ENTER, INTERRUPT or ESCAPE
+Preconditions: selected Channel exists and supports control
+Main flow: validate closed enum → resolve channel → deliver mapped control to exact endpoint
+Success: only selected Channel receives the requested control
+Failure: invalid/free-form control rejected before backend; backend/missing errors are structured
+Degradation: ambiguous mutation result remains explicit; no semantic guess/retry
+Evidence: enum-validation + real tmux integration
+```
+
+UC1 and UC2 are one Task because they form one coherent **terminal input capability slice** sharing target resolution, scope and backend transport, while remaining separate public input types.
+
+## Separation Points
+
+### Upper layer | Channel MCP
+
+```text
+Upper layer owns:
+- why/when to send input
+- which application/task meaning the input has
+- retry/recovery policy
+- endpoint lifecycle
+
+Channel MCP owns:
+- mechanical channel resolution
+- safe text/control transport
+- mechanical result/error only
+```
+
+### Text data | terminal control
+
+`write_text` transports ordinary data. `send_control` transports a closed control enum. Neither may absorb the other's grammar.
+
+### Channel logic | TmuxBackend
+
+Channel layer defines operation semantics, targeting and error contract. TmuxBackend only maps those semantics to safe tmux operations.
+
+### Backend invocation | terminal payload
+
+Process execution uses structured executable/argv/stdin/data paths. Caller text must never become shell command construction or free-form tmux command/key grammar.
+
+### Mutation result | retry policy
+
+Core reports what it can prove mechanically. It does not own blind retry/recovery decisions after ambiguous non-idempotent mutations.
+
+## Single Responsibilities
+
+```text
+Channel input service = validate channel/input semantics and resolve exact target
+TmuxBackend = safely deliver text/control to an already-existing tmux pane
+write_text = ordinary terminal data transport only
+send_control = closed explicit terminal control only
+GitHub Actions = executable verification Evidence only
+upper layer = workflow/lifecycle/retry meaning
+```
+
+## Logic / Control Separation
+
+Product/data-path logic owns:
+
+- accepted input shape;
+- literal text preservation;
+- submit ordering;
+- control validation/mapping;
+- exact channel/scope targeting;
+- mechanical errors/timeouts.
+
+Upper-layer control owns:
+
+- deciding when/why to send;
+- choosing a Channel for application purposes;
+- retry after ambiguous mutation;
+- recreating/restarting endpoints;
+- interpreting terminal/application response.
+
+A Channel write/control failure must never become permission for the product to create/restart/destroy a pane or process.
+
+## Success / Failure / Degradation
+
+### Success
+
+The selected existing Channel receives exactly the intended text or explicit control with product boundaries intact.
+
+### Hard failure
+
+Examples:
+
+- caller payload reaches shell command construction;
+- free-form tmux key grammar becomes public input;
+- unrelated/out-of-scope pane receives mutation;
+- Enter is sent after failed text delivery;
+- missing Channel triggers lifecycle action.
+
+### Safe degradation
+
+- missing Channel → structured not-found/unavailable;
+- backend unavailable → structured backend failure;
+- ambiguous mutation timeout → outcome explicitly uncertain, no automatic retry;
+- unsupported capability → structured unsupported result.
+
+The MCP must not infer application success, task progress or retry safety.
+
+## Required Capabilities
+
+```text
+UC1 → literal text transport + target resolution + submit ordering
+UC2 → closed control transport + target resolution
+Both → scope integrity + structured mutation errors + finite timeout
+```
+
+Public tool mapping remains:
+
+```text
+literal text transport → write_text
+explicit terminal control → send_control
+```
+
+The tool mapping follows the use cases; it is not the planning starting point.
 
 ## Canonical / Process Sources
 
 Before publication/execution read:
 
 - `AGENTS.md`
+- `docs/tasks/planning-principles.md`
 - `docs/requirements.md`
 - `docs/channel-architecture.md`
 - `docs/channel-model.md`
@@ -41,354 +174,161 @@ Before publication/execution read:
 - `docs/security.md`
 - `docs/technology-stack.md`
 - `docs/mvp-plan.md`
-- `docs/tasks/collaboration-protocol.md`
-- `docs/tasks/issue-state-convention.md`
-- `docs/tasks/issue-lifecycle-protocol.md`
-- accepted Issue #2 implementation, Candidate/PR and Coordinator Review
+- repository protocols under `docs/tasks/`
+- accepted Issue #2 Candidate/Review
 
-## Publication dependency / interface-alignment gate
+## Publication Dependency / Interface-Alignment Gate
 
-Before this Task may become `status:ready`, Coordinator must re-read the accepted MVP-001 implementation and update this draft if needed so it extends, rather than invents a parallel version of:
+Before `status:ready`, Coordinator must re-read accepted MVP-001 and align this draft to the actual accepted:
 
 ```text
-Channel
-ChannelBackend
+Channel / ChannelBackend
 channel_id resolution
 TmuxBackend process runner
 visibility/scope policy
 structured error model
-MCP tool registration/schema conventions
+MCP registration/schema conventions
 test/CI layout
 ```
 
-If MVP-001 changes the canonical product boundary, revise canonical docs first. If it only changes concrete implementation names/layout, align this Task while still draft.
+Concrete class/file/method names are intentionally not frozen while #2 is still in progress.
 
 ## In Scope
 
-1. Extend the accepted Channel backend/service abstraction with ordinary text write capability.
-2. Implement public MCP `write_text` with:
-   - `channel_id`;
-   - arbitrary Unicode `text`;
-   - `submit: boolean`.
-3. Transport text through a safe tmux data path that does not shell-interpolate caller text and does not parse text as tmux key grammar.
-4. Define `submit=true` as successful text delivery followed by explicit Enter semantics.
-5. Implement public MCP `send_control` with a closed MVP enum:
-
-```text
-ENTER
-INTERRUPT
-ESCAPE
-```
-
-6. Resolve every mutation through the same accepted channel identity/scope rules as MVP-001.
-7. Preserve structured missing-channel/backend/input/timeout failures.
-8. Add unit tests and real tmux integration tests executed by GitHub Actions.
-9. Document mutation retry/idempotency caveats, especially ambiguous timeouts where blind retry could duplicate input.
-10. Update local usage documentation for externally prepared tmux panes.
+- ordinary text input to an existing Channel;
+- explicit ENTER / INTERRUPT / ESCAPE controls;
+- submit semantics;
+- same channel resolution/scope as accepted read path;
+- safe tmux data/control mapping;
+- structured mutation errors/timeouts;
+- non-idempotency/ambiguous-timeout documentation;
+- unit + real tmux Actions verification;
+- usage documentation.
 
 ## Out of Scope
 
-- Worker/Agent model or registry;
-- Task/Issue mapping;
-- tmux session/window/pane creation, restart, respawn or destruction;
-- process/Codex startup;
-- worktree management;
-- arbitrary shell command execution;
-- raw `tmux_command`;
-- free-form `send-keys` grammar;
-- semantic idle/done/task parsing;
-- remote MCP ingress/authentication implementation (MVP-003);
-- automatic retry of ambiguous mutation operations;
-- macro/key-sequence scripting beyond the explicit control enum.
+- Worker/Agent/Task/Issue semantics;
+- endpoint/session/process creation/restart/destroy;
+- worktree/process/Codex lifecycle;
+- remote ingress/auth implementation (MVP-003);
+- raw tmux/shell command API;
+- free-form key grammar/macros;
+- semantic application parsing;
+- automatic mutation retries.
 
 ## Architecture Invariants
 
-1. Channel remains the only product domain identity.
-2. `write_text` and `send_control` operate only on already-existing Channels.
-3. Caller text is data; it must not become a shell command in the MCP process.
-4. Caller text is not interpreted as tmux key names or tmux command syntax.
-5. Text input and control input are separate public operations/types.
-6. `send_control` accepts only the documented closed enum.
-7. A write/control failure never creates/restarts/destroys a pane/session/process.
-8. Mutation uses the same configured tmux visibility scope and channel resolution as read operations.
-9. A missing/disappeared Channel returns structured failure; it is never recreated.
-10. Terminal/application semantics remain opaque to the MCP.
-11. No root is required for normal operation.
-12. Remote authentication is not implemented in this Task, so network write exposure must not be expanded beyond the currently accepted development/test transport.
+1. Channel remains the only product identity.
+2. Input targets already-existing Channels only.
+3. text != control.
+4. caller text is data, never shell/tmux command grammar.
+5. control enum is closed.
+6. mutation reuses accepted channel identity/scope logic.
+7. failure has no endpoint-lifecycle side effect.
+8. application semantics stay opaque.
+9. no root required.
+10. this Task does not expand remote network write exposure before MVP-003.
 
 ## Implementation Requirements
 
-### R1 — Safe text transport
+Only after MVP-001 alignment, implement the minimum mapping required by the use cases.
 
-The tmux implementation must transport arbitrary text without embedding it into a shell command string.
+### R1 — Literal text path
+Use a safe data path appropriate to accepted TmuxBackend; no caller payload interpolation into shell command strings.
 
-Preferred implementation shape should use a literal data path such as tmux buffer/stdin-oriented operations followed by paste into the exact target pane. Exact implementation must be reviewed against the accepted TmuxBackend abstraction.
+Test Unicode, multiline text, quotes, backticks, `$`, `;`, `|`, `&&`, leading/trailing spaces and empty lines as data.
 
-Tests must include text containing at least:
-
-```text
-Unicode
-multiple lines
-single/double quotes
-backticks
-$
-;
-|
-&&
-leading/trailing spaces
-empty line(s)
-```
-
-These are payload data, not commands to the MCP process.
-
-### R2 — Submit semantics
-
-`submit=false`:
+### R2 — Submit ordering
 
 ```text
-deliver text only
+submit=false → text only
+submit=true  → successful text delivery → explicit ENTER
 ```
 
-`submit=true`:
+Failed text delivery must not be followed by Enter.
 
-```text
-deliver text successfully
-→ then send explicit ENTER control
-```
-
-If text delivery fails, Enter must not be sent as a compensating/partial action.
-
-### R3 — Explicit control enum
-
-Public control input is exactly the accepted MVP set:
-
-```text
-ENTER
-INTERRUPT
-ESCAPE
-```
-
-Unknown/free-form values must fail validation and must not reach tmux.
+### R3 — Closed control
+Only ENTER / INTERRUPT / ESCAPE reach backend mapping; unknown/free-form values fail validation first.
 
 ### R4 — Target/scope integrity
+Only the resolved selected Channel may be mutated.
 
-Mutation must resolve `channel_id` through the same backend/scope mechanism as discovery/read. Tests must prove another pane outside the selected target is not modified.
-
-### R5 — Error and timeout semantics
-
-At minimum preserve/define stable behavior for:
-
-```text
-CHANNEL_NOT_FOUND
-CHANNEL_UNAVAILABLE
-BACKEND_UNAVAILABLE
-BACKEND_OPERATION_FAILED
-INVALID_ARGUMENT
-CAPABILITY_UNSUPPORTED
-PERMISSION_DENIED
-TIMEOUT
-INPUT_FAILED
-```
-
-Exact categories must align with the accepted MVP-001 error model before publication.
-
-### R6 — Ambiguous mutation retry semantics
-
-Document that `write_text` and `send_control` are non-idempotent. If a client times out after the backend may have accepted input, the server must not claim the operation definitely failed unless it can prove that fact. Blind automatic retries are forbidden by the core contract.
+### R5 — Mutation result semantics
+Preserve accepted error model and make non-idempotent ambiguous timeout behavior explicit; no blind auto-retry.
 
 ## Verification Claims
 
-### C1 — Literal text preservation
-
-Multi-line Unicode and shell-looking characters are delivered as terminal text data without MCP-side shell interpretation.
-
-### C2 — No shell interpolation
-
-Static review/tests prove caller-controlled text/channel values are not concatenated into shell command strings for backend execution.
-
-### C3 — Submit ordering
-
-`submit=true` performs text delivery first and Enter only after successful text delivery; `submit=false` does not append Enter.
-
-### C4 — Control separation
-
-`send_control` accepts only ENTER/INTERRUPT/ESCAPE and ordinary `write_text` cannot smuggle arbitrary control grammar through the public control API.
-
-### C5 — Target isolation
-
-Only the resolved selected Channel is affected by a mutation; unrelated panes remain unchanged.
-
-### C6 — Missing/unavailable behavior
-
-Missing pane/backend/input failures return structured errors and never trigger lifecycle actions.
-
-### C7 — Visibility policy
-
-Mutation cannot target a Channel outside the configured backend visibility scope.
-
-### C8 — Product boundary
-
-No Worker/Task/Issue/lifecycle/raw-shell/raw-tmux public capability is introduced.
-
-### C9 — Retry semantics
-
-Documentation and tests where practical make non-idempotency/ambiguous-timeout behavior explicit and prevent silent automatic mutation retries.
-
-### C10 — MCP contract
-
-`write_text` and `send_control` are registered with structured schemas/results consistent with canonical `docs/mcp-contract.md` and accepted MVP-001 conventions.
+- C1 Literal text preservation.
+- C2 No shell interpolation of caller-controlled payload/target.
+- C3 Correct submit ordering and partial-failure behavior.
+- C4 Text/control separation and closed control enum.
+- C5 Exact target isolation.
+- C6 Structured missing/backend/input failure with no lifecycle action.
+- C7 Visibility policy preserved for mutations.
+- C8 No Worker/Task/lifecycle/raw-command product expansion.
+- C9 Non-idempotent/ambiguous-timeout semantics are explicit and no silent auto-retry exists.
+- C10 MCP tools follow accepted Channel conventions.
 
 ## Verification Plan
 
-### J1 — Typecheck / unit tests
-
-GitHub Actions must cover:
-
-- text payload preservation through mocked/fake backend boundaries;
-- submit ordering and partial-failure behavior;
-- control enum validation;
-- target/scope resolution;
-- error mapping;
-- no implicit retry/lifecycle behavior;
-- MCP schemas/tool handlers.
+### J1 — Unit/typecheck
+Cover payload preservation, submit ordering, control validation, scope resolution, errors, no implicit retry/lifecycle behavior and MCP handlers.
 
 ### J2 — Real tmux integration
-
-Required on Linux GitHub Actions.
-
-The test harness may externally create isolated tmux panes/sockets for verification. The MCP product API itself must not expose lifecycle operations.
-
-Real integration must prove at least:
-
-- multi-line Unicode and shell-looking text reaches the intended pane literally;
-- `submit=false` versus `submit=true` behavior;
-- ENTER behavior;
-- INTERRUPT affects the selected pane/process as expected;
-- ESCAPE is delivered only to the selected pane;
-- an unrelated pane is not modified;
-- missing pane after external destruction yields structured failure rather than recreation.
-
-Use test-only pane programs/fixtures that make received terminal input observable without requiring product-side semantic parsing.
+Actions harness may externally prepare isolated panes. Prove literal text, submit behavior, ENTER/INTERRUPT/ESCAPE, target isolation and missing-pane failure without product lifecycle APIs.
 
 ### J3 — Static boundary review
+Confirm no shell interpolation, raw tmux public command, free-form send-keys, Worker/Task registry, lifecycle public tools or automatic mutation retry loop.
 
-Check product source for absence of:
-
-```text
-shell: true / sh -c interpolation of caller payload
-raw tmux command MCP tool
-free-form send-keys public input
-Worker/Task registry
-session/pane lifecycle public tools
-automatic mutation retry loop
-```
-
-### J4 — CI identity
-
-All required jobs must PASS on the exact Candidate SHA used by the Execution Report.
+### J4 — Exact Candidate
+All required jobs PASS on the Execution Report Candidate SHA.
 
 ## Security Review
 
 Security-sensitive: **yes**.
 
-Primary risks:
-
-- shell injection;
-- tmux-control injection;
-- wrong-target input;
-- sensitive terminal interaction;
-- unauthenticated future remote write exposure;
-- duplicate input after ambiguous timeout.
-
-Required controls:
-
-- structured executable/argv/stdin backend invocation;
-- text/control separation;
-- closed control enum;
-- exact channel/scope resolution;
-- finite operation timeouts;
-- no full write payload logging by default;
-- no lifecycle side effects;
-- no network write exposure expansion before MVP-003 authentication work.
+Primary authority boundary is terminal input. Required controls: structured process/data path, text/control separation, exact target/scope validation, finite timeouts, no full payload logs, no lifecycle side effects, no unauthenticated network exposure expansion.
 
 ## Success Criteria
 
-This Task may be published only after MVP-001 interface alignment is complete.
-
-After execution, Reviewer may ACCEPT only when:
-
-1. `write_text` works against accepted Channel abstraction.
-2. `send_control` supports only ENTER/INTERRUPT/ESCAPE.
-3. literal Unicode/multiline/metacharacter transport is proven.
-4. no caller payload is shell-interpolated.
-5. submit ordering/partial failure semantics are correct.
-6. target/scope isolation is proven.
-7. missing/backend failure behavior is structured and non-creative.
-8. no lifecycle/Worker/Task/raw command surface is added.
-9. non-idempotent/ambiguous-timeout retry semantics are documented.
-10. unit/typecheck/real-tmux CI passes on exact Candidate SHA.
-11. usage docs are updated.
-12. `[EXECUTION REPORT]` includes Claim results and exact Actions evidence.
+Publish only after MVP-001 interface alignment. Reviewer may ACCEPT only when C1–C10 are supported by exact Candidate Evidence, unit/typecheck/real-tmux CI passes, usage docs are updated, and the Channel-only / logic-control separation remains intact.
 
 ## Evidence Contract
 
-Record at least:
+Record:
 
 ```text
 Attempt
-Worker identity: web-gpt-worker
-Base commit
-Candidate commit
+Worker: web-gpt-worker
+Base/Candidate SHA
 PR/branch if applicable
 Node / TypeScript / MCP SDK versions
-unit/typecheck job/run
-real tmux integration job/run + tmux version
+unit/typecheck run/jobs
+real tmux run/job + tmux version
 Claims C1-C10
-safe text transport mechanism summary
+safe text/control transport mechanism summary
 configured tmux test scope
 known limitations / ambiguous-timeout notes
 ```
 
-Do not include secret-bearing terminal transcripts or full sensitive write payloads.
+Do not include secrets or full sensitive terminal payloads.
 
 ## Failure / Blocked Rules
 
-### FAIL
+BLOCKED while MVP-001 is not finally accepted, accepted interfaces cannot be safely extended without design revision, or required GitHub/Actions evidence capability is unavailable.
 
-Examples:
-
-- caller text reaches a shell command construction path;
-- free-form tmux key grammar is accepted;
-- unrelated pane receives input;
-- `submit=true` sends Enter after failed text delivery;
-- missing pane triggers recreation/lifecycle action;
-- required integration/CI fails because of implementation behavior.
-
-### BLOCKED
-
-Examples:
-
-- MVP-001 has not reached Final Acceptance;
-- accepted MVP-001 interface cannot be safely extended without Contract/canonical revision;
-- Web Worker lacks required GitHub write capability;
-- required GitHub Actions Linux/tmux Evidence cannot be produced for external reasons.
-
-### Resume condition
-
-MVP-001 accepted interface is available and all required GitHub/Actions capabilities are operational.
+Resume when accepted MVP-001 surfaces are available and this draft has been re-aligned/read back.
 
 ## Completion Protocol
 
 When eventually published:
 
 ```text
-Coordinator publishes to env:web-gpt
-→ separate GPT Web Worker claims one Attempt
-→ repository implementation + GitHub Actions Evidence
-→ [EXECUTION REPORT] | [BLOCKER REPORT]
-→ review/blocked + owner:none
-→ STOP
-→ original GPT Web Coordinator reviews
+Coordinator → ready/env:web-gpt
+→ separate Web GPT Worker claim / one Attempt
+→ repository changes + Actions Evidence
+→ report → review/blocked + owner:none → STOP
+→ original Coordinator Review
 ```
 
 Do not start MVP-003 from this Task.
