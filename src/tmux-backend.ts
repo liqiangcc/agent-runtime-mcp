@@ -332,9 +332,9 @@ export class TmuxBackend implements ChannelBackend {
   }
 
   private scopeArgs(): string[] {
-    if (this.config.socketPath) return ['-S', this.config.socketPath];
-    if (this.config.socketName) return ['-L', this.config.socketName];
-    return [];
+    if (this.config.socketPath) return ['-u', '-S', this.config.socketPath];
+    if (this.config.socketName) return ['-u', '-L', this.config.socketName];
+    return ['-u'];
   }
 
   private async runTmux(
