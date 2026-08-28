@@ -8,15 +8,6 @@ import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotoc
 
 const execFileAsync = promisify(execFile);
 const EXPECTED_TOOLS = ['get_channel', 'health', 'list_channels', 'read_channel', 'send_control', 'write_text'];
-const PANE_FORMAT = [
-  '#{pane_id}',
-  '#{session_name}',
-  '#{window_id}',
-  '#{window_index}',
-  '#{pane_index}',
-  '#{pane_title}',
-  '#{pane_current_path}',
-].join('\t');
 
 type PublicToolResult = {
   isError?: boolean;
@@ -40,6 +31,7 @@ async function tmux(socketName: string, ...args: string[]): Promise<string> {
     encoding: 'utf8',
     timeout: 5000,
     maxBuffer: 1024 * 1024,
+    env: getDefaultEnvironment(),
   });
   return result.stdout;
 }
@@ -86,10 +78,9 @@ test('official MCP client dogfoods the complete public Channel surface', { timeo
   const sessionName = `mvp003-${process.pid}-${Date.now()}`;
   const serverPath = join(process.cwd(), 'dist', 'src', 'server.js');
 
-  // Endpoint lifecycle and application setup stay outside Channel MCP. Create a
-  // normal tmux pane first (matching the production backend integration fixture),
-  // then replace its foreground shell with the frozen bash invocation. Finally
-  // disable terminal echo so marker assertions cannot pass from echoed input.
+  // Endpoint lifecycle and application setup stay outside Channel MCP. The fixture
+  // uses the same safe inherited environment as StdioClientTransport so both sides
+  // resolve the exact same isolated tmux socket without broadening server env.
   await tmux(socketName, 'new-session', '-d', '-s', sessionName);
   await tmux(socketName, 'send-keys', '-t', sessionName, '-l', 'exec bash --noprofile --norc');
   await tmux(socketName, 'send-keys', '-t', sessionName, 'Enter');
@@ -98,8 +89,6 @@ test('official MCP client dogfoods the complete public Channel surface', { timeo
   await tmux(socketName, 'send-keys', '-t', sessionName, 'Enter');
   await new Promise((resolve) => setTimeout(resolve, 100));
   await waitFor(async () => (await tmux(socketName, 'list-panes', '-t', sessionName, '-F', '#{pane_current_command}')).trim() === 'bash');
-  const fixtureMetadata = await tmux(socketName, 'list-panes', '-a', '-F', PANE_FORMAT);
-  console.log(`DOGFOOD_FIXTURE_METADATA ${JSON.stringify(fixtureMetadata)}`);
 
   const client = new Client({ name: 'agent-runtime-mcp-dogfood', version: '0.1.0' });
   const transport = new StdioClientTransport({
