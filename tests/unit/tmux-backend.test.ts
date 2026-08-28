@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { ChannelError } from '../../src/errors.js';
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { ChannelError, type ChannelErrorCode } from '../../src/errors.js';
 import {
   type CommandResult,
   type CommandRunOptions,
@@ -25,6 +26,10 @@ class QueueRunner implements CommandRunner {
   }
 }
 
+async function assertRejectCode(promise: Promise<unknown>, code: ChannelErrorCode): Promise<void> {
+  await assert.rejects(promise, (error: unknown) => error instanceof ChannelError && error.code === code);
+}
+
 describe('TmuxBackend', () => {
   it('discovers only allowed sessions and derives opaque scoped channel ids', async () => {
     const runner = new QueueRunner({
@@ -38,17 +43,15 @@ describe('TmuxBackend', () => {
 
     const channels = await backend.listChannels();
 
-    expect(channels).toHaveLength(1);
-    expect(channels[0]).toMatchObject({
-      backend_kind: 'tmux',
-      state: 'available',
-      capabilities: ['read'],
-      title: 'Visible pane',
-      cwd: '/work/visible',
-    });
-    expect(channels[0].channel_id).toMatch(/^tmux:[a-f0-9]{12}:1$/);
-    expect(runner.calls[0].executable).toBe('tmux');
-    expect(runner.calls[0].args.slice(0, 3)).toEqual(['-L', 'isolated', 'list-panes']);
+    assert.equal(channels.length, 1);
+    assert.equal(channels[0].backend_kind, 'tmux');
+    assert.equal(channels[0].state, 'available');
+    assert.deepEqual(channels[0].capabilities, ['read']);
+    assert.equal(channels[0].title, 'Visible pane');
+    assert.equal(channels[0].cwd, '/work/visible');
+    assert.match(channels[0].channel_id, /^tmux:[a-f0-9]{12}:1$/);
+    assert.equal(runner.calls[0].executable, 'tmux');
+    assert.deepEqual(runner.calls[0].args.slice(0, 3), ['-L', 'isolated', 'list-panes']);
   });
 
   it('rejects channel ids from another configured tmux scope', async () => {
@@ -56,7 +59,7 @@ describe('TmuxBackend', () => {
     const second = new TmuxBackend({ socketName: 'second' }, new QueueRunner());
     const channelId = first.channelIdForPane('%7');
 
-    await expect(second.getChannel(channelId)).rejects.toMatchObject({ code: 'CHANNEL_NOT_FOUND' });
+    await assertRejectCode(second.getChannel(channelId), 'CHANNEL_NOT_FOUND');
   });
 
   it('returns CHANNEL_NOT_FOUND when a scoped pane is absent', async () => {
@@ -64,7 +67,7 @@ describe('TmuxBackend', () => {
     const backend = new TmuxBackend({ socketName: 'isolated' }, runner);
     const missingId = backend.channelIdForPane('%99');
 
-    await expect(backend.getChannel(missingId)).rejects.toMatchObject({ code: 'CHANNEL_NOT_FOUND' });
+    await assertRejectCode(backend.getChannel(missingId), 'CHANNEL_NOT_FOUND');
   });
 
   it('maps a missing tmux executable to BACKEND_UNAVAILABLE', async () => {
@@ -72,27 +75,25 @@ describe('TmuxBackend', () => {
     failure.code = 'ENOENT';
     const backend = new TmuxBackend({}, new QueueRunner(failure));
 
-    await expect(backend.listChannels()).rejects.toMatchObject({ code: 'BACKEND_UNAVAILABLE' });
+    await assertRejectCode(backend.listChannels(), 'BACKEND_UNAVAILABLE');
   });
 
   it('enforces configured read bounds before invoking capture-pane', async () => {
     const backend = new TmuxBackend({ maxReadLines: 10, maxReadBytes: 100 }, new QueueRunner());
     const channelId = backend.channelIdForPane('%1');
 
-    await expect(backend.readChannel(channelId, { lines: 11, bytes: 50 })).rejects.toMatchObject({
-      code: 'INVALID_ARGUMENT',
-    });
+    await assertRejectCode(backend.readChannel(channelId, { lines: 11, bytes: 50 }), 'INVALID_ARGUMENT');
   });
 
   it('truncates UTF-8 from the front without producing replacement characters', () => {
     const result = takeLastUtf8Bytes('alpha-世界', 7);
-    expect(result.truncated).toBe(true);
-    expect(result.text).not.toContain('\uFFFD');
-    expect(Buffer.byteLength(result.text, 'utf8')).toBeLessThanOrEqual(7);
+    assert.equal(result.truncated, true);
+    assert.equal(result.text.includes('\uFFFD'), false);
+    assert.ok(Buffer.byteLength(result.text, 'utf8') <= 7);
   });
 
   it('does not accept malformed pane identities from tmux', () => {
     const backend = new TmuxBackend({}, new QueueRunner());
-    expect(() => backend.channelIdForPane('session:0.0')).toThrow(ChannelError);
+    assert.throws(() => backend.channelIdForPane('session:0.0'), ChannelError);
   });
 });
