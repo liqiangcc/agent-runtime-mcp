@@ -1,87 +1,81 @@
 # Channel Architecture
 
-## Product boundary
+## 1. Product boundary
 
-`agent-runtime-mcp` is the **Channel communication core** between an MCP transport and already-existing interactive terminal endpoints.
+`agent-runtime-mcp` is a generic MCP Channel capability layer over already-existing interactive terminal endpoints.
 
 ```text
-remote / upper-layer client
-        ↓
-secure ingress adapter / tunnel     # deployment composition
-        ↓
-local MCP transport                 # currently stdio
-        ↓
+MCP client
+   ↓
+MCP tool/schema adapter
+   ↓
 Channel Service
-        ↓
+   ↓
 ChannelBackend
-        ↓
+   ↓
 TmuxBackend
-        ↓
+   ↓
 existing tmux panes
 ```
 
-The upper layer decides why a terminal exists, what program runs there, what workspace it uses, and what instructions should be sent.
+The product answers:
 
-The secure remote path may be supplied by an external supported MCP ingress adapter. Remote network reachability does **not** have to be implemented inside the Channel core.
+> Can an MCP client communicate mechanically with this existing terminal Channel?
 
-## Inside the Channel core
+It does not answer why the terminal exists, what application meaning its output has, how the endpoint is deployed, or what workflow should happen next.
+
+## 2. Inside the product
 
 - MCP tool/schema contract;
-- local MCP transport adapter (MVP implementation: stdio);
-- channel discovery;
-- channel metadata inspection;
+- Channel discovery;
+- Channel metadata inspection;
 - bounded recent-output read;
-- bounded ordinary text delivery;
-- explicit terminal control actions;
-- backend/service health reporting;
-- backend-neutral channel identifiers;
-- structured Channel/backend errors.
+- bounded ordinary-text write;
+- explicit terminal controls;
+- backend/service health;
+- backend-neutral `channel_id`;
+- structured Channel/backend errors;
+- backend scope enforcement.
 
-## Deployment composition around the core
+The current server transport is stdio. That is an implementation adapter, not a deployment topology.
 
-A deployment may add:
-
-- authenticated remote MCP tunnel/ingress;
-- client/workspace authorization;
-- local process supervision for the MCP server;
-- network/private-connectivity prerequisites.
-
-Those components may make the Channel MCP remotely reachable, but they must not redefine Channel semantics.
-
-For the MVP remote path, a supported external tunnel may bridge a remote client to the existing local stdio MCP server without adding a public listener to `agent-runtime-mcp`.
-
-A future direct-public HTTP deployment, if needed, is a separate transport adapter concern and must use the then-current MCP HTTP/auth rules. It is not required merely to prove the Channel product.
-
-## Outside the product domain
-
-- Worker/Agent identity;
-- Task/Issue/Attempt semantics;
-- project scheduling and review;
-- worktree/branch/PR management;
-- tmux session/pane creation;
-- program startup/restart inside panes;
-- recovery and cleanup policy;
-- mapping a project Task to a particular terminal;
-- tunnel/provider account provisioning;
-- DNS/firewall/host administration.
-
-## Core invariants
-
-1. Channel is the public domain object.
-2. MVP operates on terminal endpoints prepared outside the MCP.
-3. The service does not infer semantic Agent/Task state from terminal text or activity.
-4. Normal clients address `channel_id`, not raw tmux target grammar.
-5. Failures do not create/restart/destroy terminal endpoints.
-6. The service stores no Worker registry or Task registry.
-7. Changing the collaboration system or foreground program must not require changing the Channel contract.
-8. Write-capable remote access must pass a reviewed authorization boundary **before** it reaches the Channel core.
-9. Network ingress and Channel semantics have different reasons to change and remain separable.
-10. Remote connection/tunnel lifetime does not own Channel/tmux-pane lifetime.
-
-## Internal layers
+## 3. Outside the product
 
 ```text
-local MCP transport adapter
+Worker / Agent identity
+Task / Issue / Attempt semantics
+workflow scheduling / review
+worktree / branch / PR lifecycle
+tmux session/pane lifecycle
+foreground process startup/restart
+recovery / cleanup policy
+application semantic interpretation
+remote ingress / tunnel / proxy
+TLS / DNS / firewall
+workspace/client authorization policy
+provider account / credential lifecycle
+host/service deployment
+```
+
+Deployment components may wrap the MCP server, but they are not part of the Channel domain or product roadmap.
+
+## 4. Core invariants
+
+1. Channel is the only public domain object.
+2. The MCP operates on endpoints prepared outside the product.
+3. Channel output/activity never becomes semantic Agent/Task/application state.
+4. Normal callers use `channel_id`, not raw tmux target grammar.
+5. Failures never grant endpoint lifecycle authority.
+6. There is no Worker or Task registry.
+7. Collaboration systems and foreground programs can change without changing the Channel contract.
+8. Deployment/network topology can change without changing the Channel contract.
+9. Backend-specific mechanics stay behind `ChannelBackend`.
+10. MCP capability and workflow control remain separate.
+
+## 5. Internal layers
+
+```text
+MCP transport adapter
 → MCP schema adapter
 → Channel application service
 → ChannelBackend
@@ -99,26 +93,26 @@ send_control
 health
 ```
 
-No internal layer needs to know whether a remote caller arrived through a tunnel, direct HTTP adapter, or another supported ingress composition.
+No internal layer needs tunnel/provider/workspace concepts.
 
-## Identity
+## 6. Identity
 
 See `channel-model.md`.
 
-A tmux implementation may derive a channel handle from configured tmux server/socket scope plus pane identity. If a pane is destroyed and recreated, it may appear as a new channel. Persistent logical Worker identity is intentionally an upper-layer concern.
+A tmux Channel may derive its locator from configured tmux scope plus pane identity. If a pane is destroyed and recreated, it may become a different Channel. Persistent logical Worker/application identity belongs to an upper layer.
 
-## Failure interpretation
+## 7. Failure interpretation
 
-- secure ingress/tunnel unavailable → remote reachability failure, not a Channel fact;
-- authorization rejected → caller does not enter protected Channel operations;
-- backend unavailable → backend error;
-- pane missing → channel not found/unavailable;
-- program exits but pane remains → still a channel fact only;
-- quiet terminal → no semantic conclusion;
-- terminal output says `done` → no semantic conclusion.
+```text
+backend unavailable → backend fact
+pane missing         → Channel fact
+program exits        → terminal observation only
+quiet pane           → no semantic conclusion
+output says "done"   → no semantic conclusion
+```
 
-None of these failures grants endpoint lifecycle authority to the Channel core.
+Network/tunnel/deployment failures, if any, belong to whatever external environment is carrying the MCP connection and are not Channel facts.
 
-## Repository development workflow
+## 8. Repository workflow separation
 
-This repository uses `docs/tasks/` to coordinate its own development. That workflow is separate from the product architecture. It may consume Channel MCP as transport, but it is not implemented by Channel MCP itself.
+`docs/tasks/`, `AGENTS.md`, GitHub Issues and Web Workers coordinate development of this repository. They are not product concepts and must not leak into MCP code or public schemas.
