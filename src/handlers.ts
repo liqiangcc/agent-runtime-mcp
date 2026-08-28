@@ -14,6 +14,10 @@ export async function readChannel(backend: ChannelBackend, channelId: string, op
   return { read: await backend.readChannel(channelId, options) };
 }
 
+export async function health(backend: ChannelBackend) {
+  return { health: await backend.health() };
+}
+
 export async function writeText(backend: ChannelBackend, channelId: string, text: string, submit: boolean) {
   validateOrdinaryText(text);
   return backend.writeText(channelId, text, { submit });

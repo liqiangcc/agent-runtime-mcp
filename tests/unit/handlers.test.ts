@@ -2,8 +2,14 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { ChannelBackend } from '../../src/backend.js';
 import { ChannelError } from '../../src/errors.js';
-import { getChannel, listChannels, readChannel, sendControl, writeText } from '../../src/handlers.js';
-import { MUTATION_TOOL_ANNOTATIONS, MVP_001_TOOL_NAMES, MVP_002_TOOL_NAMES } from '../../src/mcp.js';
+import { getChannel, health, listChannels, readChannel, sendControl, writeText } from '../../src/handlers.js';
+import {
+  HEALTH_TOOL_ANNOTATIONS,
+  MUTATION_TOOL_ANNOTATIONS,
+  MVP_001_TOOL_NAMES,
+  MVP_002_5_TOOL_NAMES,
+  MVP_002_TOOL_NAMES,
+} from '../../src/mcp.js';
 import type {
   BackendHealth,
   Channel,
@@ -23,10 +29,13 @@ class FakeBackend implements ChannelBackend {
     capabilities: ['read', 'write-text', 'control'],
     title: 'fake',
   };
+  listCalls = 0;
   writeCalls = 0;
   controlCalls = 0;
+  healthCalls = 0;
 
   async listChannels(): Promise<Channel[]> {
+    this.listCalls += 1;
     return [this.channel];
   }
 
@@ -57,7 +66,8 @@ class FakeBackend implements ChannelBackend {
   }
 
   async health(): Promise<BackendHealth> {
-    return { backend_kind: 'tmux', available: true };
+    this.healthCalls += 1;
+    return { backend_kind: 'tmux', available: true, detail: 'fixture' };
   }
 }
 
@@ -86,21 +96,44 @@ describe('Channel handlers', () => {
     });
   });
 
+  it('returns backend health directly without consulting Channel inventory', async () => {
+    const backend = new FakeBackend();
+
+    assert.deepEqual(await health(backend), {
+      health: { backend_kind: 'tmux', available: true, detail: 'fixture' },
+    });
+    assert.equal(backend.healthCalls, 1);
+    assert.equal(backend.listCalls, 0);
+  });
+
   it('rejects ordinary-text control characters before invoking the backend mutation', async () => {
     const backend = new FakeBackend();
     await assert.rejects(writeText(backend, 'tmux:opaque:7', 'bad\rtext', false), ChannelError);
     assert.equal(backend.writeCalls, 0);
   });
 
-  it('adds exactly the two Phase-2 tools and marks mutations conservatively', () => {
+  it('adds exactly public health after the accepted Phase-2 tools with read-only semantics', () => {
     assert.deepEqual(MVP_001_TOOL_NAMES, ['list_channels', 'get_channel', 'read_channel']);
     assert.deepEqual(MVP_002_TOOL_NAMES, ['list_channels', 'get_channel', 'read_channel', 'write_text', 'send_control']);
+    assert.deepEqual(MVP_002_5_TOOL_NAMES, [
+      'list_channels',
+      'get_channel',
+      'read_channel',
+      'write_text',
+      'send_control',
+      'health',
+    ]);
     assert.deepEqual(MUTATION_TOOL_ANNOTATIONS, {
       readOnlyHint: false,
       destructiveHint: true,
       idempotentHint: false,
     });
+    assert.deepEqual(HEALTH_TOOL_ANNOTATIONS, {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+    });
     assert.equal(MVP_002_TOOL_NAMES.includes('health' as never), false);
-    assert.equal(MVP_002_TOOL_NAMES.includes('tmux_command' as never), false);
+    assert.equal(MVP_002_5_TOOL_NAMES.includes('tmux_command' as never), false);
   });
 });

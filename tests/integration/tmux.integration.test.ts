@@ -110,6 +110,15 @@ describe('real tmux Channel backend', () => {
     assert.match(read.text, /(30|世界)/);
   });
 
+  it('reports backend healthy while the configured allowlist exposes zero Channels', async () => {
+    const backend = new TmuxBackend({ socketName, allowedSessions: ['mvp0025-no-visible-session'] });
+    const panesBefore = await tmux('list-panes', '-a', '-F', '#{pane_id}');
+
+    assert.deepEqual(await backend.listChannels(), []);
+    assert.deepEqual(await backend.health(), { backend_kind: 'tmux', available: true });
+    assert.equal(await tmux('list-panes', '-a', '-F', '#{pane_id}'), panesBefore);
+  });
+
   it('delivers Unicode/multiline/TAB/metacharacter ordinary text literally to only the selected pane', async () => {
     clearRecorder(recorderA);
     clearRecorder(recorderB);
@@ -206,5 +215,14 @@ describe('real tmux Channel backend', () => {
   it('returns BACKEND_UNAVAILABLE for a configured tmux server that is not running', async () => {
     const backend = new TmuxBackend({ socketName: `${socketName}-missing` });
     await assertRejectCode(backend.listChannels(), 'BACKEND_UNAVAILABLE');
+  });
+
+  it('reports mechanical health unavailable for a configured tmux server that is not running', async () => {
+    const backend = new TmuxBackend({ socketName: `${socketName}-health-missing` });
+    assert.deepEqual(await backend.health(), {
+      backend_kind: 'tmux',
+      available: false,
+      detail: 'BACKEND_UNAVAILABLE',
+    });
   });
 });
