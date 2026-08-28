@@ -4,7 +4,7 @@ MCP-based persistent runtime for coordinating terminal-based AI workers, with tm
 
 ## Project intent
 
-`agent-runtime-mcp` provides the **execution plane** used by a long-lived GPT Web Coordinator to remotely observe and control persistent Codex workers without making terminal state the source of truth for project work.
+`agent-runtime-mcp` provides the **execution plane** used by a long-lived GPT Web Coordinator to remotely observe and control persistent Codex Workers without making terminal state the source of truth for project work.
 
 ```text
                     GPT Web
@@ -31,21 +31,24 @@ MCP-based persistent runtime for coordinating terminal-based AI workers, with tm
 
 ## Core boundaries
 
-- **GPT Web** is the project Coordinator: planning, task split, publication, review, acceptance and recovery.
-- **GitHub Issue** is the live Task state and append-only coordination history.
+- **GPT Web** is the project Coordinator and final coordination authority.
+- **GitHub Issue** is live Task state and append-only coordination history.
 - **`task.md`** is the stable Task execution contract.
-- **Codex** is a short-lived Worker that executes one Issue Attempt at a time.
-- **Remote MCP ingress** is the authenticated path by which GPT Web reaches the Runtime service.
-- **`agent-runtime-mcp`** owns runtime observation and control, not project Task state.
+- **Task Publisher** makes one Task executable through Publication Gate.
+- **Task Dispatcher** delivers an already-published handoff to one isolated Codex runtime; it does not claim the Issue.
+- **Task Worker** claims and executes exactly one Attempt, reports, releases ownership and stops.
+- **Task Reviewer** reviews durable evidence, handles recovery/iteration and decides acceptance.
+- **Remote MCP ingress** is how GPT Web reaches the Runtime service.
+- **`agent-runtime-mcp`** owns runtime observation/control, not project Task state.
 - **tmux** is the first Runtime Backend, not the public architecture boundary.
 
-The central invariant is:
+Central invariant:
 
 > **Runtime state is not Task state.**
 
-An idle pane does not mean an Issue is complete. A Worker can only report execution results; the GPT Web Coordinator decides whether the Task is accepted.
+An idle pane does not mean an Issue is complete. A Worker can report execution results; Reviewer/Coordinator decides whether the Task is accepted.
 
-Another important separation is:
+Another important separation:
 
 ```text
 remote MCP ingress
@@ -56,8 +59,6 @@ The MVP requires secure GPT Web → MCP access, while SSH/multi-host Runtime Bac
 
 ## Design approach
 
-The project follows a use-case-first sequence:
-
 ```text
 Coordinator / Operator Goal
 → Use Case
@@ -67,7 +68,7 @@ Coordinator / Operator Goal
 → MCP Tool Contract
 ```
 
-It intentionally does **not** start from tmux commands and expose them one-for-one as MCP tools.
+The project intentionally does **not** expose tmux commands one-for-one as MCP tools.
 
 ## Documentation
 
@@ -75,37 +76,77 @@ It intentionally does **not** start from tmux commands and expose them one-for-o
 - [`docs/requirements.md`](docs/requirements.md) — product goals, use cases and non-goals
 - [`docs/architecture.md`](docs/architecture.md) — control-plane / ingress / execution-plane architecture
 - [`docs/runtime-model.md`](docs/runtime-model.md) — Worker and Runtime domain model
-- [`docs/mcp-contract.md`](docs/mcp-contract.md) — MCP capability and tool contract
-- [`docs/deployment.md`](docs/deployment.md) — GPT Web remote MCP ingress and deployment topology
+- [`docs/mcp-contract.md`](docs/mcp-contract.md) — MCP capability/tool contract
+- [`docs/technology-stack.md`](docs/technology-stack.md) — frozen implementation stack
+- [`docs/deployment.md`](docs/deployment.md) — remote MCP ingress/deployment topology
 - [`docs/backends/tmux.md`](docs/backends/tmux.md) — tmux backend design
 - [`docs/security.md`](docs/security.md) — security boundaries
-- [`docs/mvp-plan.md`](docs/mvp-plan.md) — implementation sequence and dogfooding plan
-- [`docs/tasks/README.md`](docs/tasks/README.md) — Issue-driven Task packaging
+- [`docs/mvp-plan.md`](docs/mvp-plan.md) — implementation/dogfooding sequence
+- [`docs/tasks/README.md`](docs/tasks/README.md) — Issue-driven Task model
+- [`docs/tasks/collaboration-protocol.md`](docs/tasks/collaboration-protocol.md) — Publisher → Dispatcher → Worker → Reviewer
+- [`docs/tasks/issue-lifecycle-protocol.md`](docs/tasks/issue-lifecycle-protocol.md) — publication/dispatch/attempt/recovery/review/closure
 
 ## Collaboration model
 
-The repository uses the same high-level Issue-driven collaboration pattern as `liqiangcc/jellyfin-web-media-gateway`, adapted to this project's smaller scope:
+The repository uses the collaboration structure proven in `liqiangcc/jellyfin-web-media-gateway`, adapted to this project's execution-runtime goal:
 
 ```text
 GPT Web Coordinator
-→ publish Issue + task.md + prompt.md
-→ status:ready
-
-Codex Worker
-→ claim one Task
-→ Attempt N
-→ implement / verify
-→ [EXECUTION REPORT] or [BLOCKER REPORT]
-→ stop
-
-GPT Web Coordinator
-→ review durable GitHub evidence
-→ ACCEPT | REVISE | BLOCK | SPLIT
-→ final acceptance / next Attempt
+        ↓
+Task Publisher
+        ↓
+Issue + task.md + prompt.md
+        ↓ Publication Gate
+status:ready
+        ↓
+Task Dispatcher
+        ↓ isolated Worker runtime
+Task Worker
+        ↓ claim
+status:in-progress / Attempt N
+        ↓ implementation + evidence
+status:review | status:blocked
+        ↓
+Task Reviewer
+        ↓
+ACCEPT | REVISE | BLOCK | SPLIT | NOT_PLANNED
 ```
 
-Chat is operational context; GitHub is durable project state.
+Important boundaries:
+
+```text
+Publisher ≠ Worker
+Dispatcher ≠ Worker
+Dispatcher launch ≠ Issue claim
+Worker result ≠ Review acceptance
+runtime state ≠ Task state
+```
+
+### Bootstrap development
+
+Until this project can manage its own Worker lifecycle/input, Dispatcher uses:
+
+```text
+isolated git worktree
+→ issue-linked native tmux session
+→ Codex CLI
+```
+
+### Runtime-backed dogfooding
+
+After the required Runtime tools are accepted:
+
+```text
+Task Dispatcher
+→ agent-runtime-mcp
+→ RuntimeBackend
+→ Codex Worker
+```
+
+Only the execution transport changes. GitHub Issue/Attempt/Review semantics remain unchanged.
+
+Chat and terminal output are operational views; GitHub is durable project state.
 
 ## Current phase
 
-The repository is in **design/bootstrap** phase. The immediate goal is to freeze the collaboration contract, runtime boundaries, secure remote-ingress requirements, MVP use cases and tmux backend contract before implementing the MCP server.
+Phase 0 collaboration/architecture bootstrap is complete enough to publish MVP implementation Tasks. The first implementation slice, MVP-001, is intended to execute through the bootstrap Dispatcher so the full collaboration chain is exercised before runtime-backed dogfooding becomes possible.
