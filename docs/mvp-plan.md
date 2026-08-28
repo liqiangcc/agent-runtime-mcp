@@ -2,45 +2,70 @@
 
 ## 1. Strategy
 
-The project establishes collaboration and architecture contracts before implementing the server.
+The project establishes both **architecture** and **collaboration/runtime orchestration** contracts before implementing the server.
 
-Implementation then proceeds in small Issue-driven slices that can be independently reviewed and recovered.
+Implementation proceeds in small Issue-driven slices through:
 
-The sequence deliberately separates:
+```text
+GPT Web Coordinator
+→ Task Publisher
+→ Task Dispatcher
+→ Task Worker
+→ Task Reviewer
+```
+
+Runtime implementation sequence:
 
 ```text
 Runtime semantics
-→ tmux backend behavior
+→ tmux discovery
+→ bounded observation
 → safe mutation
-→ persistent lifecycle
+→ persistent Worker lifecycle
 → secure GPT Web remote ingress
-→ Codex dogfooding
+→ runtime-backed Dispatcher dogfooding
 ```
 
-This avoids prematurely building either a generic tmux wrapper or an unsafe public remote shell.
+This avoids building either a generic tmux wrapper or an unsafe remote shell, while using the same collaboration lifecycle that the product is intended to support.
 
-## 2. Phase 0 — Repository bootstrap
+## 2. Phase 0 — Repository and collaboration bootstrap
 
 Deliverables:
 
 - `AGENTS.md`
 - canonical design docs
 - deployment/security contract
-- Issue lifecycle protocol
-- Task/prompt templates
-- Codex task-worker skill
+- Issue state/lifecycle protocol
+- `Publisher → Dispatcher → Worker → Reviewer` collaboration protocol
+- Task/prompt/handoff templates
+- `$task-publisher`
+- `$task-dispatcher`
+- `$task-worker`
+- `$task-reviewer`
+
+Bootstrap Dispatcher transport:
+
+```text
+Task Dispatcher
+→ isolated git worktree
+→ native tmux
+→ Codex CLI
+```
 
 Exit criteria:
 
-- GPT Web Coordinator / Codex Worker responsibilities are explicit;
-- GitHub is defined as durable Task authority;
+- role authorities are explicit and non-overlapping;
+- GitHub is durable Task authority;
+- Dispatcher launch is distinct from Worker claim;
+- one concurrent Issue execution has one isolated mutable worktree/runtime;
+- interrupted runtime does not automatically create Attempt N+1;
 - runtime/task state separation is explicit;
 - remote MCP ingress vs Runtime Backend separation is explicit;
-- use-case-first design and security baseline are frozen enough to publish implementation Tasks.
+- use-case-first and security baselines are frozen enough to publish implementation Tasks.
 
 ## 3. Phase 1 — Runtime core + read-only tmux discovery
 
-Suggested first implementation Task:
+First implementation Task:
 
 ```text
 [MVP-001] Runtime core and tmux worker discovery
@@ -48,7 +73,7 @@ Suggested first implementation Task:
 
 Scope:
 
-- MCP server/application skeleton using a current official SDK;
+- MCP server/application skeleton using the frozen official SDK stack;
 - backend-neutral Worker model;
 - runtime registry abstraction;
 - tmux backend availability query;
@@ -65,6 +90,8 @@ Verification focus:
 - no Task-state inference.
 
 No terminal input in this phase.
+
+MVP-001 itself should be executed through the repository's bootstrap Dispatcher so the collaboration chain is exercised before runtime dogfooding is possible.
 
 ## 4. Phase 2 — Output observation
 
@@ -110,7 +137,7 @@ Verification focus:
 - prompt text never interpolated into backend shell command;
 - special controls cannot be injected through text payload.
 
-This is a security-sensitive gate before real Codex dispatch.
+This is a security-sensitive gate before Dispatcher can use the runtime as a write transport.
 
 ## 6. Phase 4 — Persistent Worker lifecycle
 
@@ -138,6 +165,8 @@ Verification focus:
 - destroy does not affect unrelated tmux sessions;
 - invalid cwd/startup policy failures are safe.
 
+After Phase 4, the Dispatcher may begin an **internal local dogfooding migration** from direct tmux lifecycle operations to `agent-runtime-mcp`, provided the required operations are accepted and the migration does not weaken isolation/recovery guarantees.
+
 ## 7. Phase 5 — Secure GPT Web remote ingress
 
 Suggested Task:
@@ -152,21 +181,21 @@ Scope:
 - deployment mode selected from `docs/deployment.md`;
 - authenticated ingress / supported secure tunnel integration;
 - transport request bounds/timeouts;
-- Origin/Host/auth protections required by the active MCP transport/SDK;
+- Origin/Host/auth protections required by active transport/SDK;
 - real ChatGPT tool discovery/invocation check;
 - explicit write-capability compatibility evidence.
 
 Verification focus:
 
-- ChatGPT Web reaches the remote MCP service;
+- GPT Web reaches the remote MCP service;
 - read tools are discoverable and usable;
-- write tools can actually be invoked in the active ChatGPT environment;
+- write tools can actually be invoked in the active environment;
 - unauthenticated public calls cannot control Workers;
 - Worker lifetime remains independent from HTTP/MCP request lifetime.
 
-If current ChatGPT/workspace capability exposes only read/fetch operations, mark write-control integration `BLOCKED`; do not call the remote-control MVP complete.
+If required write actions are unavailable, mark remote-control integration `BLOCKED`; do not redefine the goal as read-only.
 
-## 8. Phase 6 — External reference + real Codex Worker
+## 8. Phase 6 — Codex Worker profile and Task correlation
 
 Suggested Task:
 
@@ -178,33 +207,41 @@ Scope:
 
 - configured Codex startup profile;
 - `set_external_reference`;
-- minimal Task bootstrap delivery;
-- operator diagnostics needed for real Issue execution.
+- minimal canonical Worker handoff delivery;
+- operator diagnostics needed for Issue execution.
 
 The runtime still does not query/mutate GitHub as Task authority.
 
-## 9. Phase 7 — Dogfooding gate
+## 9. Phase 7 — Full runtime-backed Dispatcher dogfooding gate
 
-Use the project itself for one real Issue-driven Attempt:
+Use the project itself for one real later Task:
 
 ```text
 GPT Web Coordinator
-→ read/publish next implementation Issue through GitHub
-→ remotely find/create managed Codex Worker through agent-runtime-mcp
-→ send Task bootstrap
-→ Codex claims and executes Issue
-→ Codex posts [EXECUTION REPORT]
-→ GPT Web reviews GitHub evidence
+→ Task Publisher
+→ status:ready + canonical handoff
+→ Task Dispatcher
+→ agent-runtime-mcp
+→ managed Codex Worker
+→ Worker claims Issue
+→ Attempt N
+→ [EXECUTION REPORT]
+→ Task Reviewer
+→ acceptance/revision
 ```
 
-Dogfooding acceptance must prove:
+Dogfooding must prove:
 
 - GPT Web remote control path is authenticated and operational;
-- tmux Worker remains persistent across web/request disconnect;
-- Coordinator can recover runtime context through observation;
-- Codex uses GitHub as the durable Task handoff;
-- terminal `idle`/output is not used as Task acceptance;
-- Issue lifecycle closes normally through Coordinator review.
+- Dispatcher uses runtime MCP rather than raw tmux for the intended accepted operations;
+- one Issue maps to one isolated Worker execution context;
+- Dispatcher launch still does not claim the Issue;
+- tmux Worker persists across web/request disconnect;
+- Coordinator/Dispatcher can recover runtime context through observation;
+- Codex uses GitHub as durable Task handoff/state;
+- terminal idle/output is not used as acceptance;
+- dead runtime + in-progress Issue goes through Reviewer recovery, not auto-redelivery;
+- Issue lifecycle closes normally through Final Acceptance.
 
 ## 10. Deferred work
 
@@ -215,7 +252,7 @@ Not in initial MVP:
 - PTY Runtime Backend;
 - multi-host scheduling;
 - automatic worker-to-task matching;
-- automatic Issue claim by runtime server;
+- runtime-owned automatic Issue claim;
 - semantic Codex prompt/idle parser;
 - arbitrary raw shell/tmux tool;
 - full terminal recording;
@@ -226,30 +263,43 @@ Secure **remote MCP ingress from GPT Web is not deferred**.
 
 ## 11. Task sizing rule
 
-Prefer a new Task when work has independent:
+Create a new Task when work has independent Scope, Success Criteria, lifecycle/evidence authority, or recoverable deliverable.
 
-- Scope;
-- success criteria;
-- implementation/review lifecycle;
-- evidence requirement;
-- recoverable deliverable.
+Do not split merely because work spans several tmux commands, runtime primitives, CI jobs, files or test environments.
 
-Do not split Tasks merely because several tmux commands, test environments or source files are involved.
+Dispatcher runtime/worktree setup is execution orchestration, not a separate business Task unless it introduces an independently reviewable infrastructure Goal.
 
-## 12. Publication rule
+## 12. Publication and dispatch rule
 
-Before an implementation Task becomes `status:ready`:
+Before implementation becomes executable:
 
 ```text
 Goal defined
-+ task.md committed
-+ prompt.md committed
++ task.md committed/read back
++ prompt.md committed/read back
 + dependencies explicit
-+ success criteria frozen
++ required Worker capabilities explicit
++ Success Criteria frozen
 + security/architecture impact checked
-+ current external integration assumptions verified when relevant
-+ expected Codex entry defined
-+ GitHub read-back verified
++ current external assumptions verified when relevant
++ Publication Gate PASS
++ Status: status:ready
++ Active owner: none
++ canonical Worker handoff emitted
 ```
 
-Only then should the GPT Web Coordinator hand it to a Codex Worker.
+Then Dispatcher independently verifies live ready/no-owner/routing state before launching a Worker. Dispatcher launch does not start an Attempt; Worker claim does.
+
+## 13. Development principle
+
+The project should dogfood its **collaboration semantics from MVP-001 onward**, even before it can dogfood its own Runtime transport.
+
+```text
+Early development:
+Publisher → Dispatcher(native tmux) → Worker → Reviewer
+
+Later development:
+Publisher → Dispatcher(agent-runtime-mcp) → Worker → Reviewer
+```
+
+Only the execution transport changes.
