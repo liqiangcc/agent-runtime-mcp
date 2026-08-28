@@ -1,6 +1,6 @@
 # Issue-driven Task Model
 
-This directory defines **repository development workflow**, not the public MCP product protocol.
+This directory defines **repository development workflow**, not the public Channel MCP product protocol.
 
 Independent Task package:
 
@@ -12,138 +12,131 @@ docs/tasks/<issue>-<slug>/
 └── prompt.md
 ```
 
-Role chain:
+## Default role chain
 
 ```text
-GPT Web Coordinator
-→ Task Publisher
-→ Task Dispatcher
-→ Task Worker
-→ Task Reviewer
+original GPT Web conversation
+= Coordinator / Publisher / Reviewer
+
+separate GPT Web conversation
+= Web Worker using @GitHub
+
+GitHub Actions
+= executable verification Runner / Evidence
 ```
 
-See `collaboration-protocol.md`.
+Default flow:
+
+```text
+Coordinator
+→ materialize/publish Task
+→ status:ready + env:web-gpt
+→ short Web Worker entry
+→ separate GPT Web Worker claims one Attempt
+→ repository changes + Actions Evidence
+→ [EXECUTION REPORT] | [BLOCKER REPORT]
+→ review/blocked + owner:none
+→ STOP
+→ original Coordinator reviews
+```
+
+Codex/Dispatcher profiles may exist as optional alternative execution routes but are not the repository default.
 
 ## Durable state
 
-Issue body stores the current snapshot defined by `issue-state-convention.md`.
-Issue comments store append-only Attempt/Blocker/Review/Acceptance history.
-`task.md` is the frozen execution contract.
-`prompt.md` is bootstrap/navigation only.
+- Issue body = current live snapshot from `issue-state-convention.md`.
+- Issue comments = append-only Attempt/Blocker/Review/Acceptance history.
+- `task.md` = frozen execution Contract.
+- `prompt.md` = bootstrap/navigation only.
+- GitHub Actions = Evidence, never Task authority.
 
-Canonical Codex handoff:
+## Web Worker entry
+
+Normal published Task entry is intentionally short:
 
 ```text
-$task-worker Execute Issue #<issue> using `docs/tasks/<issue>-<slug>/prompt.md`.
+@GitHub
+
+执行 liqiangcc/agent-runtime-mcp 的 Issue #<issue>，作为 Web Worker。
+
+必须使用 GitHub live state。
+
+入口：
+`docs/tasks/<issue>-<slug>/prompt.md`
+
+按仓库协议 claim、执行、报告后停止。
 ```
 
-## Publisher
+The Worker reads all real Scope/Claims/Success Criteria from GitHub + Task Package.
+
+## Publication
 
 ```text
 Goal
 → status:draft
 → Issue + task.md + prompt.md
 → GitHub read-back Publication Gate
-→ status:ready + owner:none
-→ canonical handoff
+→ status:ready + owner:none + env:web-gpt
+→ short Web Worker entry
 ```
 
-Publisher does not dispatch, execute or Review.
-
-## Dispatcher
-
-Dispatcher owns this repository's execution environment preparation:
-
-```text
-Issue
-→ isolated worktree
-→ issue-linked tmux pane/session
-→ Codex process
-→ canonical handoff delivery
-```
-
-Dispatcher does not claim the Issue or change Task meaning.
-
-Initially it may communicate through native tmux.
-
-After Channel MCP is accepted, it may use:
-
-```text
-prepare worktree/tmux/Codex externally
-→ Channel MCP discovers that existing pane
-→ write_text/read_channel/send_control
-```
-
-Channel MCP does not create the worktree, tmux pane or Codex process and does not store Issue mapping.
+A draft Task is not claimable.
 
 ## Worker
 
+The Worker is a **different GPT Web conversation** from the Coordinator.
+
 ```text
-re-read live GitHub
-→ claim ready/no-owner Task
+@GitHub live read
+→ confirm ready/no-owner/env:web-gpt
+→ claim as web-gpt-worker
 → Attempt N
-→ execute frozen Contract
-→ [EXECUTION REPORT] or [BLOCKER REPORT]
+→ execute frozen Contract through GitHub
+→ use GitHub Actions for required executable verification
+→ [EXECUTION REPORT] | [BLOCKER REPORT]
 → review/blocked + owner:none
 → STOP
 ```
 
-Worker never Reviews itself, closes the Issue or starts another Task.
+Worker never Reviews itself, closes the Issue, or starts another Task/Attempt automatically.
 
 ## Reviewer
 
-Reviews Issue + Contract + Candidate + required evidence and chooses:
+The original Coordinator conversation reads live Issue + Contract + Candidate/PR + actual Evidence and chooses:
 
 ```text
 ACCEPT | REVISE | BLOCK | SPLIT | NOT_PLANNED
 ```
 
-Unchanged-contract REVISE returns the same Issue to ready and emits a fresh handoff for Dispatcher.
-Contract changes return to draft and Publisher Publication Gate.
+Unchanged-contract REVISE returns the same Issue to ready for Attempt N+1. Contract changes return to draft and Publication Gate.
 
-## Lifecycle
+## Planning ahead
 
-```text
-status:draft
-→ Publication Gate
-→ status:ready
-→ Dispatcher prepares/delivers execution context
-→ Worker claim
-→ status:in-progress
-→ Attempt N
-→ review | blocked
-→ Reviewer
-```
+A future Task may be materialized as `status:draft` while the current Task executes when its product boundary can already be planned.
 
-Dispatcher launch does not begin an Attempt; Worker claim does.
-
-## Recovery
-
-`status:in-progress + dead/missing tmux/channel/process` is a Reviewer/Coordinator recovery condition, not permission for Dispatcher to auto-create Attempt N+1.
-
-A Channel MCP `CHANNEL_NOT_FOUND` result is only transport evidence. Upper-layer collaboration decides whether/how to rebuild the execution environment.
+If it depends on the current Task's accepted implementation surface, keep an explicit publication dependency and re-align the draft after upstream Final Acceptance before publishing it.
 
 ## Product separation
 
-The product contract is under the canonical Channel docs referenced by `docs/README.md`.
-
-Repository concepts below are **not** product concepts:
+Repository collaboration concepts are not Channel MCP product concepts:
 
 ```text
-Publisher
-Dispatcher
-Worker
-Reviewer
+Coordinator
+Web Worker
 Issue
 Attempt
-worktree
-Issue↔pane mapping
-Codex lifecycle
+GitHub Actions
+branch / PR
+Task review
 ```
+
+Channel MCP remains only terminal communication infrastructure as defined by canonical product docs.
 
 Final principle:
 
 ```text
 GitHub = durable repository Task authority
-Channel MCP = optional terminal communication transport only
+separate GPT Web conversation = default implementation Worker
+GitHub Actions = Runner / Evidence
+Channel MCP = product being built, not collaboration engine
 ```
