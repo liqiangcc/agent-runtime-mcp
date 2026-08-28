@@ -70,7 +70,11 @@ npm ci
 npm run typecheck
 npm test
 npm run test:integration
+npm run test:discovery
+npm run test:dogfood
 ```
+
+`test:discovery` is the official-client regression for public stdio health/discovery. `test:dogfood` drives the complete six-Tool public MCP flow against an externally prepared disposable tmux + `bash --noprofile --norc` endpoint, including marker observation, `INTERRUPT`, post-control reuse, external destruction and no-recreation failure proof.
 
 Build and run:
 
