@@ -77,10 +77,17 @@ test('official MCP client dogfoods the complete public Channel surface', { timeo
   const sessionName = `mvp003-${process.pid}-${Date.now()}`;
   const serverPath = join(process.cwd(), 'dist', 'src', 'server.js');
 
-  // Endpoint lifecycle is deliberately external to Channel MCP. Disable terminal
-  // echo so marker assertions cannot pass merely because the input command itself
-  // contains the marker text.
-  await tmux(socketName, 'new-session', '-d', '-s', sessionName, 'stty -echo; exec bash --noprofile --norc');
+  // Endpoint lifecycle and application setup stay outside Channel MCP. Create a
+  // normal tmux pane first (matching the production backend integration fixture),
+  // then replace its foreground shell with the frozen bash invocation. Finally
+  // disable terminal echo so marker assertions cannot pass from echoed input.
+  await tmux(socketName, 'new-session', '-d', '-s', sessionName);
+  await tmux(socketName, 'send-keys', '-t', sessionName, '-l', 'exec bash --noprofile --norc');
+  await tmux(socketName, 'send-keys', '-t', sessionName, 'Enter');
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  await tmux(socketName, 'send-keys', '-t', sessionName, '-l', 'stty -echo');
+  await tmux(socketName, 'send-keys', '-t', sessionName, 'Enter');
+  await new Promise((resolve) => setTimeout(resolve, 100));
   await waitFor(async () => (await tmux(socketName, 'list-panes', '-t', sessionName, '-F', '#{pane_current_command}')).trim() === 'bash');
 
   const client = new Client({ name: 'agent-runtime-mcp-dogfood', version: '0.1.0' });
