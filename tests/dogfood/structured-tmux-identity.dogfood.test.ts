@@ -48,7 +48,13 @@ function tmuxMetadata(channel: Record<string, unknown>, label: string): TmuxMeta
   assert.equal(typeof tmux.pane_index, 'number');
   assert.equal(Number.isInteger(tmux.window_index) && (tmux.window_index as number) >= 0, true);
   assert.equal(Number.isInteger(tmux.pane_index) && (tmux.pane_index as number) >= 0, true);
-  return tmux as TmuxMetadata;
+  return {
+    session_name: tmux.session_name as string,
+    window_id: tmux.window_id as string,
+    window_index: tmux.window_index as number,
+    pane_id: tmux.pane_id as string,
+    pane_index: tmux.pane_index as number,
+  };
 }
 
 async function tmux(socketName: string, ...args: string[]): Promise<string> {
