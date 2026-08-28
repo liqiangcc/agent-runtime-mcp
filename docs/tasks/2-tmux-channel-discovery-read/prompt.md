@@ -1,6 +1,6 @@
 # Session Bootstrap — MVP-001 Tmux channel discovery and bounded read
 
-This repository Task is executed directly by **Web GPT**.
+You are the **Codex Worker** for one published Task in `liqiangcc/agent-runtime-mcp`.
 
 Task Contract:
 
@@ -12,11 +12,14 @@ docs/tasks/2-tmux-channel-discovery-read/task.md
 
 ```text
 GitHub Issue: #2
-Executor: Web GPT
-Environment: env:web-gpt
-Route: direct-web-gpt
+Worker: Codex
+Environment: env:codex
+Route: task-dispatcher bootstrap-native
+Reviewer: GPT Web Coordinator
 Verification Runner: GitHub Actions Linux
 ```
+
+The Dispatcher may create an isolated worktree/tmux/Codex context and deliver this handoff. That does not claim the Issue.
 
 ## Start protocol
 
@@ -24,41 +27,42 @@ Before implementation:
 
 1. read `AGENTS.md`;
 2. read live Issue #2 and relevant comments;
-3. read repository lifecycle/state/collaboration protocols;
-4. read this Task Contract and canonical Channel docs;
-5. confirm Issue is open, `status:ready`, `Active owner: none`;
-6. create/reuse a Task-specific Git branch;
-7. claim by setting `status:in-progress`, `Active owner: web-gpt`;
-8. implement only the frozen Contract through GitHub;
-9. use GitHub Actions for all required automated and real-tmux verification;
-10. inspect/fix failures on the same Task branch.
-
-No Dispatcher or Codex execution is required.
+3. read repository collaboration/lifecycle/state protocols;
+4. read the Task Contract and canonical Channel docs;
+5. confirm Issue is open, `status:ready`, `Active owner: none`, Task Package resolves and current environment has required capabilities;
+6. re-read immediately before claim;
+7. claim exactly one Attempt by setting `status:in-progress` and your Worker identity;
+8. confirm ownership from GitHub;
+9. implement only the frozen Contract;
+10. run required local/unit/integration checks and GitHub Actions evidence as defined by the Task.
 
 ## Product boundary
 
-The product is a Channel MCP over already-existing terminal panes. Do not introduce Worker registry, project Task mapping, tmux lifecycle tools, Codex startup, write/control input, or scheduling in this Task.
+The product is a Channel MCP over already-existing terminal panes. Do not introduce Worker registry, project Task mapping, tmux lifecycle tools, Codex startup, write/control input, or scheduling into product code.
+
+Repository worktree/tmux/Codex orchestration is development infrastructure only.
 
 ## Completion
 
-Execution phase:
+Normal:
 
 ```text
-persist exact Candidate
-→ verify required Actions jobs
+persist exact Candidate/evidence
 → post [EXECUTION REPORT]
 → Status: status:review
 → Active owner: none
+→ read back
+→ STOP
 ```
 
-Reviewer phase:
+Blocked:
 
 ```text
-re-read Issue + frozen task.md + Candidate files + CI evidence
-→ post [COORDINATOR REVIEW]
-→ ACCEPT | REVISE | BLOCK | SPLIT
+post [BLOCKER REPORT]
+→ Status: status:blocked
+→ Active owner: none
+→ read back
+→ STOP
 ```
 
-Web GPT may perform both phases sequentially, but review must be a fresh GitHub read-back and may not rely only on implementation memory.
-
-Do not start MVP-002 before Final Acceptance of Issue #2.
+Do not Review/accept/close the Task, start another Attempt, or start MVP-002. GPT Web Coordinator / Task Reviewer is next authority.
