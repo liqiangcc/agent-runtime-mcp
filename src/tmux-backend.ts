@@ -352,7 +352,11 @@ function resolveConfig(config: TmuxBackendConfig): ResolvedTmuxBackendConfig {
 
   const maxReadLines = boundedPositive(config.maxReadLines ?? 1000, 'maxReadLines', HARD_MAX_READ_LINES);
   const maxReadBytes = boundedPositive(config.maxReadBytes ?? 256 * 1024, 'maxReadBytes', HARD_MAX_READ_BYTES);
-  const defaultReadLines = boundedPositive(config.defaultReadLines ?? 200, 'defaultReadLines', maxReadLines);
+  const defaultReadLines = boundedPositive(
+    config.defaultReadLines ?? Math.min(200, maxReadLines),
+    'defaultReadLines',
+    maxReadLines,
+  );
 
   return {
     tmuxExecutable: config.tmuxExecutable ?? 'tmux',
