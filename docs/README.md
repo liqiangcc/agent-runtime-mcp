@@ -1,104 +1,75 @@
 # Documentation Map
 
-This directory contains the product, architecture and collaboration contracts for `agent-runtime-mcp`.
+This repository contains two different kinds of documentation that must not be conflated.
 
-## Reading order
+## A. Product contract — agent-runtime-mcp
 
-1. `requirements.md` — goals, use cases, non-goals and success criteria
-2. `architecture.md` — system boundary and control-plane / execution-plane separation
-3. `runtime-model.md` — domain model and runtime state semantics
-4. `mcp-contract.md` — capability-first public MCP contract
-5. `technology-stack.md` — implementation language/official SDK decision
-6. `deployment.md` — GPT Web remote MCP ingress, authentication and deployment topology
-7. `backends/tmux.md` — first runtime backend design
-8. `security.md` — threat model and safeguards
-9. `mvp-plan.md` — staged implementation and dogfooding sequence
-10. `tasks/README.md` — Issue-driven Task model
-11. `tasks/collaboration-protocol.md` — Publisher → Dispatcher → Worker → Reviewer role chain
-12. `tasks/issue-state-convention.md` — live Issue state/ownership representation
-13. `tasks/issue-lifecycle-protocol.md` — publication/dispatch/attempt/recovery/review/closure loop
-14. `tasks/handoffs/codex.md` — canonical Worker handoff and Dispatcher entry
-15. `.agents/skills/` — executable role procedures
+Reading order:
 
-## Authority
+1. `requirements.md` — product goals and explicit non-goals
+2. `channel-architecture.md` — product/system boundary
+3. `channel-model.md` — backend-neutral Channel domain model
+4. `mcp-contract.md` — public MCP tools and semantics
+5. `backends/tmux.md` — first Channel backend
+6. `security.md` — terminal-channel security boundary
+7. `deployment.md` — secure remote MCP exposure
+8. `technology-stack.md` — implementation stack decision
+9. `mvp-plan.md` — implementation sequence
+
+Product authority:
 
 ```text
 requirements.md
-→ product intent and externally meaningful behavior
+→ externally meaningful behavior / scope
 
-architecture.md
-→ system boundaries and architectural invariants
+channel-architecture.md
+→ system boundary and invariants
 
-runtime-model.md
-→ runtime domain semantics
+channel-model.md
+→ Channel semantics
 
 mcp-contract.md
 → public MCP behavior
 
-technology-stack.md
-→ implementation stack / official SDK decision
-
-deployment.md
-→ remote ingress / transport / deployment security
-
 backends/*.md
-→ backend-specific implementation contract
+→ backend-specific behavior
 
-security.md
-→ security invariants and threat controls
-
-mvp-plan.md
-→ sequencing, not architectural authority
-
-tasks/*.md
-→ collaboration/Task execution protocol, not product architecture authority
+security.md / deployment.md
+→ trust/deployment constraints
 ```
 
-If a Task requires changing a canonical invariant, update the corresponding canonical document before or together with the Task Contract. Do not use Issue comments, Dispatcher behavior, or terminal observations to silently redefine architecture.
-
-## Design principle
-
-The project is **use-case-first**, not tmux-command-first:
+Core design sequence:
 
 ```text
-Goal
-→ Use Case
-→ Capability
-→ Domain Model
-→ Backend Contract
-→ MCP Tool
+communication need
+→ Channel capability
+→ Channel model
+→ backend contract
+→ MCP tool
 ```
 
-Backend primitives are implementation details unless a stable user-facing capability requires them.
+The product does **not** define Workers, Tasks, Issues, worktrees, Agent scheduling or tmux lifecycle.
 
-## Product separation
+## B. Repository development workflow — not product protocol
+
+This repository is itself developed using:
 
 ```text
-GPT Web → remote MCP ingress → agent-runtime-mcp
-agent-runtime-mcp → RuntimeBackend → tmux
+docs/tasks/
+.agents/skills/
+AGENTS.md
 ```
 
-Remote MCP ingress and a future remote RuntimeBackend are different concerns.
-
-## Collaboration separation
+Those files define this project's collaboration lifecycle:
 
 ```text
-GPT Web Coordinator
-→ Task Publisher
-→ Task Dispatcher
-→ Task Worker
-→ Task Reviewer
+Publisher → Dispatcher → Worker → Reviewer
 ```
 
-```text
-Publisher = make Task executable
-Dispatcher = deliver published handoff to isolated runtime
-Worker = claim/execute one Attempt
-Reviewer = decide what result means
-GitHub = durable Task authority
-agent-runtime-mcp = runtime authority
-```
+They may use tmux/Codex and may later use Channel MCP as transport, but they are not part of the public MCP capability model.
 
-During bootstrap, Dispatcher may use native worktree + tmux. After the runtime capabilities exist, Dispatcher should dogfood `agent-runtime-mcp`. The transport may change; Issue/Attempt semantics must not.
+A future user of `agent-runtime-mcp` may have a completely different collaboration system or no Task system at all.
 
-Runtime output is never a substitute for GitHub Task state.
+## Migration note
+
+`architecture.md` and `runtime-model.md` belonged to the earlier managed-Worker Runtime design. The canonical product architecture/model are now `channel-architecture.md` and `channel-model.md`.
