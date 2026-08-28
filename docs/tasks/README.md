@@ -1,6 +1,8 @@
 # Issue-driven Task Model
 
-Independent Worker execution is packaged as:
+This directory defines **repository development workflow**, not the public MCP product protocol.
+
+Independent Task package:
 
 ```text
 GitHub Issue
@@ -10,257 +12,138 @@ docs/tasks/<issue>-<slug>/
 └── prompt.md
 ```
 
-The complete collaboration chain is:
+Role chain:
 
 ```text
 GPT Web Coordinator
 → Task Publisher
-→ Publication Gate
 → Task Dispatcher
-→ Codex Task Worker
+→ Task Worker
 → Task Reviewer
 ```
 
-See `collaboration-protocol.md` for role boundaries and dispatch/recovery semantics.
+See `collaboration-protocol.md`.
 
-## 1. Durable Task objects
+## Durable state
 
-### GitHub Issue
+Issue body stores the current snapshot defined by `issue-state-convention.md`.
+Issue comments store append-only Attempt/Blocker/Review/Acceptance history.
+`task.md` is the frozen execution contract.
+`prompt.md` is bootstrap/navigation only.
 
-Live coordination snapshot and append-only history.
-
-The required current snapshot is the body block defined by `issue-state-convention.md`:
-
-```text
-Status
-Active owner
-Environment
-Task package
-Parent
-Candidate
-PR
-Blocker
-```
-
-Labels/assignee may mirror this state for UI/search convenience, but are not required for correctness.
-
-Issue comments keep:
-
-```text
-Attempt history
-Execution Reports
-Blocker Reports
-Coordinator Reviews
-Recovery/Unblock records
-Final Acceptance
-```
-
-### `task.md`
-
-Stable execution contract:
-
-```text
-Goal
-Scope / Out of Scope
-Architecture Invariants
-Implementation Requirements
-Claims / Verification Plan
-Success Criteria
-Evidence Contract
-Failure / Blocked rules
-```
-
-Dynamic Attempt results do not belong in `task.md`.
-
-### `prompt.md`
-
-Minimal bootstrap/navigation entry for a fresh Worker session. It points to the Issue/Task Contract and must not duplicate or redefine the Contract.
-
-### Canonical Worker handoff
-
-For Codex:
+Canonical Codex handoff:
 
 ```text
 $task-worker Execute Issue #<issue> using `docs/tasks/<issue>-<slug>/prompt.md`.
 ```
 
-Publisher/Reviewer produces it. Dispatcher transports it unchanged. Worker resolves all real scope from GitHub.
-
-## 2. Specialized repository roles
-
-### `$task-publisher`
+## Publisher
 
 ```text
 Goal
 → status:draft
 → Issue + task.md + prompt.md
-→ read-back Publication Gate
-→ status:ready
+→ GitHub read-back Publication Gate
+→ status:ready + owner:none
 → canonical handoff
 ```
 
-Does not execute or Review.
+Publisher does not dispatch, execute or Review.
 
-### `$task-dispatcher`
+## Dispatcher
+
+Dispatcher owns this repository's execution environment preparation:
 
 ```text
-canonical handoff
-→ verify ready/no owner/capability route
-→ isolated worktree/runtime
-→ child Codex
+Issue
+→ isolated worktree
+→ issue-linked tmux pane/session
+→ Codex process
+→ canonical handoff delivery
 ```
 
-Does not claim on behalf of Worker and does not change Task meaning.
+Dispatcher does not claim the Issue or change Task meaning.
 
-Bootstrap mode uses native worktree + tmux. Later dogfooding mode should use `agent-runtime-mcp` as the Runtime transport while preserving exactly the same Issue semantics.
+Initially it may communicate through native tmux.
 
-### `$task-worker`
+After Channel MCP is accepted, it may use:
 
 ```text
-live read
-→ claim
+prepare worktree/tmux/Codex externally
+→ Channel MCP discovers that existing pane
+→ write_text/read_channel/send_control
+```
+
+Channel MCP does not create the worktree, tmux pane or Codex process and does not store Issue mapping.
+
+## Worker
+
+```text
+re-read live GitHub
+→ claim ready/no-owner Task
 → Attempt N
-→ implement/verify
-→ durable report
-→ release ownership
+→ execute frozen Contract
+→ [EXECUTION REPORT] or [BLOCKER REPORT]
+→ review/blocked + owner:none
 → STOP
 ```
 
-### `$task-reviewer`
+Worker never Reviews itself, closes the Issue or starts another Task.
+
+## Reviewer
+
+Reviews Issue + Contract + Candidate + required evidence and chooses:
 
 ```text
-Issue + Contract + Candidate + Evidence
-→ ACCEPT | REVISE | BLOCK | SPLIT | NOT_PLANNED
+ACCEPT | REVISE | BLOCK | SPLIT | NOT_PLANNED
 ```
 
-On unchanged-contract REVISE, Reviewer returns the Issue to ready and emits a fresh canonical handoff for Dispatcher. On Contract change, Reviewer returns to Publisher/Publication Gate.
+Unchanged-contract REVISE returns the same Issue to ready and emits a fresh handoff for Dispatcher.
+Contract changes return to draft and Publisher Publication Gate.
 
-## 3. Lifecycle
+## Lifecycle
 
 ```text
 status:draft
-→ Publisher Publication Gate
+→ Publication Gate
 → status:ready
-→ Dispatcher runtime delivery
+→ Dispatcher prepares/delivers execution context
 → Worker claim
 → status:in-progress
 → Attempt N
-→ execution report / blocker report
-→ status:review / status:blocked
+→ review | blocked
 → Reviewer
 ```
 
-Dispatcher runtime delivery does **not** itself change Issue status from ready to in-progress. Only Worker claim does.
+Dispatcher launch does not begin an Attempt; Worker claim does.
 
-## 4. Publication Gate
+## Recovery
 
-A Task may become ready only after:
+`status:in-progress + dead/missing tmux/channel/process` is a Reviewer/Coordinator recovery condition, not permission for Dispatcher to auto-create Attempt N+1.
 
-1. Goal is concrete.
-2. Issue state block is valid and currently `status:draft`.
-3. `task.md` exists and is executable.
-4. `prompt.md` exists and points to the exact Task Package.
-5. Architecture/security impact has been checked.
-6. Dependencies and required capabilities are explicit.
-7. Success Criteria are frozen before execution.
-8. GitHub read-back confirms committed paths/state.
-9. `Active owner: none`.
-10. Publisher changes live state to `status:ready` and performs final read-back.
-11. Publisher emits the canonical Worker handoff.
+A Channel MCP `CHANNEL_NOT_FOUND` result is only transport evidence. Upper-layer collaboration decides whether/how to rebuild the execution environment.
 
-A successful file/Issue write alone is not publication.
+## Product separation
 
-## 5. Dispatch Gate
+The product contract is under the canonical Channel docs referenced by `docs/README.md`.
 
-Before launching a new child Worker, Dispatcher must independently re-read live state and require:
+Repository concepts below are **not** product concepts:
 
 ```text
-Issue open
-Status: status:ready
-Active owner: none
-Task Package resolves
-required child capabilities/environment match
-no already-running issue-linked runtime for this Task
-```
-
-If state is in-progress/review/blocked/done, Dispatcher tracks/reports instead of launching a duplicate Worker.
-
-Parallel executions require isolated mutable checkouts. Bootstrap default:
-
-```text
-Issue #N
-→ <repo>.worktrees/issue-N
-→ tmux codex-issue-N
-→ Codex Worker
-```
-
-## 6. Attempt rule
-
-Each successful Worker transition:
-
-```text
-status:ready → status:in-progress
-```
-
-starts a new monotonically increasing Attempt number.
-
-A failed/revised Attempt does not normally create a new Issue when Goal/Scope/Success Criteria remain the same.
-
-A dead Dispatcher child does not automatically create Attempt N+1. `status:in-progress + dead runtime` requires Reviewer/Coordinator recovery first.
-
-## 7. Review and redispatch
-
-Unchanged Contract:
-
-```text
-Attempt N → status:review
-→ Reviewer REVISE
-→ status:ready + no owner
-→ fresh canonical handoff
-→ Dispatcher
-→ Worker claim
-→ Attempt N+1
-```
-
-Contract/bootstrap change:
-
-```text
+Publisher
+Dispatcher
+Worker
 Reviewer
-→ status:draft
-→ update canonical/task/bootstrap sources
-→ Publisher Publication Gate
-→ status:ready
-→ Dispatcher
+Issue
+Attempt
+worktree
+Issue↔pane mapping
+Codex lifecycle
 ```
 
-BLOCK follows the same principle after concrete unblock conditions are satisfied.
-
-## 8. Runtime integration
-
-The Runtime service is Execution Plane infrastructure, not Task authority.
-
-Bootstrap:
+Final principle:
 
 ```text
-Dispatcher → native tmux → Codex
+GitHub = durable repository Task authority
+Channel MCP = optional terminal communication transport only
 ```
-
-Target dogfooding:
-
-```text
-Dispatcher → agent-runtime-mcp → TmuxBackend → Codex
-```
-
-The runtime may carry an Issue reference for correlation, but must not claim, select, accept, Review, or close Tasks.
-
-## 9. Final principle
-
-```text
-Publisher = make Task executable
-Dispatcher = deliver it to an isolated Worker runtime
-Worker = execute one Attempt
-Reviewer = decide what the result means
-GitHub = durable Task authority
-```
-
-Chat and terminal state are operational views, not project state.
