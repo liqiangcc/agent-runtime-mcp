@@ -53,6 +53,8 @@ Prefer tmux pane identity plus configured server/socket namespace for the backen
 
 A pane destroyed and recreated may become a different Channel. Preserving logical Agent/Worker identity across recreation is an upper-layer responsibility.
 
+All read/write/control operations for a normal caller resolve the opaque `channel_id` through the same configured scope/visibility path. Raw pane ids are not an alternate public authority path.
+
 ## 5. Read
 
 Use tmux pane capture to obtain bounded recent terminal text.
@@ -67,18 +69,30 @@ Requirements:
 
 ## 6. Ordinary text write
 
-Text must be transported as data, not interpolated into a shell command and not parsed as tmux key syntax.
+Text is transported as bounded data, not interpolated into a shell command and not parsed as caller-provided tmux key syntax.
 
-Preferred conceptual path:
+The Channel layer validates ordinary text before backend mutation:
+
+- Unicode text is allowed;
+- LF and TAB are allowed;
+- other Unicode `Cc` control characters are rejected so ESC/interrupt-like input must use `send_control`;
+- the UTF-8 byte bound is checked before tmux mutation.
+
+For tmux, the preferred literal-data mapping is:
 
 ```text
-text bytes
-→ safe tmux buffer/input path
-→ paste to target pane
-→ optional explicit ENTER
+validated text
+→ operation-unique named tmux paste buffer loaded from stdin/data
+→ paste buffer to exact resolved pane
+→ delete temporary buffer
+→ optional explicit ENTER only after successful paste
 ```
 
-Implementation must preserve newlines, quotes, backticks, `$` and other shell-sensitive characters as terminal input data.
+The implementation should preserve caller LF instead of silently converting it into an MCP-added Enter and should use tmux bracketed-paste behavior when supported by the foreground application. Application interpretation of pasted LF is not a Channel guarantee.
+
+A shared/default mutable paste buffer is not sufficient for concurrent callers unless equivalent isolation is proven. Per-operation transport state must prevent payload/target cross-contamination.
+
+Temporary paste buffers are internal transport resources, not endpoint lifecycle authority. Clean them after successful use and best-effort after failure without masking the primary mutation result.
 
 The backend does not inspect whether the pane currently contains Codex, bash, a REPL or another program.
 
@@ -92,11 +106,27 @@ INTERRUPT
 ESCAPE
 ```
 
-to fixed tmux control/key operations internally.
+to fixed tmux key operations internally, equivalent to:
 
-Do not expose arbitrary `send-keys` grammar.
+```text
+ENTER     → Enter
+INTERRUPT → C-c
+ESCAPE    → Escape
+```
 
-## 8. Health
+Do not expose arbitrary `send-keys` grammar or caller-provided key names.
+
+`submit=true` in `write_text` must reuse the same internal ENTER mapping after text transport succeeds rather than create a second Enter semantic.
+
+## 8. Mutation ambiguity
+
+Text/control mutations are non-idempotent.
+
+If a tmux command times out after input may have been accepted, the backend reports a mechanically honest timeout/unknown delivery outcome. It does not silently retry.
+
+Retry/recovery belongs to the upper layer.
+
+## 9. Health
 
 Keep distinct:
 
@@ -110,9 +140,9 @@ channel existence
 
 A healthy backend does not guarantee any particular pane exists.
 
-## 9. Lifecycle boundary
+## 10. Lifecycle boundary
 
-Core backend does not perform:
+Core backend does not perform endpoint lifecycle actions:
 
 ```text
 new-session
@@ -128,9 +158,9 @@ create worktree
 
 If a pane disappears, report `CHANNEL_NOT_FOUND` or unavailable. Do not recreate it.
 
-Project-specific Dispatcher/operator code can use native tmux or another lifecycle mechanism outside this MCP.
+Project-specific operator/upper-layer code can use native tmux or another lifecycle mechanism outside this MCP.
 
-## 10. Process semantics
+## 11. Process semantics
 
 The backend may return non-sensitive mechanical metadata when directly observable, but it must not derive semantic statuses such as:
 
@@ -144,23 +174,25 @@ blocked
 
 A quiet pane or a shell prompt has no product-level meaning.
 
-## 11. Operator interoperability
+## 12. Operator interoperability
 
 Humans and upper-layer automation remain free to use native tmux to create, name, attach, stop and recover sessions.
 
 The MCP is an additional communication interface, not tmux ownership authority.
 
-## 12. Security constraints
+## 13. Security constraints
 
-- invoke tmux through structured executable + argv/process APIs;
+- invoke tmux through structured executable + argv + explicit stdin/data paths;
 - never interpolate channel input into shell command strings;
-- bound reads;
+- bound reads and writes;
+- reject ordinary-text control-code bypasses before mutation;
+- isolate concurrent mutation transport state;
 - treat output as sensitive/untrusted;
 - write/control only within configured tmux scope;
 - normal operation requires no root;
 - remote MCP write access must be authenticated.
 
-## 13. Verification targets
+## 14. Verification targets
 
 Tests should cover at least:
 
@@ -168,10 +200,12 @@ Tests should cover at least:
 - stable addressing of a discovered pane during its lifetime;
 - bounded read and truncation;
 - Unicode output handling;
-- multi-line/metacharacter text delivery as data;
+- bounded multi-line/metacharacter text delivery as data;
+- rejection of non-LF/TAB control characters from ordinary text;
 - explicit Enter/interrupt/escape;
+- concurrent write payload/target isolation;
 - missing pane returns structured failure;
 - tmux unavailable returns backend failure;
-- configured visibility filters are enforced;
+- configured visibility filters are enforced for read and mutation;
 - no session/pane lifecycle commands are exposed by the MCP implementation;
 - no semantic Agent/Task state parsing.
