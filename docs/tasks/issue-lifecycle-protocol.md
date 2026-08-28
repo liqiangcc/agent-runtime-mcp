@@ -1,10 +1,10 @@
-# Issue Feedback / Dispatch / Review / Iteration / Closure Protocol
+# Issue Feedback / Review / Iteration / Closure Protocol
 
-This protocol defines the durable closed loop for independent Tasks.
+This protocol defines the durable closed loop for independent repository Tasks.
 
 Core principle:
 
-> **Issue is the live coordination state and append-only execution history; `task.md` is the stable execution contract; `prompt.md` is Worker bootstrap/navigation only; Publisher makes Tasks executable; Dispatcher transports a published handoff; Worker executes one Attempt; Reviewer decides what the result means.**
+> **GitHub Issue is live coordination state and append-only execution history; `task.md` is the frozen execution Contract; `prompt.md` is bootstrap/navigation only; a separate Worker executes one Attempt; the original Coordinator decides what the result means.**
 
 ## 1. Authority
 
@@ -29,92 +29,83 @@ GitHub Issue comments
 
 commit / PR / CI / logs / artifacts
 = Evidence
-
-runtime / tmux / worktree state
-= execution/liveness/recovery evidence only
 ```
 
-Issue comments cannot silently redefine architecture, Scope, Claims or Success Criteria. Runtime observations cannot silently redefine Task state.
+Issue comments cannot silently redefine architecture, Scope, Claims or Success Criteria. Runtime/terminal observations cannot silently redefine Task state.
 
-## 2. End-to-end roles
+## 2. Default role model
 
 ```text
-GPT Web Coordinator
-→ Task Publisher
-→ Task Dispatcher
-→ Task Worker
-→ Task Reviewer
+original GPT Web conversation
+= Coordinator / Publisher / Reviewer
+
+separate GPT Web conversation
+= Web Worker using @GitHub
+
+GitHub Actions
+= executable verification Runner / Evidence
 ```
 
-Role boundaries are defined in `docs/tasks/collaboration-protocol.md`.
+Default Task route:
+
+```text
+Coordinator publishes status:ready + env:web-gpt
+→ short Web Worker entry
+→ separate Web GPT Worker claims exactly one Attempt
+→ repository changes + GitHub Actions Evidence
+→ Worker reports and stops
+→ original Coordinator reviews
+```
+
+Codex/Dispatcher is an optional explicitly published route, not the default lifecycle.
 
 ## 3. State machine
 
 ```text
 status:draft
-   ↓ Publisher Publication Gate PASS
+   ↓ Coordinator/Publisher Publication Gate PASS
 status:ready
-   ↓ Dispatcher may launch isolated Worker runtime (Task state unchanged)
-   ↓ Worker claim / Attempt N starts
+   ↓ separate Worker claim / Attempt N starts
 status:in-progress
    │
-   ├── Worker [EXECUTION REPORT]
-   │       ↓
-   │   status:review
-   │       │
-   │       ├── Reviewer ACCEPT
-   │       │      ↓
-   │       │   [FINAL ACCEPTANCE]
-   │       │      ↓
-   │       │   status:done
-   │       │      ↓
-   │       │   close Issue
-   │       │
-   │       ├── Reviewer REVISE
-   │       │      ↓
-   │       │   status:ready
-   │       │      ↓ fresh handoff → Dispatcher
-   │       │      ↓ Worker claim
-   │       │   Attempt N+1
-   │       │
-   │       ├── Reviewer BLOCK
-   │       │      ↓
-   │       │   status:blocked
-   │       │      ↓ unblock/review
-   │       │   status:ready | status:draft
-   │       │
-   │       └── Reviewer SPLIT
-   │              ↓ child Task(s) through Publisher
+   ├── [EXECUTION REPORT] → status:review + owner:none
+   │                            ↓
+   │                       Coordinator Review
+   │                         ├─ ACCEPT → Final Acceptance → done → close
+   │                         ├─ REVISE → ready → next Worker claim / Attempt N+1
+   │                         ├─ BLOCK  → blocked
+   │                         └─ SPLIT  → child Task(s) through Publisher
    │
-   ├── Worker [BLOCKER REPORT]
-   │       ↓
-   │   status:blocked
-   │
-   └── Worker/runtime interruption before durable report
-           ↓
-       Reviewer/Coordinator recovery
-           ↓
-       status:ready | status:draft | status:blocked
+   └── [BLOCKER REPORT] → status:blocked + owner:none
 ```
 
-Only Worker claim changes `ready → in-progress`. Dispatcher launch does not.
+Only a Worker claim changes `ready → in-progress`.
+
+Opening a new GPT Web conversation, creating a branch, starting CI, creating a tmux process, or preparing another execution environment does not begin an Attempt by itself.
 
 ## 4. Publication Gate
 
-Publisher must verify before `status:ready`:
+Before `status:ready`, Coordinator/Publisher must re-read GitHub and verify:
 
 ```text
 Issue exists/open
 + valid state block
 + status:draft
-+ Active owner: none
-+ task.md exists
-+ prompt.md exists
-+ Task Goal/Scope/Success Criteria are executable
-+ dependencies are explicit
-+ required capabilities/environment are explicit
++ Active owner:none
++ explicit Worker environment/route
++ task.md exists and matches Issue
++ prompt.md exists and points to task.md
++ Goal / Primary Use Case executable
++ Success / Failure / Degradation defined
++ Separation Points explicit
++ Single Responsibilities explicit
++ Logic / Control Separation explicit
++ Scope / Out of Scope bounded
++ Claims / Evidence Contract present
++ dependencies satisfied
 + architecture/security impact checked
-+ paths/state read back from GitHub
++ upstream accepted interfaces re-read when required
++ GitHub Actions/external Evidence route sufficient
 + no prohibited secret persisted
 ```
 
@@ -122,404 +113,264 @@ Then:
 
 ```text
 status:draft
-→ read-back PASS
-→ status:ready
+→ Publication Gate PASS comment
+→ status:ready + owner:none
 → final read-back
-→ canonical Worker handoff
+→ short Worker entry
 ```
 
-Do not hand off an unpublished/draft Task.
+Do not hand off a draft Task.
 
-## 5. Dispatch Gate
+## 5. Default Web Worker entry
 
-Dispatcher receives the canonical Worker handoff and re-reads live GitHub before launching.
-
-Require:
+The entry is intentionally navigation-only:
 
 ```text
-Issue open
-Status: status:ready
-Active owner: none
-prompt.md/task.md resolve
-actual child environment/capabilities match Task routing
-no already-running issue-linked Worker runtime for this Task
+@GitHub
+
+执行 liqiangcc/agent-runtime-mcp 的 Issue #<issue>，作为 Web Worker。
+
+必须使用 GitHub live state。
+
+入口：
+`docs/tasks/<issue>-<slug>/prompt.md`
+
+按仓库协议 claim、执行、报告后停止。
 ```
 
-Dispatcher may create/resolve isolated worktree/runtime state and transport the handoff, but it does not claim the Issue.
-
-If state is already `in-progress`, `review`, `blocked`, `done`, or closed, do not launch a duplicate Worker. Track/reconcile instead.
+All actual Goal/Scope/Claims/Success Criteria live in the repository, not the chat handoff.
 
 ## 6. Attempt
 
-Each successful Worker transition:
+Each successful:
 
 ```text
-status:ready → status:in-progress
+status:ready + owner:none
+→ status:in-progress + owner:<worker>
 ```
 
-begins a new incrementing Attempt:
+begins the next monotonically increasing Attempt.
 
-```text
-Attempt: 1
-Attempt: 2
-Attempt: 3
-```
-
-The Attempt is an auditable unit:
+The Attempt is one auditable unit:
 
 ```text
 Worker claim
-→ execution
-→ candidate/evidence
-→ report
-→ Reviewer decision
+→ implementation / verification
+→ durable Candidate/Evidence
+→ Worker report
+→ Coordinator decision
 ```
-
-A Dispatcher launch before claim is not yet an Attempt.
 
 If Goal/Scope/Success Criteria have not changed, prefer another Attempt on the same Issue over a duplicate Issue.
 
 ## 7. Worker pre-claim
 
-Worker must re-read live Issue immediately before claim and verify:
+Worker must re-read live GitHub immediately before claim and verify:
 
 - Issue open;
 - `Status: status:ready`;
 - `Active owner: none`;
-- Worker has required capabilities;
-- linked `task.md` / `prompt.md` resolve;
-- Task Contract is executable as published.
+- expected Environment/Worker route matches current conversation;
+- `task.md` / `prompt.md` resolve;
+- required capabilities are available;
+- frozen Contract remains executable.
 
-On claim:
+On default Web Worker claim:
 
 ```text
 Status: status:in-progress
-Active owner: <worker identity>
-Attempt: next N determined from append-only history
+Active owner: web-gpt-worker
 ```
 
-Re-read after mutation. If claim cannot be durably confirmed, stop before write-side Task work.
+Then re-read. If ownership cannot be durably confirmed, stop before repository write-side implementation.
 
-## 8. Worker normal completion
+## 8. Worker execution and Evidence
+
+The Worker executes only the frozen Task Contract.
+
+For `env:web-gpt` Tasks:
+
+- repository authoring happens through `@GitHub`;
+- commands/integration not executable in the Web conversation use GitHub Actions as Runner;
+- PASS requires reading actual run/job Evidence on the exact Candidate SHA;
+- Worker does not treat CI success as Coordinator acceptance.
+
+## 9. Worker normal completion
 
 ```text
-persist candidate/evidence
+persist Candidate / branch / PR / Evidence
 → post [EXECUTION REPORT]
 → Status: status:review
 → Active owner: none
-→ verify Issue state
+→ verify live Issue state
 → STOP
 ```
 
-Worker does not wait for implicit chat review, dispatch another Worker, or start another Attempt/Task.
-
-### Execution Report
+Execution Report records at least:
 
 ```text
 [EXECUTION REPORT]
-
 Attempt: <N>
-Worker: codex
-Role: implementation | verification | combined | research
-
+Worker: <identity>
 Base commit: <sha>
 Candidate commit: <sha or n/a>
-PR: <number/url or n/a>
-
+PR / branch: <reference or n/a>
 Execution outcome: COMPLETED | PARTIAL | FAILED
-
-Implementation result:
-- <what changed>
-
-Verification results:
-- C1: PASS | CONDITIONAL PASS | FAIL | BLOCKED | NOT RUN
-- C2: ...
-
-Commands / Jobs:
-- <commands / workflow / run>
-
-Evidence:
-- <commit / PR / run / log / artifact>
-
-Problems found:
-- <problem or none>
-
-Unverified / limitations:
-- <item or none>
-
-Suggested next action:
-- <optional; Reviewer decides>
+Implementation result: ...
+Claims: C1 PASS | FAIL | BLOCKED | NOT RUN ...
+Commands / Actions runs/jobs: ...
+Problems found: ...
+Unverified / limitations: ...
 ```
 
-`COMPLETED` is not Reviewer acceptance.
+`COMPLETED` is not acceptance.
 
-## 9. Worker blocked completion
+## 10. Worker blocked completion
 
-If a required permission, dependency, runtime, test environment or capability is unavailable:
+If a required permission, dependency, verification environment or capability is unavailable:
 
 ```text
-preserve safe/recoverable state
+preserve recoverable state
 → post [BLOCKER REPORT]
 → Status: status:blocked
 → Active owner: none
-→ verify Issue state
+→ verify live state
 → STOP
 ```
 
-### Blocker Report
+Never lower Success Criteria or bypass product/security boundaries to avoid a blocker.
 
-```text
-[BLOCKER REPORT]
+## 11. Coordinator Review
 
-Attempt: <N>
-Worker: codex
+Reviewer is the original Coordinator conversation unless the Task explicitly publishes another review authority.
 
-Blocked at:
-- <step / claim>
+Reviewer re-reads:
 
-Missing capability / dependency:
-- <concrete missing condition>
-
-Completed before blocker:
-- <safe completed work>
-
-Reusable candidate / branch / PR:
-- <reference or n/a>
-
-Evidence:
-- <logs / command output / run>
-
-Required to resume:
-- <minimal concrete condition>
-
-Safe state / cleanup:
-- <state>
-
-Result: BLOCKED
-```
-
-Never lower Success Criteria or bypass security rules to avoid a blocker.
-
-## 10. Interrupted in-progress recovery
-
-`status:in-progress` with a dead/missing child runtime and no durable Worker completion report is a recovery unit, not a normal Review and not automatic redispatch permission.
-
-Before recovery inspect:
-
-```text
-Issue/comments
-Active owner
-issue worktree branch/HEAD/dirty state
-commits / PR
-tests/CI/evidence
-runtime/tmux liveness
-current Task Contract
-```
-
-Elapsed time alone is not proof of stale ownership.
-
-When stale ownership is concretely justified, Reviewer/Coordinator posts:
-
-```text
-[COORDINATOR RECOVERY]
-
-Interrupted Attempt: <N>
-Worker: <identity>
-Reason recovery is justified:
-- <evidence>
-
-Durable anchors found:
-- <branch/commit/PR/evidence/worktree>
-
-Reusable work:
-- <what to preserve>
-
-Contract change required: yes | no
-Next state: status:ready | status:draft | status:blocked
-Next attempt: <N+1 or n/a>
-```
-
-Then release stale `Active owner`.
-
-If returned to ready, Reviewer emits a fresh canonical handoff; Dispatcher may launch/resume an appropriate runtime; next Worker claim starts Attempt N+1. Never place a replacement Worker into the interrupted Attempt N.
-
-## 11. Reviewer decision
-
-Reviewer reads:
-
-- current Issue/comments;
-- current `task.md`/`prompt.md`;
-- Candidate commit/PR;
-- required tests/CI/evidence;
-- linked Task evidence when relevant.
+- live Issue and append-only comments;
+- frozen `task.md` / `prompt.md`;
+- Candidate / branch / PR;
+- changed files;
+- required exact-SHA CI/runtime Evidence;
+- canonical architecture/security sources.
 
 Then posts:
 
 ```text
 [COORDINATOR REVIEW]
-
 Review of Attempt: <N>
 Decision: ACCEPT | REVISE | BLOCK | SPLIT | NOT_PLANNED
-
-Accepted:
-- <criteria / claims>
-
-Failed / missing:
-- <criteria / evidence>
-
-Required changes:
-1. <change>
-2. <change>
-
+Accepted: ...
+Failed / missing: ...
+Required changes: ...
 Contract change required: yes | no
 Canonical doc change required: yes | no
-
-Linked tasks:
-- <issue or n/a>
-
-Next state:
-- status:done | status:ready | status:blocked | status:draft
-
-Next attempt:
-- <N+1 or n/a>
+Next state: status:done | status:ready | status:blocked | status:draft
+Next attempt: <N+1 or n/a>
 ```
 
-Review must be durable in GitHub, not only chat.
+Review must be durable in GitHub.
 
-## 12. REVISE and redispatch
+## 12. Integration Gate
+
+For implementation Tasks whose accepted code must land on the canonical branch, Reviewer must not close the Issue merely because a Candidate branch passed CI.
+
+Before Final Acceptance:
+
+```text
+accepted Candidate
+→ integrate through PR or equivalent reviewed GitHub operation
+→ verify canonical branch contains the Candidate
+→ read canonical-branch CI when required
+→ Final Acceptance
+```
+
+If the Candidate diverged from main because Coordinator planning continued concurrently, integrate both lines without discarding either accepted product implementation or newer planning/canonical work.
+
+## 13. REVISE
 
 If Contract remains correct but implementation/evidence is incomplete:
 
 ```text
-task.md unchanged
-→ Reviewer REVISE
+[COORDINATOR REVIEW] Decision: REVISE
 → Status: status:ready
 → Active owner: none
-→ preserve recoverable branch/PR/candidate
-→ fresh canonical handoff
-→ Dispatcher
-→ Worker claim
-→ Attempt N+1
+→ preserve useful branch/PR/Candidate
+→ emit fresh short Worker entry
+→ next Worker claim starts Attempt N+1
 ```
 
-Reviewer produces the handoff; Dispatcher performs runtime delivery. Reviewer does not launch the Worker itself when Dispatcher is being used.
+The Reviewer does not execute Attempt N+1 in the Coordinator conversation.
 
-## 13. Contract Revision / republication
+## 14. Contract revision
 
-If Review changes:
-
-- Scope;
-- Claims;
-- Success Criteria;
-- architecture/security assumptions;
-- required evidence authority;
-- Task decomposition;
-- Worker routing/capability contract;
-- bootstrap contract;
-
-comments are insufficient.
-
-Required sequence:
+If Review changes Scope, Claims, Success Criteria, architecture/security assumptions, Evidence authority, Worker route or bootstrap Contract:
 
 ```text
 Status: status:draft
-→ update canonical docs when required
+→ update canonical docs when needed
 → update task.md / prompt.md
-→ Publisher read-back Publication Gate
-→ Status: status:ready
-→ fresh handoff
-→ Dispatcher
+→ read-back Publication Gate
+→ status:ready
+→ fresh Worker entry
 ```
 
-Never retroactively lower Success Criteria to make an existing result pass.
+Do not retroactively lower Success Criteria to make an existing Candidate pass.
 
-## 14. UNBLOCK
+## 15. Recovery
 
-When the concrete blocker is resolved, Reviewer/Coordinator records:
+If an Issue remains `status:in-progress` without a durable completion report, Coordinator must establish concrete evidence before releasing ownership.
+
+For a Web Worker route inspect at least:
 
 ```text
-[COORDINATOR UNBLOCK]
-
-Blocker from Attempt: <N>
-Resolved:
-- <what changed>
-
-Evidence:
-- <reference>
-
-Resume condition satisfied: yes
-Resume from:
-- <step / claim>
-
-Next attempt: <N+1>
-Next state: status:ready | status:draft
+Issue/comments
+Active owner
+branch / commits / PR
+Actions runs/jobs
+current Task Contract
 ```
 
-If Contract/bootstrap is unchanged, return ready + fresh handoff → Dispatcher. If changed, use Publisher republication.
+Elapsed time alone is not proof that ownership is stale.
 
-## 15. SPLIT
+If recovery is justified, post `[COORDINATOR RECOVERY]`, preserve reusable anchors, release stale owner and choose `ready | draft | blocked`.
 
-Create child Task only when new work has independent Scope/lifecycle/Success Criteria/evidence authority/deliverable.
+A replacement Worker starts a new Attempt; it never continues the interrupted Attempt number.
 
-Do not split merely because work touches a different source file, test command, tmux primitive, backend, worktree or environment.
+## 16. SPLIT
 
-Parent records:
+Create a child Task only when the new work has independent responsibility/lifecycle/Success Criteria/Evidence authority/deliverable.
 
-```text
-[SPLIT]
+Do not split merely because work touches a different source file, test command, tmux primitive or environment.
 
-Reason:
-- <why independent Task>
+Child Tasks go through the normal draft → Publication Gate → ready lifecycle.
 
-Child Task(s):
-- #<issue> <purpose>
-
-Parent blocked by child: yes | no
-Required Evidence to return:
-- <what parent needs>
-```
-
-Child Task is materialized/published through Publisher.
-
-## 16. Final Acceptance
+## 17. Final Acceptance
 
 Issue closes only when:
 
 ```text
-Task Success Criteria accepted
-+ required Claims/evidence accepted
+Success Criteria accepted
++ Claims/Evidence accepted
 + Candidate/PR accepted
++ required canonical-branch integration accepted
 + no unresolved blocker
 + no required child Task unresolved
-+ Final Acceptance recorded
 ```
 
 Final comment:
 
 ```text
 [FINAL ACCEPTANCE]
-
-Task: <id/title>
+Task: <title>
 Accepted candidate: <sha or n/a>
 Accepted PR: <pr or n/a>
-
-Accepted attempts:
-- Attempt <N>: <summary>
-
-Success Criteria:
-- SC1: ACCEPTED
-- SC2: ACCEPTED
-
-Required Claims / Verification:
-- C1: PASS / accepted evidence
-- C2: PASS / accepted evidence
-
-Known remaining limitations:
-- <non-blocking limitation or none>
-
+Integrated main: <sha or n/a>
+Accepted attempts: ...
+Success Criteria: ACCEPTED
+Required Claims / Verification: PASS / accepted evidence
+Known remaining limitations: ...
 Decision: ACCEPT
 Final state: status:done
-Issue close reason: completed
 ```
 
 Order:
@@ -528,51 +379,26 @@ Order:
 post [FINAL ACCEPTANCE]
 → Status: status:done
 → Active owner: none
-→ close Issue
+→ close Issue reason=completed
 ```
 
-## 17. Append-only history
+## 18. Append-only history
 
-- do not delete old Attempt/Review/Recovery records to tidy history;
+- do not delete old Attempt/Review/Recovery records;
 - use a new `[CORRECTION]` comment for material corrections;
-- Issue body holds current snapshot;
-- comments explain how/why state changed;
-- `task.md` and `prompt.md` do not store dynamic execution outcomes.
+- Issue body stores current snapshot;
+- comments explain state transitions;
+- `task.md` / `prompt.md` do not store dynamic execution outcomes.
 
-A new Coordinator/role should reconstruct the Task from GitHub without old chat history.
+A fresh Coordinator conversation should be able to reconstruct the Task from GitHub alone.
 
-## 18. End-to-end loop
+## 19. Product separation
+
+Repository collaboration roles are not Channel MCP product concepts.
 
 ```text
-Coordinator
-→ Publisher
-→ draft → Publication Gate → ready
-→ canonical handoff
-→ Dispatcher
-→ isolated Worker runtime
-→ Worker claim
-→ Attempt N
-→ report / blocker
-→ review / blocked
-→ Reviewer
-
-REVISE
-→ ready + fresh handoff
-→ Dispatcher
-→ Attempt N+1
-
-CONTRACT CHANGE
-→ draft
-→ Publisher
-
-INTERRUPTION
-→ Reviewer recovery
-→ ready/draft/blocked
-
-ACCEPT
-→ Final Acceptance
-→ done
-→ close
+GitHub = durable Task authority
+Web Worker / optional Codex Worker = repository executor
+GitHub Actions = verification Runner/Evidence
+Channel MCP = terminal communication product being developed
 ```
-
-Chat and terminal state are operational views. GitHub is the durable coordination record.
