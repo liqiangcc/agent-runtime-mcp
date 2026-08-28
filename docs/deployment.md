@@ -2,39 +2,41 @@
 
 ## 1. Deployment goal
 
-Expose the Channel MCP securely to a remote MCP client while leaving terminal/session lifecycle outside the service.
+Expose the accepted Channel MCP securely to a remote client while leaving Channel semantics and terminal lifecycle independent from remote ingress.
+
+Selected MVP topology:
 
 ```text
-MCP client
-→ network reachability
-→ authentication / authorization boundary
-→ remote MCP ingress
-→ unchanged Channel service
-→ configured tmux scope
-→ existing panes
+ChatGPT / supported OpenAI remote MCP client
+        ↓
+OpenAI Secure MCP Tunnel
+        ↓
+customer-run tunnel-client
+        ↓
+local stdio agent-runtime-mcp
+        ↓
+Channel Service
+        ↓
+configured tmux scope
+        ↓
+existing panes
 ```
 
-The service does not create the panes it exposes.
+The terminal host does not need a public inbound MCP listener for this topology.
 
 ## 2. Core separation points
 
-Remote deployment must preserve these separations:
-
 ```text
-network reachable
-!= authorized
+network/tunnel reachable
+!= authorized Channel access
 
-authentication
-!= authorization
-
-MCP connection/session lifetime
+remote tunnel/connection lifetime
+!= local MCP process lifetime
 != Channel lifetime
 != tmux pane lifetime
 
-remote ingress failure
-!= Channel failure
-!= backend failure
-!= application failure
+remote ingress/auth
+!= Channel semantics
 
 infrastructure provisioning
 != Channel MCP product capability
@@ -42,40 +44,77 @@ infrastructure provisioning
 
 These are authority boundaries, not implementation details.
 
-## 3. Remote MCP requirement
+## 3. Selected MVP remote ingress
 
-Remote access is part of MVP because the intended use includes GPT Web or another remote MCP client.
+Current authoritative OpenAI tooling provides Secure MCP Tunnel for connecting private/local MCP servers to supported OpenAI clients.
 
-The active implementation must use the currently supported remote MCP transport from the chosen official SDK rather than hand-rolled protocol framing.
+The selected architecture uses `tunnel-client` as an **external deployment adapter** and keeps `agent-runtime-mcp` on its accepted stdio server path.
 
-Private/local hosts should prefer a supported private-connectivity/tunnel mechanism where appropriate. Direct public exposure requires HTTPS plus explicit authentication/authorization.
-
-Provider/tunnel choice is deployment policy and must be selected from live evidence near implementation time rather than frozen early in product design.
-
-## 4. Reachability is not authority
-
-A network path only makes the endpoint reachable. It does not grant permission to use terminal Channels.
+Conceptually:
 
 ```text
-reachable endpoint
-→ authenticate caller
-→ authorize protected MCP operation
-→ only then enter Channel logic
+tunnel-client
+→ launches/connects to local MCP stdio command
+→ carries MCP traffic outbound over the OpenAI tunnel
 ```
 
-Do not treat any of these as authorization by themselves:
+This means MVP-003 should prove composition/integration rather than add a second HTTP implementation of every Channel operation.
 
-- possession of endpoint URL;
-- private IP reachability;
-- tunnel membership without an explicit reviewed trust rule;
-- client UI confirmation;
-- arbitrary proxy headers.
+## 4. Reachability and authorization
 
-## 5. Write-capability gate
+A tunnel/network path makes a service reachable according to the selected trust model; it must not be treated as accidental terminal authority.
 
-The product is not complete as a remote control channel if the active intended client can only perform read operations.
+Required deployment controls include:
 
-Before dogfooding, verify live support for the accepted public Channel surface, including:
+- tunnel scoped to the intended OpenAI workspace/project context;
+- only authorized users/connectors may use the tunnel;
+- runtime tunnel credential has only the permissions needed for tunnel Read/Use;
+- administrative tunnel-management credentials are separate from long-lived runtime credentials;
+- repository, terminal output, logs, Issue comments and CI artifacts contain no tunnel/API secrets.
+
+Exact role/permission names must be re-verified at the live Publication Gate because OpenAI platform controls may evolve.
+
+## 5. Credential boundary
+
+Separate credential purposes:
+
+```text
+runtime tunnel credential
+= long-lived tunnel-client runtime authority, least privilege
+
+management/admin credential
+= create/update/delete tunnel configuration when required
+
+ChatGPT connector/workspace permission
+= authority for a user/client to use the configured tunnel
+```
+
+Do not use an administrative key as the normal tunnel daemon credential.
+
+Do not persist secrets in:
+
+- repository files;
+- Task Contracts/prompts;
+- Issue bodies/comments;
+- command examples with real values;
+- CI logs/artifacts.
+
+## 6. Local MCP server
+
+The accepted Channel core remains a stdio MCP server.
+
+Deployment launches the existing built server command (or equivalent package start command) under the same intended low-privilege account that can access the configured tmux namespace.
+
+Remote ingress must not require changing:
+
+- `channel_id` semantics;
+- Channel tool schemas/results;
+- tmux visibility rules;
+- read/write/control/health behavior.
+
+## 7. Complete Channel surface gate
+
+Before remote dogfooding, verify the actual intended client can discover/invoke the complete accepted surface:
 
 ```text
 list_channels
@@ -86,130 +125,64 @@ send_control
 health
 ```
 
-If required write/control actions are unavailable in the active client/workspace, record integration as BLOCKED rather than weakening the product contract.
+If the active ChatGPT workspace/client can only perform read/fetch operations, MVP-003 remains BLOCKED. Do not weaken the product or simulate write evidence.
 
-## 6. Initial topology
+Client capability is a deployment/integration prerequisite, not a Channel semantic.
 
-```text
-remote MCP client
-      │
-network / tunnel / HTTPS reachability
-      │
-authentication + authorization boundary
-      │
-remote MCP transport adapter
-      │
-Channel service
-      │
-configured tmux socket/server/account
-      │
-existing panes
-```
-
-The MCP service and tmux initially run under the same intended low-privilege account boundary.
-
-## 7. Authentication and authorization
-
-Terminal write/control is privileged.
-
-Authentication answers:
+## 8. Tunnel lifetime semantics
 
 ```text
-who/what is presenting this credential?
+tunnel connection lost
+!= tmux pane lost
+!= Channel core recovery trigger
 ```
 
-Authorization answers:
+If the tunnel or remote client disconnects:
 
-```text
-may this authenticated caller use this protected MCP surface?
-```
-
-The two responsibilities may be implemented by one trusted component, but the conceptual distinction must remain explicit.
-
-Do not:
-
-- expose unauthenticated write tools publicly;
-- place access tokens in URL query strings;
-- rely only on client UI confirmation;
-- trust arbitrary proxy headers without reviewed configuration.
-
-Follow the active MCP authorization specification and official SDK behavior at implementation time.
-
-## 8. Remote ingress responsibility
-
-Remote ingress owns only network/protocol trust-boundary logic such as:
-
-- supported MCP transport/session handling;
-- authentication/authorization enforcement;
-- request/body/session bounds;
-- transport timeouts;
-- transport-required Host/Origin/resource protections;
-- sanitized ingress diagnostics.
-
-It must not own:
-
-- Channel identity semantics;
-- tmux targeting logic;
-- endpoint lifecycle/recovery;
-- application/Task interpretation;
-- scheduling or retry policy for terminal workflows.
-
-Remote transport wraps the accepted Channel service; it does not become a second Channel implementation.
+- existing panes continue according to external lifecycle ownership;
+- Channel core does not restart/create/destroy panes;
+- later tunnel/client reconnection rediscovers whatever Channels currently exist;
+- application/workflow retry remains an upper-layer decision.
 
 ## 9. Failure classification
 
-Failures must remain attributable to the responsible layer.
-
 ```text
-ingress/auth failure
-= request did not obtain authorized access to Channel logic
+Tunnel/control-plane failure
+= remote ingress unavailable
+
+Tunnel authorization failure
+= caller cannot obtain protected remote MCP access
+
+Local stdio MCP process failure
+= local service/deployment failure
 
 Channel failure
 = accepted Channel operation failed mechanically
 
-backend failure
-= configured tmux backend unavailable/failed
+Tmux backend failure
+= configured backend unavailable/failed
 
-application outcome
+Application outcome
 = outside Channel MCP knowledge
 ```
 
-An ingress disconnect must not be reported as a pane failure. A backend failure must not be converted into an auth failure. None of these failures grants permission to recreate/restart terminal endpoints.
+Do not collapse these layers into one generic “terminal failed” status.
 
-## 10. HTTP / network security
+## 10. Tmux visibility configuration
 
-For network-exposed deployments:
-
-- TLS/HTTPS outside a trusted private tunnel boundary;
-- authenticate protected requests;
-- authorize access to protected Channel operations;
-- validate token/resource scope where required;
-- apply finite request/body/session bounds;
-- apply timeouts;
-- follow current Origin/Host guidance from the active transport/SDK;
-- expose only the Channel MCP endpoint, not unrelated host services.
-
-Exact transport/auth mechanics are frozen only after current official verification.
-
-## 11. Tmux visibility configuration
-
-Deployment explicitly selects the terminal namespace available to the MCP, such as:
+The Channel service still defines terminal visibility through its existing backend scope, for example:
 
 ```text
 one tmux socket/server
 one OS account
-optional allowed session-name pattern/list
+optional allowed session list
 ```
 
-This remains the authority boundary for what panes Channel logic can list/read/write after a caller has passed ingress authorization.
+Tunnel/workspace authorization controls **who can reach the service**; Channel backend scope controls **which terminal Channels the service can see/control**. These are separate authority boundaries and both must hold.
 
-Remote auth does not silently widen the configured tmux scope.
+## 11. External lifecycle preparation
 
-The service does not keep a Worker registry or Issue mapping.
-
-## 12. External lifecycle preparation
-
-A human or upper-layer automation prepares terminals before use, for example:
+A human or upper-layer automation prepares terminals before use:
 
 ```text
 create workspace
@@ -218,43 +191,43 @@ create workspace
 → Channel MCP discovers it
 ```
 
-Installation of tmux, starting an Agent/CLI, creating worktrees, session restart and cleanup are deployment/orchestration responsibilities outside the core MCP.
+Likewise, these are deployment/operator concerns:
 
-## 13. Lifetime semantics
+- install/start `tunnel-client`;
+- provision tunnel record/permissions;
+- arrange outbound HTTPS connectivity;
+- install tmux/Node dependencies;
+- supervise local MCP/tunnel processes;
+- rotate/revoke credentials.
 
-```text
-HTTP/MCP request lifetime
-!= remote MCP connection/session lifetime
-!= Channel lifetime
-!= tmux pane lifetime
-```
+None becomes a public Channel MCP tool.
 
-A pane may continue running after a client disconnects. A later authorized connection rediscovers whatever Channels currently exist in configured scope.
+## 12. Network exposure
 
-Remote reconnect does not imply endpoint recreation or persistent logical Worker identity.
+Selected MVP tunnel architecture is outbound-oriented and should not require exposing the terminal host's MCP port publicly.
 
-## 14. Infrastructure provisioning boundary
+Firewall/network policy should permit only what the chosen tunnel client requires and should not open unrelated host services.
 
-The repository may document prerequisites for a chosen deployment, but Channel MCP does not expose tools for:
+## 13. Direct-public HTTP alternative
 
-- creating tunnel/provider accounts;
-- buying/configuring DNS as a product API;
-- installing host packages;
-- configuring firewall/users/system services;
-- issuing arbitrary infrastructure commands.
+A future deployment may decide to expose a direct Streamable HTTP MCP endpoint.
 
-Those are operator/environment responsibilities.
+That alternative must be designed separately against the then-current MCP SDK/specification and authorization requirements. It should treat the MCP server as an OAuth-protected resource server where required and should use a proper authorization provider/IdP rather than inventing ad-hoc tokens.
 
-## 15. Compatibility checks
+Direct-public HTTP/OAuth is **deferred** for the selected MVP because Secure MCP Tunnel can bridge the existing stdio server.
 
-Because MCP/client integration evolves, the Publication Gate for remote ingress must verify current authoritative evidence for:
+## 14. Compatibility evidence
 
-- supported remote transport;
-- authentication/authorization requirements;
-- intended client tool discovery/invocation support;
-- write/modify tool support;
-- tunnel/private-connectivity options when relevant;
-- current SDK behavior;
-- required Host/Origin/resource/session protections.
+MVP-003 Publication/Acceptance must record dated live evidence for:
 
-Compatibility evidence validates the frozen product contract. It does not redefine it.
+- target ChatGPT/workspace MCP write capability;
+- Secure MCP Tunnel availability for the target workspace;
+- tunnel-client version/source revision;
+- required runtime/management permissions;
+- selected tunnel configuration revision without secrets;
+- existing stdio MCP command used behind the tunnel;
+- successful remote discovery/read/write/control/health invocation;
+- negative/unauthorized access evidence where supported;
+- disconnect/reconnect without tmux lifecycle mutation.
+
+Planning assumptions are not acceptance evidence.
