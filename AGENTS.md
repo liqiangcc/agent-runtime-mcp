@@ -30,7 +30,7 @@ Task / Issue / Attempt
 project scheduling
 worktree / branch / PR lifecycle
 tmux session/pane creation
-process/Codex startup
+process startup
 restart/recovery/cleanup policy
 Task ↔ terminal mapping
 ```
@@ -61,45 +61,48 @@ health
 
 ## 5. Repository roles
 
-Default development roles are:
+Default development chain:
 
 ```text
-GPT Web Coordinator
-→ Task Publisher
-→ Task Dispatcher
-→ Codex Task Worker
-→ GPT Web / Task Reviewer
+original GPT Web conversation = Coordinator
+→ publish Task
+→ separate GPT Web conversation = Web Worker
+→ GitHub Actions = Runner
+→ original GPT Web conversation = Reviewer
 ```
 
-GPT Web owns coordination, publication, routing, Review, recovery and Final Acceptance. **GPT Web does not implement normal repository Tasks as the Worker.**
+The Coordinator owns planning, publication, routing, Review, recovery and Final Acceptance, and does not implement normal repository Tasks.
 
-Dispatcher prepares/delivers an isolated execution context but does not claim. Codex claims and executes exactly one Attempt. GitHub Actions is verification infrastructure, not Task authority.
+The Web Worker is another GPT Web conversation using `@GitHub`. It claims and executes exactly one Attempt, writes durable results to GitHub, releases ownership and stops.
 
-## 6. Worker lifecycle
+Dispatcher/Codex is optional only when a future Task requires an external execution environment.
+
+## 6. Web Worker lifecycle
 
 ```text
-status:ready + owner:none
-→ Codex claim
+status:ready + env:web-gpt + owner:none
+→ Web Worker claim
 → status:in-progress
 → Attempt N
-→ execute frozen task.md
+→ author through @GitHub
+→ GitHub Actions verification
 → [EXECUTION REPORT] | [BLOCKER REPORT]
 → status:review | status:blocked
 → owner:none
 → STOP
 ```
 
-Worker never Reviews itself, sets `status:done`, closes the Issue, or starts another Task/Attempt automatically.
+Web Worker never Reviews itself, sets `status:done`, closes the Issue, or starts another Task/Attempt automatically.
 
 ## 7. Coordinator / Reviewer lifecycle
 
-GPT Web / Reviewer reads Issue history, Task Contract, Candidate/PR and required Evidence, then decides:
+The original GPT Web Coordinator reads Issue history, frozen Task Contract, Candidate/PR and required Evidence, then decides:
 
 ```text
 ACCEPT | REVISE | BLOCK | SPLIT | NOT_PLANNED
 ```
 
-Unchanged-contract REVISE returns the same Issue to ready for Attempt N+1. Contract changes return to draft and Publication Gate. Only Final Acceptance may close an accepted Task.
+Unchanged-contract REVISE returns the same Issue to ready for Attempt N+1 and produces a fresh Web Worker handoff. Contract changes return to draft and Publication Gate. Only Final Acceptance closes an accepted Task.
 
 ## 8. Security baseline
 
@@ -115,7 +118,7 @@ Unchanged-contract REVISE returns the same Issue to ready for Attempt N+1. Contr
 
 - Record exact Candidate SHA for code-dependent claims.
 - Do not report tests as PASS if they were not run.
-- CI success is evidence, not automatic Task acceptance.
+- GitHub Actions success is evidence, not automatic Task acceptance.
 - Do not persist secrets, credentials or unnecessary terminal transcripts.
 
 ## 10. Stop conditions
