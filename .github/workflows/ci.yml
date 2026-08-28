@@ -133,3 +133,60 @@ jobs:
             exit 1
           fi
           echo 'Static Channel/input/health boundary check passed.'
+
+  runtime-deployment-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install tmux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux
+          tmux -V
+      - name: Install repository dependencies
+        run: npm ci
+      - name: Build exact runtime archive and SHA-256
+        run: npm run package:runtime
+      - name: Verify checksum and extract into an empty directory
+        shell: bash
+        run: |
+          archive="${GITHUB_WORKSPACE}/artifacts/agent-runtime-mcp-v0.1.0.tar.gz"
+          checksum="${archive}.sha256"
+          test -f "$archive"
+          test -f "$checksum"
+          (cd "$(dirname "$archive")" && sha256sum -c "$(basename "$checksum")")
+
+          extract_root="${RUNNER_TEMP}/agent-runtime-mcp-package"
+          rm -rf "$extract_root"
+          mkdir -p "$extract_root"
+          tar -xzf "$archive" -C "$extract_root"
+
+          package_root="${extract_root}/agent-runtime-mcp-v0.1.0"
+          test -f "${package_root}/dist/src/server.js"
+          test -f "${package_root}/package.json"
+          test -f "${package_root}/package-lock.json"
+          test -f "${package_root}/README.md"
+          test ! -e "${package_root}/src"
+          test ! -e "${package_root}/tests"
+          test ! -e "${package_root}/dist/tests"
+          test ! -e "${package_root}/scripts"
+          test ! -e "${package_root}/node_modules"
+          test ! -e "${package_root}/tsconfig.json"
+          echo "PACKAGE_ROOT=${package_root}" >> "$GITHUB_ENV"
+      - name: Clean-room production install
+        shell: bash
+        run: npm ci --omit=dev
+        working-directory: ${{ env.PACKAGE_ROOT }}
+      - name: Packaged stdio health and list_channels proof
+        run: node scripts/verify-runtime-package.mjs "${PACKAGE_ROOT}"
+      - name: Upload verified deployment bundle evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-runtime-mcp-v0.1.0-${{ github.sha }}
+          path: |
+            artifacts/agent-runtime-mcp-v0.1.0.tar.gz
+            artifacts/agent-runtime-mcp-v0.1.0.tar.gz.sha256
+          if-no-files-found: error

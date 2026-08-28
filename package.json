@@ -2,6 +2,7 @@
   "name": "agent-runtime-mcp",
   "version": "0.1.0",
   "private": true,
+  "description": "Generic MCP communication layer for already-existing interactive terminal Channels, with tmux as the first backend.",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -14,6 +15,7 @@
     "test:discovery": "npm run build --silent && node --test dist/tests/discovery/*.test.js",
     "test:dogfood": "npm run build --silent && node --test dist/tests/dogfood/*.test.js",
     "test:all": "npm run typecheck && npm run test && npm run test:integration && npm run test:discovery && npm run test:dogfood",
+    "package:runtime": "npm run build --silent && node scripts/package-runtime.mjs",
     "start": "node dist/src/server.js"
   },
   "dependencies": {
