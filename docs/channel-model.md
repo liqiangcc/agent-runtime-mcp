@@ -19,7 +19,8 @@ Channel
 ├── capabilities[]
 ├── title?                # backend-provided display metadata
 ├── cwd?                  # observable metadata only
-└── last_activity?        # mechanical I/O observation only
+├── last_activity?        # mechanical I/O observation only
+└── backend_metadata?     # structured backend-owned mechanical identity/metadata
 ```
 
 ### `channel_id`
@@ -40,7 +41,25 @@ Future channel backends may include PTY or SSH terminal transports, but adding t
 
 ### `backend_locator`
 
-Backend-owned diagnostic address. It may be returned in sanitized form but is not the semantic public model.
+Backend-owned diagnostic address. It may be returned in sanitized form but is not the semantic public model and callers are not required to parse it.
+
+### `backend_metadata`
+
+Optional backend-owned structured mechanical metadata. It carries backend facts without turning them into Worker/Task/application identity.
+
+For every successfully discovered tmux Channel, `backend_metadata.tmux` is complete:
+
+```text
+session_name : string
+window_id    : string
+window_index : integer >= 0
+pane_id      : string
+pane_index   : integer >= 0
+```
+
+`session_name`, `window_id`, and `pane_id` are tmux-owned textual values. The indices are current positions and may change when tmux renumbers or rearranges windows/panes. This metadata is suitable for selecting a host tmux Channel structurally; normal read/write/control addressing still uses opaque `channel_id`.
+
+Title, cwd and terminal output are observations/display data and are not host tmux identity authority.
 
 ## 3. Channel state
 
@@ -102,7 +121,8 @@ Requirements:
 - explicit truncation;
 - no durable full-history storage by default;
 - captured text is untrusted and potentially sensitive;
-- no semantic Task/Agent state inference from text.
+- no semantic Task/Agent state inference from text;
+- captured text is not backend identity authority.
 
 ## 6. Text input
 
@@ -117,7 +137,7 @@ WriteText
 
 `submit=true` means text delivery followed by explicit Enter semantics.
 
-The MCP does not inspect whether the foreground program is Codex, a shell, REPL, editor, or another interactive program. The caller is responsible for choosing the correct channel.
+The MCP does not inspect whether the foreground program is Codex, a shell, REPL, editor, or another interactive program. The caller is responsible for choosing the correct channel; for tmux, structured `backend_metadata.tmux` can identify the host session/window/pane without parsing terminal text.
 
 ## 7. Control input
 
@@ -135,7 +155,9 @@ The public API does not accept arbitrary tmux key grammar.
 
 The backend discovers channels that are visible within the configured backend boundary.
 
-For tmux, deployment may restrict discovery by configured socket/server/account/session filters. The Channel MCP does not maintain a separate Worker registry or Task mapping.
+For tmux, deployment may restrict discovery by configured socket/server/account/session filters. Successful tmux Channels expose the complete five-field `backend_metadata.tmux` snapshot described above. Malformed required backend identity fails closed rather than silently omitting identity fields.
+
+The Channel MCP does not maintain a separate Worker registry or Task mapping.
 
 If an upper layer wants a mapping such as:
 
