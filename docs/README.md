@@ -8,11 +8,12 @@ This directory contains the canonical product and architecture documentation for
 2. `architecture.md` — system boundary and control-plane / execution-plane separation
 3. `runtime-model.md` — domain model and runtime state semantics
 4. `mcp-contract.md` — capability-first public MCP contract
-5. `backends/tmux.md` — first backend design
-6. `security.md` — threat model and required safeguards
-7. `mvp-plan.md` — staged implementation and dogfooding sequence
-8. `tasks/README.md` — Issue-driven execution model
-9. `tasks/issue-lifecycle-protocol.md` — Task feedback/review/closure protocol
+5. `deployment.md` — GPT Web remote MCP ingress, authentication and deployment topology
+6. `backends/tmux.md` — first runtime backend design
+7. `security.md` — threat model and required safeguards
+8. `mvp-plan.md` — staged implementation and dogfooding sequence
+9. `tasks/README.md` — Issue-driven execution model
+10. `tasks/issue-lifecycle-protocol.md` — Task feedback/review/closure protocol
 
 ## Authority
 
@@ -28,6 +29,9 @@ runtime-model.md
 
 mcp-contract.md
 → public MCP behavior
+
+deployment.md
+→ GPT Web ingress / transport / deployment security contract
 
 backends/*.md
 → backend-specific implementation contract
@@ -55,3 +59,14 @@ Goal
 ```
 
 Backend primitives are implementation details unless a stable user-facing capability requires them.
+
+## Important separation
+
+Remote ingress and runtime backend are different concerns:
+
+```text
+GPT Web → remote MCP ingress → agent-runtime-mcp
+agent-runtime-mcp → RuntimeBackend → tmux
+```
+
+The MVP needs secure remote MCP ingress because GPT Web cannot directly operate an arbitrary local stdio server. An SSH/multi-host RuntimeBackend remains future work.
