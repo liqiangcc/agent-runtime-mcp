@@ -407,14 +407,21 @@ Because this changes the public Channel response contract, canonical docs must b
 
 ## Publication Gate
 
-Coordinator may publish after:
+PASS.
 
-1. live implementation confirms the metadata is already acquired but dropped;
-2. canonical Channel architecture confirms discovery/metadata is in product scope;
-3. exact additive shape and field semantics above are frozen;
-4. backwards compatibility and unchanged mutation address are explicit;
-5. multi-session + misleading-output public-MCP acceptance scenario is frozen;
-6. baseline main CI is green.
+Publication basis:
+
+```text
+implementation evidence: current TmuxBackend already acquires all five identity facts but drops them at toChannel()
+architecture evidence: Channel discovery + metadata inspection are inside product; terminal output is not identity authority
+frozen additive shape: backend_metadata.tmux with five fields above
+backward compatibility: existing inputs/fields/channel_id/write routing unchanged
+acceptance: two host sessions with identical title/cwd + misleading p1 text in s2; structured selection/write isolation through public MCP
+baseline main: ba3ea4c9b3886407e1c30a0b1c6b7e8b62bcbd30
+baseline CI: 33160390533 SUCCESS
+```
+
+Live Issue must be `status:ready`, `owner:none`, `env:web-gpt`, `Blocker:none` before Worker claim.
 
 ## Completion Protocol
 
