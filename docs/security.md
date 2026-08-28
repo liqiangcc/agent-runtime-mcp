@@ -2,134 +2,73 @@
 
 ## 1. Security posture
 
-`agent-runtime-mcp` can deliver input to interactive terminals. Write access is therefore approximately equivalent to terminal-input authority over every exposed Channel within the service account's permissions.
+`agent-runtime-mcp` can deliver input to interactive terminals. Write/control capability is therefore powerful even though deployment is outside the product.
 
-This is privileged developer tooling, not a low-risk observability endpoint.
-
-## 2. Trust boundaries
-
-Selected MVP remote composition:
+Security is split into two responsibilities:
 
 ```text
-remote OpenAI MCP client / ChatGPT workspace
-   ↓
-workspace + tunnel authorization
-   ↓
-OpenAI Secure MCP Tunnel
-   ↓
-customer-run tunnel-client
-   ↓
-local stdio agent-runtime-mcp
-   ↓
-Channel Service
-   ↓
-TmuxBackend
-   ↓
-configured tmux scope
-   ↓
-existing panes / programs
+product security
+= safe Channel capability semantics
+
+deployment security
+= who can reach/use the MCP process over a chosen environment
 ```
 
-Project collaboration systems and GitHub remain separate trust boundaries.
+This document defines the first and records the boundary to the second.
 
-## 3. Primary threats
-
-### T1 — Unauthorized remote terminal control
-
-A caller that can use write/control tools can inject terminal input into exposed Channels.
-
-### T2 — Backend command injection
-
-Untrusted channel identifiers or text interpolated into shell strings could execute in the MCP service context.
-
-### T3 — Text/control confusion
-
-Ordinary text could be treated as tmux key grammar or carry ESC/interrupt-like controls that bypass the reviewed `send_control` enum.
-
-### T4 — Sensitive output exposure
-
-Terminal reads may contain tokens, private paths, source code, credentials or other sensitive data.
-
-### T5 — Overbroad Channel scope
-
-A misconfigured backend could expose unrelated tmux sessions/panes.
-
-### T6 — Arbitrary backend escape hatch
-
-A raw tmux/shell command tool would bypass the Channel API boundary.
-
-### T7 — Prompt injection in terminal output
-
-Read output is untrusted data and may contain adversarial instructions.
-
-### T8 — Remote ingress/tunnel authorization misconfiguration
-
-Incorrect workspace, tunnel or connector permissions could grant terminal authority to unintended callers.
-
-### T9 — Ambiguous mutation retry
-
-A timeout after terminal input may have been delivered can cause duplicates if blindly retried.
-
-### T10 — Cross-write interference
-
-Shared backend transport state can corrupt or redirect concurrent writes.
-
-### T11 — Credential over-privilege or leakage
-
-Using a broad administrative OpenAI/tunnel key as the long-lived tunnel runtime credential increases blast radius; persisting it in repository/chat/logs leaks deployment authority.
-
-## 4. Required controls
-
-### S1 — Authorized remote composition
-
-Write-capable remote access must pass a reviewed authorization boundary before reaching Channel operations.
-
-For the selected MVP, this can be provided by the OpenAI Secure MCP Tunnel/workspace permission model around a local stdio MCP server. The Channel core does **not** need to expose an unauthenticated/public listener.
-
-Unauthenticated public terminal control is forbidden.
-
-### S2 — Least-privilege tunnel credentials
-
-The long-lived `tunnel-client` runtime credential must use only the minimum current tunnel permissions required for runtime operation (for example tunnel Read/Use when that is the active platform model).
-
-Administrative/management credentials used to create/update/delete tunnels remain separate and are not used as the normal daemon credential.
-
-Exact permission names/capabilities must be re-verified immediately before deployment.
-
-### S3 — Secret handling
-
-Never persist real remote-ingress credentials in:
-
-- repository files;
-- GitHub Issues/comments;
-- Task Packages/prompts;
-- CI artifacts/logs;
-- terminal examples captured as project evidence.
-
-Use deployment secret injection/environment mechanisms outside source control.
-
-### S4 — Structured backend execution
-
-Invoke tmux as:
+## 2. Product trust boundary
 
 ```text
-program + argv + stdin/data
+MCP request
+→ Channel Service
+→ ChannelBackend
+→ TmuxBackend
+→ configured tmux scope
+→ existing panes/programs
 ```
 
-not through shell-concatenated command strings.
+The core assumes an MCP request has reached it through whatever environment the operator selected. It does not own tunnel/provider/workspace authentication policy.
 
-### S5 — Ordinary text is a bounded data type
+## 3. Primary product threats
 
-`write_text` transports bounded Unicode terminal text. The service does not interpret it as shell syntax or tmux key grammar.
+### T1 — Backend command injection
+Caller-controlled Channel ids or text must not become shell command strings.
 
-- LF and TAB are allowed;
-- other Unicode `Cc` controls are rejected before backend execution;
-- ESC/interrupt go through `send_control`;
-- UTF-8 byte bounds are validated before mutation.
+### T2 — Text/control confusion
+Ordinary text must not smuggle reviewed terminal controls.
 
-### S6 — Closed control enum
+### T3 — Overbroad Channel scope
+A request must not escape the configured tmux namespace/session allowlist.
 
-`send_control` accepts only:
+### T4 — Arbitrary backend escape hatch
+No raw shell/tmux command MCP tool may bypass the Channel contract.
+
+### T5 — Sensitive terminal data
+Reads/writes may contain source code, paths, tokens or other sensitive data.
+
+### T6 — Ambiguous mutation retry
+A timeout after input may have been delivered must not trigger blind automatic retry.
+
+### T7 — Concurrent write interference
+Shared backend transport state must not mix caller payloads or targets.
+
+### T8 — Semantic authority leak
+Terminal output must not become Worker/Task/application completion authority.
+
+## 4. Required product controls
+
+### S1 — Structured backend execution
+Invoke tmux as executable + argv + explicit stdin/data, never shell-concatenated caller input.
+
+### S2 — Bounded ordinary text
+`write_text`:
+- accepts bounded Unicode data;
+- allows LF and TAB;
+- rejects other Unicode `Cc` controls;
+- validates the UTF-8 byte bound before backend mutation.
+
+### S3 — Closed control enum
+`send_control` accepts exactly:
 
 ```text
 ENTER
@@ -137,111 +76,73 @@ INTERRUPT
 ESCAPE
 ```
 
-Backend key mappings are fixed constants.
+### S4 — Explicit backend scope
+Read/write/control operate only inside the configured tmux socket/server/account and optional allowlist.
 
-### S7 — Bounded I/O
+### S5 — Bounded I/O
+Reads and writes have finite server-side bounds and backend operations have finite timeouts.
 
-`read_channel` and `write_text` have finite bounds. Complete terminal history is not persisted by default.
+### S6 — No lifecycle authority
+The MCP does not create/restart/destroy terminal endpoints as a consequence of failure.
 
-### S8 — Explicit backend scope
+### S7 — Least privilege
+Normal Channel operation uses an ordinary OS account and requires no root.
 
-Deployment defines the tmux namespace the Channel service may see/control. Remote tunnel/workspace authorization must not widen this backend scope.
+### S8 — Mutation ambiguity
+`write_text` and `send_control` are non-idempotent. Ambiguous timeout remains explicit; retry policy belongs outside the product.
 
-### S9 — No lifecycle authority
+### S9 — Per-operation write isolation
+Temporary paste buffers or equivalent mutable transport state are isolated per operation and cleaned up best-effort.
 
-The Channel core does not create, restart, destroy or recover tmux sessions/panes/processes.
+### S10 — Sensitive logging discipline
+Default logs should prefer operation, Channel id, result category, duration and payload size rather than full terminal content.
 
-A remote tunnel disconnect is not permission to restart endpoints.
+### S11 — Untrusted output
+Terminal output is data/evidence, not policy or workflow authority.
 
-### S10 — Least-privilege local process
+## 5. Deployment security boundary
 
-Run Channel MCP under an ordinary OS account with only the permissions needed for the configured tmux namespace. Normal operation requires no root.
+If an operator exposes this MCP over a network or shared environment, that deployment must provide suitable authentication, authorization and transport protection.
 
-### S11 — Untrusted output handling
+The product does **not**:
+- choose a tunnel/provider;
+- provision TLS/DNS/firewall;
+- manage workspace permissions;
+- issue/rotate deployment credentials;
+- prove a particular remote client environment.
 
-Terminal output is evidence/data, not policy authority.
+Those are deployment concerns, not MVP Claims.
 
-### S12 — Mutation ambiguity is explicit
+## 6. Error safety
 
-`write_text` and `send_control` are non-idempotent. If timeout/failure occurs after input may have been accepted, the core does not automatically retry or claim definitive non-delivery unless provable.
+Structured errors should avoid dumping unrelated tmux output or sensitive terminal payloads.
 
-### S13 — Per-operation backend data isolation
-
-Temporary tmux write resources are operation-specific or equivalently isolated so concurrent callers cannot overwrite/mix payloads or targets.
-
-### S14 — Direct-public HTTP is a separate security mode
-
-If a future deployment adds a directly exposed Streamable HTTP MCP endpoint, it must follow the then-current MCP transport/authorization specification and official SDK behavior. The direct MCP server should be protected as an OAuth resource server where required; query-string secrets, UI-only confirmation and ad-hoc bearer-token schemes are not substitutes for the reviewed authorization model.
-
-This direct-public mode is not required for the selected tunnel-first MVP.
-
-## 5. Logs and diagnostics
-
-Safe logs should prefer:
-
-```text
-operation
-channel_id
-result category
-payload size
-latency
-sanitized tunnel/connection identifier if needed
-```
-
-Avoid logging:
-
-- full terminal read/write payloads;
-- tunnel/API/admin credentials;
-- auth headers;
-- complete backend stderr that may contain unrelated sensitive text.
-
-## 6. Failure boundaries
+Useful product categories include:
 
 ```text
-tunnel/control-plane unavailable
-= remote ingress failure
-
-tunnel/workspace authorization rejected
-= remote authority failure
-
-local MCP process unavailable
-= local deployment/service failure
-
-CHANNEL_NOT_FOUND / BACKEND_UNAVAILABLE / TIMEOUT
-= Channel/backend mechanical failures
-
-application rejected input
-= outside Channel MCP knowledge
+CHANNEL_NOT_FOUND
+CHANNEL_UNAVAILABLE
+BACKEND_UNAVAILABLE
+BACKEND_OPERATION_FAILED
+INVALID_ARGUMENT
+CAPABILITY_UNSUPPORTED
+PERMISSION_DENIED
+TIMEOUT
 ```
 
-Do not turn one layer's failure into another layer's authority or recovery action.
+## 7. Verification baseline
 
-## 7. Collaboration separation
+Product acceptance should verify at least:
 
-Channel MCP does not need GitHub credentials, Issue state or Task metadata.
-
-The repository collaboration model and Secure MCP Tunnel deployment credentials are separate from the public Channel protocol.
-
-## 8. Security verification baseline
-
-Before MVP remote acceptance, verify at least:
-
-1. multi-line/metacharacter text is delivered as data;
-2. non-LF/TAB `Cc` controls are rejected by `write_text`;
-3. control accepts only the closed enum;
+1. text/metacharacters are transported as data;
+2. non-LF/TAB controls are rejected by `write_text`;
+3. explicit control is a closed enum;
 4. reads/writes are bounded;
-5. Channel/backend failures do not mutate unrelated terminal state;
-6. tmux visibility boundaries are enforced for read/mutation;
-7. no raw shell/tmux command MCP tool exists;
-8. no session/pane lifecycle MCP tools exist;
-9. normal local operation works without root;
-10. logs omit full terminal/auth payloads;
-11. ambiguous mutation retry behavior is explicit;
-12. concurrent writes remain isolated;
-13. intended remote client cannot use the tunnel without the required authorization;
-14. tunnel runtime credential is least-privilege and separate from management/admin authority;
-15. no real credential is persisted in repository/Evidence;
-16. tunnel disconnect/reconnect does not create/restart/destroy tmux panes;
-17. remote path preserves the accepted six-tool Channel contract and backend scope;
-18. current OpenAI tunnel/client permission requirements are re-verified at Publication/Acceptance time;
-19. terminal output is never interpreted by the service as semantic Task/Agent state.
+5. configured Channel scope is enforced;
+6. no raw shell/tmux MCP tool exists;
+7. no endpoint lifecycle MCP tool exists;
+8. normal operation works without root;
+9. default logs avoid full terminal payloads;
+10. ambiguous mutation is not blindly retried;
+11. concurrent writes remain isolated;
+12. terminal output is never interpreted as semantic Task/Agent/application state.
