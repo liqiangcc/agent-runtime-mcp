@@ -1,22 +1,10 @@
 # Agent Working Rules
 
-## 1. Read product and development docs separately
+## 1. Product sources
 
-Before product implementation, read:
+Before product implementation, read `README.md`, `docs/README.md`, `docs/requirements.md`, `docs/channel-architecture.md`, `docs/channel-model.md`, `docs/mcp-contract.md`, `docs/backends/tmux.md`, `docs/security.md`, `docs/deployment.md`, `docs/technology-stack.md`, and `docs/mvp-plan.md`.
 
-1. `README.md`
-2. `docs/README.md`
-3. `docs/requirements.md`
-4. `docs/channel-architecture.md`
-5. `docs/channel-model.md`
-6. `docs/mcp-contract.md`
-7. `docs/backends/tmux.md`
-8. `docs/security.md`
-9. `docs/deployment.md`
-10. `docs/technology-stack.md`
-11. `docs/mvp-plan.md`
-
-For Issue-driven work also read live Issue/comments, its Task Package, and `docs/tasks/collaboration-protocol.md` / lifecycle/state protocols.
+For Issue-driven work also read live Issue/comments, its Task Package, and repository collaboration/lifecycle/state protocols under `docs/tasks/`.
 
 ## 2. Product boundary
 
@@ -51,13 +39,13 @@ Task ↔ terminal mapping
 
 - Channel is the public domain object.
 - MVP operates on terminal endpoints prepared outside the MCP.
-- No Worker registry or Task registry exists in the core product.
+- No Worker registry or Task registry exists in the product.
 - Normal callers use `channel_id`, not raw tmux target grammar.
 - Terminal output/activity has no semantic Task/Agent meaning.
-- Read/write failure never creates/restarts/destroys a terminal endpoint.
+- Read/write failure never creates/restarts/destroys an endpoint.
 - No raw `tmux_command` or generic `run_shell_command` public tool.
 - Ordinary text and explicit control actions remain separate.
-- Backend execution uses structured executable + argv/stdin rather than shell string interpolation.
+- Backend execution uses structured executable + argv/stdin rather than shell interpolation.
 - Normal operation requires no root.
 
 ## 4. Public MVP surface
@@ -71,54 +59,47 @@ send_control
 health
 ```
 
-## 5. Repository execution model
+## 5. Repository roles
 
-Default repository executor is **Web GPT**.
-
-```text
-Task Contract
-→ env:web-gpt
-→ Web GPT implementation on Task branch
-→ GitHub Actions verification
-→ durable EXECUTION REPORT
-→ status:review
-→ Web GPT read-back Reviewer phase
-```
-
-GitHub is durable project authority. GitHub Actions is the default verification Runner.
-
-Dispatcher/Codex remains optional for a Task whose capabilities genuinely require an external coding/runtime environment; it is not the default route.
-
-## 6. Web GPT lifecycle
-
-Before implementation:
+Default development roles are:
 
 ```text
-Issue open
-Status: status:ready
-Active owner: none
-Task Package resolves
-required GitHub write capability available
+GPT Web Coordinator
+→ Task Publisher
+→ Task Dispatcher
+→ Codex Task Worker
+→ GPT Web / Task Reviewer
 ```
 
-Then:
+GPT Web owns coordination, publication, routing, Review, recovery and Final Acceptance. **GPT Web does not implement normal repository Tasks as the Worker.**
 
-1. create/reuse a Task-specific branch;
-2. set Issue `status:in-progress`, `Active owner: web-gpt`;
-3. execute only frozen `task.md`;
-4. push coherent changes to the Task branch;
-5. use GitHub Actions for required tests/integration;
-6. fix failures on the same branch;
-7. record exact Candidate and CI evidence in `[EXECUTION REPORT]`;
-8. set `status:review`, owner none;
-9. re-read Task Contract, Candidate and CI in a separate Reviewer phase;
-10. post `[COORDINATOR REVIEW]` and decide ACCEPT/REVISE/BLOCK/SPLIT.
+Dispatcher prepares/delivers an isolated execution context but does not claim. Codex claims and executes exactly one Attempt. GitHub Actions is verification infrastructure, not Task authority.
 
-Self-review is allowed because this repository is lightweight, but implementation intent is not evidence. Review must be grounded in durable GitHub read-back and actual CI.
+## 6. Worker lifecycle
 
-## 7. Optional Codex route
+```text
+status:ready + owner:none
+→ Codex claim
+→ status:in-progress
+→ Attempt N
+→ execute frozen task.md
+→ [EXECUTION REPORT] | [BLOCKER REPORT]
+→ status:review | status:blocked
+→ owner:none
+→ STOP
+```
 
-If a Task is explicitly routed to Codex, preserve Publisher/Dispatcher/Worker/Reviewer separation from the repository skills. A Dispatcher launch is not a Worker claim.
+Worker never Reviews itself, sets `status:done`, closes the Issue, or starts another Task/Attempt automatically.
+
+## 7. Coordinator / Reviewer lifecycle
+
+GPT Web / Reviewer reads Issue history, Task Contract, Candidate/PR and required Evidence, then decides:
+
+```text
+ACCEPT | REVISE | BLOCK | SPLIT | NOT_PLANNED
+```
+
+Unchanged-contract REVISE returns the same Issue to ready for Attempt N+1. Contract changes return to draft and Publication Gate. Only Final Acceptance may close an accepted Task.
 
 ## 8. Security baseline
 
@@ -130,17 +111,15 @@ If a Task is explicitly routed to Codex, preserve Publisher/Dispatcher/Worker/Re
 - use finite timeouts;
 - never broaden OS/GitHub permissions to make a Task pass.
 
-## 9. Evidence and acceptance
+## 9. Evidence
 
 - Record exact Candidate SHA for code-dependent claims.
 - Do not report tests as PASS if they were not run.
 - CI success is evidence, not automatic Task acceptance.
 - Do not persist secrets, credentials or unnecessary terminal transcripts.
-- Contract changes return the Issue to draft and require republication.
-- Only Final Acceptance closes an accepted Task.
 
 ## 10. Stop conditions
 
-Stop or return to draft/blocked when the frozen Contract conflicts with canonical Channel architecture, required capabilities are unavailable, or execution would cross product/security boundaries.
+Stop/return to Coordinator when the Attempt is complete/blocked, the frozen Contract conflicts with canonical Channel architecture, required capabilities are unavailable, or execution would cross product/security boundaries.
 
-GitHub is project state. Terminal state is transport evidence only.
+GitHub is durable project state. Terminal state is transport evidence only.
