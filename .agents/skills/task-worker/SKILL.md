@@ -17,8 +17,9 @@ Before execution, read:
 2. the target GitHub Issue and all relevant comments
 3. the Task Package `prompt.md`
 4. the Task Package `task.md`
-5. `docs/tasks/issue-lifecycle-protocol.md`
-6. every canonical document explicitly required by `task.md`
+5. `docs/tasks/issue-state-convention.md`
+6. `docs/tasks/issue-lifecycle-protocol.md`
+7. every canonical document explicitly required by `task.md`
 
 If this skill conflicts with those sources, follow the higher-authority repository source.
 
@@ -27,7 +28,7 @@ If this skill conflicts with those sources, follow the higher-authority reposito
 Prefer an explicit Issue number and `prompt.md` path, for example:
 
 ```text
-$task-worker Execute Issue #12 using `docs/tasks/12-safe-input/prompt.md`.
+$task-worker Execute Issue #2 using `docs/tasks/2-runtime-core-tmux-discovery/prompt.md`.
 ```
 
 Do not autonomously choose among multiple ready Issues unless the Coordinator explicitly delegates that scheduling decision and repository policy uniquely determines the target.
@@ -36,7 +37,7 @@ Do not autonomously choose among multiple ready Issues unless the Coordinator ex
 
 Use an authenticated GitHub read/write path available in the Codex environment.
 
-If Issue status/comments/ownership cannot be durably updated, do not begin write-side implementation because the Attempt cannot be closed-loop reported.
+If Issue body/comments/ownership cannot be durably updated, do not begin write-side implementation because the Attempt cannot be closed-loop reported.
 
 ## Pre-claim checks
 
@@ -44,8 +45,8 @@ Re-read the live Issue immediately before claim and confirm:
 
 ```text
 Issue is open
-status = ready
-no active execution owner
+Status = status:ready
+Active owner = none
 linked task.md resolves
 linked prompt.md resolves
 Required Capabilities are available
@@ -59,16 +60,17 @@ If any condition fails, stop without implementation changes.
 Each successful:
 
 ```text
-status:ready → status:in-progress
+Status: status:ready + Active owner: none
+→ Status: status:in-progress + Active owner: <worker identity>
 ```
 
 begins a new monotonically increasing Attempt.
 
-Determine `Attempt N` from Issue history.
+Determine `Attempt N` from Issue history. Do not reuse a previous Attempt number.
 
-Claim using the repository's live Issue state mechanism. Preserve unrelated labels/metadata. Re-read the Issue after mutation and confirm the claim is visible before executing.
+Claim by updating the Issue body state block defined in `docs/tasks/issue-state-convention.md`. Preserve unrelated Issue prose/metadata. Labels/assignee may mirror the state but are not required for correctness.
 
-If the claim cannot be confirmed, stop.
+Re-read the Issue after mutation and confirm the body shows your ownership before executing. If the claim cannot be confirmed, stop.
 
 ## Execute only the Task Contract
 
@@ -147,10 +149,11 @@ Before leaving the Attempt:
 2. run the verification required by `task.md`;
 3. collect exact Evidence and Candidate SHA;
 4. post the exact `[EXECUTION REPORT]` structure from `docs/tasks/issue-lifecycle-protocol.md`;
-5. move the Issue to `status:review`;
-6. release active execution ownership;
-7. re-read the Issue to verify durable report/state;
-8. stop.
+5. update Issue body `Status` to `status:review`;
+6. update `Candidate` / `PR` current pointers when applicable;
+7. set `Active owner: none`;
+8. re-read the Issue to verify report + state are durable;
+9. stop.
 
 Do not set `status:done`, close the Issue, or start Attempt N+1.
 
@@ -161,8 +164,8 @@ If required permission, dependency, tmux/runtime capability, test environment or
 1. preserve safe/recoverable work;
 2. clean temporary state when required;
 3. post `[BLOCKER REPORT]` using the lifecycle protocol;
-4. move to `status:blocked`;
-5. release active ownership;
+4. update Issue body `Status` to `status:blocked` and the current `Blocker` field;
+5. set `Active owner: none`;
 6. re-read the Issue to verify durable state;
 7. stop.
 
