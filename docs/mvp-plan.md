@@ -26,7 +26,43 @@ original GPT Web conversation = Coordinator / Reviewer
 → original GPT Web conversation = Review / Acceptance
 ```
 
-## 2. Phase 0 — Channel boundary freeze
+## 2. Planning discipline
+
+Every future MVP Task is planned use-case-first according to `docs/tasks/planning-principles.md`:
+
+```text
+Goal
+→ Use Case
+→ Success / Failure / Degradation
+→ Separation Points
+→ Single Responsibilities
+→ Logic / Control Separation
+→ Required Capabilities
+→ Claims / Evidence
+→ finally Tool / API / implementation mapping
+```
+
+Planning must identify the **separation point** before choosing an implementation primitive.
+
+For this project the recurring architectural separation is:
+
+```text
+upper layer
+= endpoint lifecycle + workflow/application meaning + orchestration/control
+
+Channel MCP
+= secure terminal communication logic only
+
+remote ingress/auth
+= network trust/transport boundary around Channel logic
+
+TmuxBackend
+= backend-specific terminal mechanics only
+```
+
+A future Task may be planned as `status:draft` while upstream work executes, but implementation-specific details remain behind an explicit Alignment Gate until the upstream Candidate is finally accepted and re-read.
+
+## 3. Phase 0 — Channel boundary freeze
 
 Deliverables:
 
@@ -45,12 +81,22 @@ Exit criteria:
 - Channel is the only product domain object;
 - read/write/control safety semantics are frozen enough to implement.
 
-## 3. Phase 1 — Tmux channel discovery + bounded read
+## 4. Phase 1 — Tmux channel discovery + bounded read
 
 Implementation Task:
 
 ```text
 [MVP-001] Tmux channel discovery and bounded read
+```
+
+Primary use case: an upper layer can observe one already-existing terminal Channel without Channel MCP knowing why the endpoint exists or what its output means.
+
+Key separation proof:
+
+```text
+Channel discovery/read logic
+!= endpoint lifecycle
+!= application/Task interpretation
 ```
 
 Scope:
@@ -80,7 +126,7 @@ write/control input
 
 MVP-001 is published to `env:web-gpt`; executable typecheck/unit/real-tmux verification is supplied by GitHub Actions.
 
-## 4. Phase 2 — Safe channel input
+## 5. Phase 2 — Safe channel input
 
 Planned Task:
 
@@ -88,29 +134,29 @@ Planned Task:
 [MVP-002] Safe channel text and control input
 ```
 
-Scope:
+Primary use cases:
+
+- send ordinary text as literal terminal data;
+- send one explicit terminal control.
+
+Key separation points:
+
+```text
+text data != terminal control
+Channel communication logic != retry/workflow/lifecycle control
+Channel semantics != tmux mechanics
+```
+
+Planned public mapping:
 
 - `write_text`;
-- multi-line Unicode transport;
-- safe tmux buffer/input path;
-- `submit=true`;
-- `send_control` with ENTER / INTERRUPT / ESCAPE;
-- duplicate-input/ambiguous-timeout documentation;
-- no raw `send-keys` grammar.
-
-Verification focus:
-
-- quotes/backticks/`$`/newlines remain data;
-- input is not interpolated through a shell;
-- control cannot be injected through text payload;
-- selected channel only is affected;
-- ambiguous mutation timeout/retry behavior is documented and tested where practical.
+- `send_control` with ENTER / INTERRUPT / ESCAPE.
 
 Planning rule:
 
-> MVP-002 may be materialized as `status:draft` while MVP-001 executes, but its implementation-specific Contract must be rechecked against the accepted MVP-001 ChannelBackend/channel-id/error/tool-registration surface before Publication Gate.
+> MVP-002 is materialized as `status:draft` while MVP-001 executes. Before Publication Gate, re-read accepted MVP-001 ChannelBackend/channel-id/error/tool-registration surfaces and align the concrete Contract.
 
-## 5. Phase 3 — Secure remote MCP ingress
+## 6. Phase 3 — Secure remote MCP ingress
 
 Planned Task:
 
@@ -118,40 +164,43 @@ Planned Task:
 [MVP-003] Secure remote MCP ingress and client compatibility
 ```
 
-Scope:
+Primary use case: an authorized remote client reaches the same accepted Channel logic through a network trust boundary.
 
-- current supported remote MCP transport from official SDK;
-- authenticated/private ingress topology;
-- request bounds/timeouts;
-- active transport auth/Origin/Host requirements;
-- actual remote tool discovery/invocation;
-- verify write-capable integration for `write_text`/`send_control`.
-
-If the active client environment cannot invoke required write actions, mark remote-control integration BLOCKED rather than expanding product scope.
-
-## 6. Phase 4 — Upper-layer dogfooding
-
-Use a real upper-layer consumer without moving its semantics into Channel MCP:
+Key separation points:
 
 ```text
-upper layer prepares an existing tmux pane + interactive CLI
-→ Channel MCP discovers the pane
-→ write_text transports an instruction
-→ read_channel observes bounded terminal output
-→ upper layer interprets its own task/application semantics
+remote ingress/auth != Channel application logic
+infrastructure provisioning != MCP product
+client compatibility evidence != product semantics
 ```
 
-Acceptance proves:
+Before publication, re-verify current authoritative remote MCP transport/auth/client write capability and choose the concrete secure topology. Fast-changing provider/client details are not frozen during early planning.
 
-- Channel MCP does not know Issue/Worker/Task meaning;
-- upper layer owns endpoint creation/mapping/recovery;
-- terminal transport remains usable remotely;
-- terminal output is not treated as project truth by the MCP;
-- a missing pane is reported rather than recreated by MCP.
+## 7. Phase 4 — Upper-layer dogfooding
 
-The repository's own default Web GPT Worker workflow does not need to use Channel MCP; dogfooding tests the product as infrastructure for a suitable terminal-based upper layer.
+Planned Task:
 
-## 7. Deferred / separate products
+```text
+[MVP-004] End-to-end Channel dogfooding
+```
+
+Primary use case: one real upper layer prepares an interactive terminal endpoint externally and uses Channel MCP only as secure discovery/read/write/control transport.
+
+Key separation proof:
+
+```text
+upper layer
+= endpoint lifecycle + application/workflow meaning + retry/recovery/next-step control
+
+Channel MCP
+= communication logic only
+```
+
+A dogfooding scenario that requires Channel MCP to learn its Task/application semantics is an architecture failure, not successful validation.
+
+Before publication, select the concrete accepted deployment, remote client, externally prepared endpoint, upper-layer scenario, and separate transport Evidence from application/workflow Evidence.
+
+## 8. Deferred / separate products
 
 Not part of core MVP:
 
@@ -169,23 +218,30 @@ Not part of core MVP:
 
 If lifecycle automation is later useful, design it as a separate higher-level capability/module consuming the Channel layer rather than silently redefining the core.
 
-## 8. Task sizing
+## 9. Task sizing
 
-Implementation Tasks follow stable product capability slices, not upper-layer project workflow primitives.
+Implementation Tasks follow coherent use cases/capability slices, not upper-layer workflow primitives, source-file boundaries or individual tmux commands.
 
-A different tmux command does not automatically mean a different Task; a stable independently reviewable capability does.
+Create a separate Task when responsibility, lifecycle, Success Criteria or Evidence authority is independently reviewable.
 
-## 9. Publication rule
+## 10. Publication rule
 
 Before an implementation Task becomes executable:
 
 ```text
-Goal and product boundary defined
+Goal defined
++ Primary Use Case defined
++ Success / Failure / Degradation defined
++ Separation Points explicit
++ Single Responsibilities explicit
++ Logic / Control Separation explicit
++ required capabilities derived
 + task.md / prompt.md committed and read back
 + canonical Channel docs resolve
 + Worker route = separate GPT Web conversation / env:web-gpt unless explicitly overridden
 + capabilities/dependencies explicit
 + GitHub Actions Evidence route sufficient for required executable checks
++ upstream accepted interfaces re-read where required
 + security implications reviewed
 + Success Criteria frozen
 + Publication Gate PASS
