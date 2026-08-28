@@ -2,304 +2,182 @@
 
 ## 1. Strategy
 
-The project establishes both **architecture** and **collaboration/runtime orchestration** contracts before implementing the server.
+Build the smallest useful remote terminal communication channel first.
 
-Implementation proceeds in small Issue-driven slices through:
-
-```text
-GPT Web Coordinator
-→ Task Publisher
-→ Task Dispatcher
-→ Task Worker
-→ Task Reviewer
-```
-
-Runtime implementation sequence:
+Product sequence:
 
 ```text
-Runtime semantics
-→ tmux discovery
-→ bounded observation
-→ safe mutation
-→ persistent Worker lifecycle
-→ secure GPT Web remote ingress
-→ runtime-backed Dispatcher dogfooding
+channel discovery
+→ bounded read
+→ safe text/control write
+→ secure remote ingress
+→ upper-layer dogfooding
 ```
 
-This avoids building either a generic tmux wrapper or an unsafe remote shell, while using the same collaboration lifecycle that the product is intended to support.
+Do not build Worker registry/lifecycle/scheduler features into the core MCP.
 
-## 2. Phase 0 — Repository and collaboration bootstrap
+Repository development still uses its separate Issue-driven collaboration workflow:
+
+```text
+Publisher → Dispatcher → Worker → Reviewer
+```
+
+That workflow is a consumer/development mechanism, not product scope.
+
+## 2. Phase 0 — Channel boundary freeze
 
 Deliverables:
 
-- `AGENTS.md`
-- canonical design docs
-- deployment/security contract
-- Issue state/lifecycle protocol
-- `Publisher → Dispatcher → Worker → Reviewer` collaboration protocol
-- Task/prompt/handoff templates
-- `$task-publisher`
-- `$task-dispatcher`
-- `$task-worker`
-- `$task-reviewer`
-
-Bootstrap Dispatcher transport:
-
-```text
-Task Dispatcher
-→ isolated git worktree
-→ native tmux
-→ Codex CLI
-```
+- `requirements.md` channel-only product boundary;
+- `channel-architecture.md`;
+- `channel-model.md`;
+- `mcp-contract.md`;
+- tmux Channel Backend contract;
+- channel-focused security contract;
+- repository collaboration docs explicitly separated from product docs.
 
 Exit criteria:
 
-- role authorities are explicit and non-overlapping;
-- GitHub is durable Task authority;
-- Dispatcher launch is distinct from Worker claim;
-- one concurrent Issue execution has one isolated mutable worktree/runtime;
-- interrupted runtime does not automatically create Attempt N+1;
-- runtime/task state separation is explicit;
-- remote MCP ingress vs Runtime Backend separation is explicit;
-- use-case-first and security baselines are frozen enough to publish implementation Tasks.
+- no Worker/Task/Issue/worktree lifecycle exists in public MCP contract;
+- tmux session creation/restart/destruction is explicitly outside core;
+- Channel is the only product domain object;
+- read/write/control safety semantics are frozen enough to implement.
 
-## 3. Phase 1 — Runtime core + read-only tmux discovery
+## 3. Phase 1 — Tmux channel discovery + bounded read
 
 First implementation Task:
 
 ```text
-[MVP-001] Runtime core and tmux worker discovery
+[MVP-001] Tmux channel discovery and bounded read
 ```
 
 Scope:
 
-- MCP server/application skeleton using the frozen official SDK stack;
-- backend-neutral Worker model;
-- runtime registry abstraction;
-- tmux backend availability query;
-- managed Worker discovery/reconciliation;
-- `list_workers`;
-- `get_worker`;
-- structured errors.
+- TypeScript/Node MCP server skeleton using the frozen official SDK stack;
+- backend-neutral Channel model;
+- `ChannelBackend` abstraction;
+- `TmuxBackend` structured inventory;
+- `list_channels`;
+- `get_channel`;
+- `read_channel`;
+- bounded output/truncation;
+- structured errors;
+- configurable tmux visibility scope;
+- tests + Linux tmux integration + CI.
+
+Explicitly not in scope:
+
+```text
+Worker registry
+create/restart/destroy
+external task references
+worktree/session creation
+Task semantics
+write/control input
+```
+
+## 4. Phase 2 — Safe channel input
+
+Task:
+
+```text
+[MVP-002] Safe channel text and control input
+```
+
+Scope:
+
+- `write_text`;
+- multi-line Unicode transport;
+- safe tmux buffer/input path;
+- `submit=true`;
+- `send_control` with ENTER / INTERRUPT / ESCAPE;
+- duplicate-input/ambiguous-timeout documentation;
+- no raw `send-keys` grammar.
 
 Verification focus:
 
-- managed vs unmanaged distinction;
-- stale registry behavior;
-- tmux unavailable behavior;
-- no Task-state inference.
+- quotes/backticks/`$`/newlines remain data;
+- input is not interpolated through a shell;
+- control cannot be injected through text payload;
+- selected channel only is affected.
 
-No terminal input in this phase.
+## 5. Phase 3 — Secure remote MCP ingress
 
-MVP-001 itself should be executed through the repository's bootstrap Dispatcher so the collaboration chain is exercised before runtime dogfooding is possible.
-
-## 4. Phase 2 — Output observation
-
-Suggested Task:
+Task:
 
 ```text
-[MVP-002] Bounded worker output capture
+[MVP-003] Secure remote MCP ingress and client compatibility
 ```
 
 Scope:
 
-- `capture_output`;
-- line/byte bounds;
-- truncation metadata;
-- terminal text normalization policy;
-- no persistent capture history by default.
+- current supported remote MCP transport from official SDK;
+- authenticated/private ingress topology;
+- request bounds/timeouts;
+- active transport auth/Origin/Host requirements;
+- actual remote tool discovery/invocation;
+- verify write-capable integration for `write_text`/`send_control`.
 
-Verification focus:
+If the active client environment cannot invoke required write actions, mark remote-control integration BLOCKED rather than expanding product scope.
 
-- large pane output is bounded;
-- Unicode preserved;
-- absence of Task-status parsing.
+## 6. Phase 4 — Upper-layer dogfooding
 
-## 5. Phase 3 — Safe input/control
-
-Suggested Task:
+Use one real project collaboration flow while keeping all semantics outside Channel MCP:
 
 ```text
-[MVP-003] Safe worker text and control input
+Project Dispatcher
+→ prepares worktree + tmux pane + Codex
+→ Channel MCP discovers existing pane
+→ write_text(canonical handoff)
+→ Codex uses GitHub according to project rules
+→ Channel MCP may read terminal for observation
+→ Reviewer decides project result from GitHub evidence
 ```
 
-Scope:
+Acceptance proves:
 
-- `send_text`;
-- safe tmux buffer/stdin path;
-- `send_control` with explicit enum;
-- Enter / interrupt / escape.
+- Channel MCP does not know Issue/Worker/Task meaning;
+- collaboration layer owns pane creation/mapping/recovery;
+- terminal transport remains usable remotely;
+- terminal output is not treated as project truth;
+- a missing pane is reported rather than recreated by MCP.
 
-Verification focus:
+## 7. Deferred / separate products
 
-- multiline Unicode prompt;
-- quotes/backticks/`$`/newlines preserved as data;
-- prompt text never interpolated into backend shell command;
-- special controls cannot be injected through text payload.
+Not part of core MVP:
 
-This is a security-sensitive gate before Dispatcher can use the runtime as a write transport.
-
-## 6. Phase 4 — Persistent Worker lifecycle
-
-Suggested Task:
-
-```text
-[MVP-004] Managed tmux worker lifecycle
-```
-
-Scope:
-
-- `create_worker`;
-- startup profiles;
-- cwd policy;
-- persistent registry binding;
-- `restart_worker`;
-- `destroy_worker`;
-- server restart/reconciliation.
-
-Verification focus:
-
-- Worker survives MCP client/server reconnect scenarios while tmux remains alive;
-- rediscovery preserves logical identity;
-- restart preserves `worker_id` where specified;
-- destroy does not affect unrelated tmux sessions;
-- invalid cwd/startup policy failures are safe.
-
-After Phase 4, the Dispatcher may begin an **internal local dogfooding migration** from direct tmux lifecycle operations to `agent-runtime-mcp`, provided the required operations are accepted and the migration does not weaken isolation/recovery guarantees.
-
-## 7. Phase 5 — Secure GPT Web remote ingress
-
-Suggested Task:
-
-```text
-[MVP-005] Secure remote MCP ingress and ChatGPT compatibility
-```
-
-Scope:
-
-- current supported remote MCP HTTP transport via official SDK;
-- deployment mode selected from `docs/deployment.md`;
-- authenticated ingress / supported secure tunnel integration;
-- transport request bounds/timeouts;
-- Origin/Host/auth protections required by active transport/SDK;
-- real ChatGPT tool discovery/invocation check;
-- explicit write-capability compatibility evidence.
-
-Verification focus:
-
-- GPT Web reaches the remote MCP service;
-- read tools are discoverable and usable;
-- write tools can actually be invoked in the active environment;
-- unauthenticated public calls cannot control Workers;
-- Worker lifetime remains independent from HTTP/MCP request lifetime.
-
-If required write actions are unavailable, mark remote-control integration `BLOCKED`; do not redefine the goal as read-only.
-
-## 8. Phase 6 — Codex Worker profile and Task correlation
-
-Suggested Task:
-
-```text
-[MVP-006] Codex worker profile and GitHub task correlation
-```
-
-Scope:
-
-- configured Codex startup profile;
-- `set_external_reference`;
-- minimal canonical Worker handoff delivery;
-- operator diagnostics needed for Issue execution.
-
-The runtime still does not query/mutate GitHub as Task authority.
-
-## 9. Phase 7 — Full runtime-backed Dispatcher dogfooding gate
-
-Use the project itself for one real later Task:
-
-```text
-GPT Web Coordinator
-→ Task Publisher
-→ status:ready + canonical handoff
-→ Task Dispatcher
-→ agent-runtime-mcp
-→ managed Codex Worker
-→ Worker claims Issue
-→ Attempt N
-→ [EXECUTION REPORT]
-→ Task Reviewer
-→ acceptance/revision
-```
-
-Dogfooding must prove:
-
-- GPT Web remote control path is authenticated and operational;
-- Dispatcher uses runtime MCP rather than raw tmux for the intended accepted operations;
-- one Issue maps to one isolated Worker execution context;
-- Dispatcher launch still does not claim the Issue;
-- tmux Worker persists across web/request disconnect;
-- Coordinator/Dispatcher can recover runtime context through observation;
-- Codex uses GitHub as durable Task handoff/state;
-- terminal idle/output is not used as acceptance;
-- dead runtime + in-progress Issue goes through Reviewer recovery, not auto-redelivery;
-- Issue lifecycle closes normally through Final Acceptance.
-
-## 10. Deferred work
-
-Not in initial MVP:
-
-- SSH Runtime Backend;
-- Docker Runtime Backend;
-- PTY Runtime Backend;
-- multi-host scheduling;
-- automatic worker-to-task matching;
-- runtime-owned automatic Issue claim;
-- semantic Codex prompt/idle parser;
-- arbitrary raw shell/tmux tool;
+- Worker registry;
+- Worker lifecycle API;
+- tmux session/pane lifecycle API;
+- process startup profiles;
+- Issue/task correlation storage;
+- workspace/worktree management;
+- scheduler / automatic assignment;
+- semantic Agent state parser;
 - full terminal recording;
-- web dashboard;
-- distributed leases/locks beyond GitHub Task ownership.
+- distributed host management;
+- generic shell command API.
 
-Secure **remote MCP ingress from GPT Web is not deferred**.
+If lifecycle automation is later useful, design it as a separate higher-level capability/module that consumes or composes the Channel layer rather than silently redefining the core.
 
-## 11. Task sizing rule
+## 8. Task sizing
 
-Create a new Task when work has independent Scope, Success Criteria, lifecycle/evidence authority, or recoverable deliverable.
+Implementation Tasks should follow product capability slices, not upper-layer project workflow primitives.
 
-Do not split merely because work spans several tmux commands, runtime primitives, CI jobs, files or test environments.
+A different tmux command does not automatically mean a different Task; a stable independently reviewable capability does.
 
-Dispatcher runtime/worktree setup is execution orchestration, not a separate business Task unless it introduces an independently reviewable infrastructure Goal.
+## 9. Publication rule
 
-## 12. Publication and dispatch rule
-
-Before implementation becomes executable:
+Before an implementation Task becomes executable:
 
 ```text
-Goal defined
-+ task.md committed/read back
-+ prompt.md committed/read back
-+ dependencies explicit
-+ required Worker capabilities explicit
+Goal and product boundary defined
++ task.md / prompt.md committed and read back
++ required canonical Channel docs resolve
++ capabilities/dependencies explicit
++ security implications reviewed
 + Success Criteria frozen
-+ security/architecture impact checked
-+ current external assumptions verified when relevant
 + Publication Gate PASS
-+ Status: status:ready
-+ Active owner: none
-+ canonical Worker handoff emitted
 ```
 
-Then Dispatcher independently verifies live ready/no-owner/routing state before launching a Worker. Dispatcher launch does not start an Attempt; Worker claim does.
-
-## 13. Development principle
-
-The project should dogfood its **collaboration semantics from MVP-001 onward**, even before it can dogfood its own Runtime transport.
-
-```text
-Early development:
-Publisher → Dispatcher(native tmux) → Worker → Reviewer
-
-Later development:
-Publisher → Dispatcher(agent-runtime-mcp) → Worker → Reviewer
-```
-
-Only the execution transport changes.
+The repository Dispatcher may then prepare whatever execution environment the project collaboration protocol requires. That environment preparation is not part of Channel MCP implementation semantics.
