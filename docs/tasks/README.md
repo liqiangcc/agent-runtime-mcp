@@ -15,14 +15,9 @@ docs/tasks/<issue>-<slug>/
 ## Default role chain
 
 ```text
-original GPT Web conversation
-= Coordinator / Publisher / Reviewer
-
-separate GPT Web conversation
-= Web Worker using @GitHub
-
-GitHub Actions
-= executable verification Runner / Evidence
+original GPT Web conversation = Coordinator / Publisher / Reviewer
+separate GPT Web conversation = Web Worker using @GitHub
+GitHub Actions = executable Runner / Evidence
 ```
 
 Default flow:
@@ -32,7 +27,7 @@ Coordinator
 → plan/materialize/publish Task
 → status:ready + env:web-gpt
 → short Web Worker entry
-→ separate GPT Web Worker claims one Attempt
+→ separate Web GPT Worker claims one Attempt
 → repository changes + Actions Evidence
 → [EXECUTION REPORT] | [BLOCKER REPORT]
 → review/blocked + owner:none
@@ -40,13 +35,9 @@ Coordinator
 → original Coordinator reviews
 ```
 
-Codex/Dispatcher profiles may exist as optional alternative routes but are not the repository default.
-
 ## Planning before publication
 
-Canonical planning method: `planning-principles.md`.
-
-Plan in this order:
+Canonical method: `planning-principles.md`.
 
 ```text
 Goal
@@ -60,14 +51,14 @@ Goal
 → only then Tool / API / implementation mapping
 ```
 
-Planning must focus on **where responsibility changes hands** rather than on source files, tmux commands or existing Tool names.
+Planning focuses on **where responsibility changes hands**, not source files or tmux commands.
 
-Important recurring separations include:
+Recurring separations include:
 
 ```text
 product | repository collaboration
-Channel transport | upper-layer application semantics
-MCP ingress/auth | Channel logic
+MCP capability | deployment mechanism
+Channel communication | upper-layer application semantics
 Channel Service | backend adapter
 backend adapter | tmux mechanics
 data/communication logic | orchestration/control policy
@@ -75,19 +66,17 @@ observation | interpretation
 execution Evidence | acceptance authority
 ```
 
-A Task should represent one coherent independently reviewable capability/use-case slice with clear single responsibilities.
+A Task represents one coherent independently reviewable use-case/capability slice.
 
 ## Durable state
 
-- Issue body = current live snapshot from `issue-state-convention.md`.
+- Issue body = current live snapshot.
 - Issue comments = append-only Attempt/Blocker/Review/Acceptance history.
 - `task.md` = frozen execution Contract.
 - `prompt.md` = bootstrap/navigation only.
 - GitHub Actions = Evidence, never Task authority.
 
 ## Web Worker entry
-
-Normal published Task entry is intentionally short:
 
 ```text
 @GitHub
@@ -102,8 +91,6 @@ Normal published Task entry is intentionally short:
 按仓库协议 claim、执行、报告后停止。
 ```
 
-The Worker reads all real Scope/Claims/Success Criteria from GitHub + Task Package.
-
 ## Publication
 
 ```text
@@ -117,7 +104,7 @@ Goal + use-case/boundary analysis
 
 A draft Task is not claimable.
 
-Publication Gate includes checking that use case, separation points, single responsibilities, logic/control ownership, failure/degradation and Evidence authority are explicit.
+Publication Gate checks use case, separation points, single responsibilities, logic/control ownership, failure/degradation and Evidence authority.
 
 ## Worker
 
@@ -128,34 +115,34 @@ The Worker is a **different GPT Web conversation** from the Coordinator.
 → confirm ready/no-owner/env:web-gpt
 → claim as web-gpt-worker
 → Attempt N
-→ execute frozen Contract through GitHub
-→ use GitHub Actions for required executable verification
-→ [EXECUTION REPORT] | [BLOCKER REPORT]
+→ execute frozen Contract
+→ use Actions for required executable verification
+→ report
 → review/blocked + owner:none
 → STOP
 ```
 
-Worker never Reviews itself, closes the Issue, or starts another Task/Attempt automatically.
+Worker never Reviews itself, closes the Issue, or starts another Task automatically.
 
 ## Reviewer
 
-The original Coordinator conversation reads live Issue + Contract + Candidate/PR + actual Evidence and chooses:
+Coordinator chooses:
 
 ```text
 ACCEPT | REVISE | BLOCK | SPLIT | NOT_PLANNED
 ```
 
-Unchanged-contract REVISE returns the same Issue to ready for Attempt N+1. Contract or separation-boundary changes return to draft and Publication Gate.
+Unchanged-contract REVISE returns the same Issue to ready for Attempt N+1. Contract/boundary changes return to draft and Publication Gate.
 
 ## Planning ahead
 
-A future Task may be materialized as `status:draft` while the current Task executes when its **use case, stable boundaries and Claims** can already be planned.
+A future Task may remain `status:draft` while upstream work executes when its stable use case and separation points can already be planned.
 
-Do not prematurely freeze implementation details that depend on the current Task. Keep an explicit Publication Dependency / Alignment Gate and re-read the accepted upstream Candidate before publication.
+Do not freeze implementation details that depend on unaccepted upstream work.
 
 ## Product separation
 
-Repository collaboration concepts are not Channel MCP product concepts:
+Repository collaboration concepts are not Channel MCP concepts:
 
 ```text
 Coordinator
@@ -167,13 +154,14 @@ branch / PR
 Task review
 ```
 
-Channel MCP remains only terminal communication infrastructure as defined by canonical product docs.
-
-Final principle:
+Deployment concepts are also not Channel MCP concepts:
 
 ```text
-GitHub = durable repository Task authority
-separate GPT Web conversation = default implementation Worker
-GitHub Actions = Runner / Evidence
-Channel MCP = product being built, not collaboration engine
+tunnel / proxy
+TLS / DNS / firewall
+workspace authorization
+provider credentials
+host supervision
 ```
+
+The Channel product remains the six MCP communication capabilities defined by canonical product docs.
