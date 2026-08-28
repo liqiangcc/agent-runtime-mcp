@@ -8,6 +8,15 @@ import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotoc
 
 const execFileAsync = promisify(execFile);
 const EXPECTED_TOOLS = ['get_channel', 'health', 'list_channels', 'read_channel', 'send_control', 'write_text'];
+const PANE_FORMAT = [
+  '#{pane_id}',
+  '#{session_name}',
+  '#{window_id}',
+  '#{window_index}',
+  '#{pane_index}',
+  '#{pane_title}',
+  '#{pane_current_path}',
+].join('\t');
 
 type PublicToolResult = {
   isError?: boolean;
@@ -89,6 +98,8 @@ test('official MCP client dogfoods the complete public Channel surface', { timeo
   await tmux(socketName, 'send-keys', '-t', sessionName, 'Enter');
   await new Promise((resolve) => setTimeout(resolve, 100));
   await waitFor(async () => (await tmux(socketName, 'list-panes', '-t', sessionName, '-F', '#{pane_current_command}')).trim() === 'bash');
+  const fixtureMetadata = await tmux(socketName, 'list-panes', '-a', '-F', PANE_FORMAT);
+  console.log(`DOGFOOD_FIXTURE_METADATA ${JSON.stringify(fixtureMetadata)}`);
 
   const client = new Client({ name: 'agent-runtime-mcp-dogfood', version: '0.1.0' });
   const transport = new StdioClientTransport({
