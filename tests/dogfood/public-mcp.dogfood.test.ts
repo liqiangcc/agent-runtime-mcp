@@ -20,7 +20,9 @@ function asRecord(value: unknown, label: string): Record<string, unknown> {
 }
 
 function requireSuccess(result: PublicToolResult, label: string): Record<string, unknown> {
-  assert.notEqual(result.isError, true, `${label} returned a public MCP error`);
+  if (result.isError === true) {
+    assert.fail(`${label} returned a public MCP error: ${JSON.stringify(result.structuredContent)}`);
+  }
   return asRecord(result.structuredContent, `${label}.structuredContent`);
 }
 
