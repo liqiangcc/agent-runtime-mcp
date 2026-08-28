@@ -1,75 +1,72 @@
 # Documentation Map
 
-This repository contains two different kinds of documentation that must not be conflated.
+This repository contains three different concerns that must not be conflated.
 
 ## A. Product contract — agent-runtime-mcp
 
 Reading order:
 
-1. `requirements.md` — product goals and explicit non-goals
-2. `channel-architecture.md` — product/system boundary
-3. `channel-model.md` — backend-neutral Channel domain model
+1. `requirements.md` — product goals and non-goals
+2. `channel-architecture.md` — system boundary and separation points
+3. `channel-model.md` — backend-neutral Channel model
 4. `mcp-contract.md` — public MCP tools and semantics
-5. `backends/tmux.md` — first Channel backend
-6. `security.md` — terminal-channel security boundary
-7. `deployment.md` — secure remote MCP exposure
-8. `technology-stack.md` — implementation stack decision
-9. `mvp-plan.md` — implementation sequence
-
-Product authority:
-
-```text
-requirements.md
-→ externally meaningful behavior / scope
-
-channel-architecture.md
-→ system boundary and invariants
-
-channel-model.md
-→ Channel semantics
-
-mcp-contract.md
-→ public MCP behavior
-
-backends/*.md
-→ backend-specific behavior
-
-security.md / deployment.md
-→ trust/deployment constraints
-```
+5. `backends/tmux.md` — tmux backend mechanics
+6. `security.md` — safety inside the MCP capability boundary
+7. `technology-stack.md` — implementation stack
+8. `mvp-plan.md` — product capability sequence
 
 Core design sequence:
 
 ```text
-communication need
+use case
+→ separation point
 → Channel capability
-→ Channel model
 → backend contract
 → MCP tool
 ```
 
-The product does **not** define Workers, Tasks, Issues, worktrees, Agent scheduling or tmux lifecycle.
-
-## B. Repository development workflow — not product protocol
-
-This repository is itself developed using:
+The product surface is:
 
 ```text
-docs/tasks/
-.agents/skills/
+list_channels
+get_channel
+read_channel
+write_text
+send_control
+health
+```
+
+The product does not define Worker/Task semantics, endpoint lifecycle, workflow control or deployment infrastructure.
+
+## B. Deployment guidance — not product capability
+
+`deployment.md` exists to document the boundary around the MCP process.
+
+Tunnel/provider/network/TLS/DNS/firewall/workspace authorization are operator concerns. They are not product Tasks or MCP domain concepts.
+
+## C. Repository development workflow — not product protocol
+
+This repository is developed using:
+
+```text
 AGENTS.md
+docs/tasks/
+GitHub Issues
+separate GPT Web Worker conversations
+GitHub Actions
 ```
 
-Those files define this project's collaboration lifecycle:
+Default repository flow:
 
 ```text
-Publisher → Dispatcher → Worker → Reviewer
+Coordinator publishes
+→ separate Web GPT Worker claims one Attempt
+→ GitHub Actions supplies executable Evidence
+→ Coordinator reviews
 ```
 
-They may use tmux/Codex and may later use Channel MCP as transport, but they are not part of the public MCP capability model.
-
-A future user of `agent-runtime-mcp` may have a completely different collaboration system or no Task system at all.
+These collaboration concepts must not appear in public MCP schemas or Channel logic.
 
 ## Migration note
 
-`architecture.md` and `runtime-model.md` belonged to the earlier managed-Worker Runtime design. The canonical product architecture/model are now `channel-architecture.md` and `channel-model.md`.
+`architecture.md` and `runtime-model.md` belong to the earlier managed-Worker Runtime design. The canonical product architecture/model are `channel-architecture.md` and `channel-model.md`.
