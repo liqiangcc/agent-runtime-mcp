@@ -9,9 +9,10 @@ Task kind: implementation | verification | combined | research
 Base commit: <sha>
 Candidate commit: <sha or n/a>
 Session bootstrap: docs/tasks/<issue>-<slug>/prompt.md
-Preferred worker: codex
-Dispatch route: task-dispatcher
-Required capabilities: <capability list>
+Preferred worker: web-gpt-worker
+Environment: env:web-gpt
+Handoff profile: docs/tasks/handoffs/web-gpt.md
+Required capabilities: github-read-write, repository-code-authoring, github-actions-evidence, <task-specific>
 Hard dependencies: <none or explicit dependencies>
 ```
 
@@ -31,7 +32,7 @@ Read:
 - `docs/tasks/issue-lifecycle-protocol.md`
 - task-relevant canonical product docs.
 
-For product implementation, current canonical product sources start with:
+For product implementation, canonical product sources start with:
 
 ```text
 docs/requirements.md
@@ -40,15 +41,17 @@ docs/channel-model.md
 docs/mcp-contract.md
 ```
 
-## Dispatch Requirements
+## Worker / Verification Route
+
+Default repository route:
 
 ```text
-Expected child environment/capabilities:
-Isolation: one concurrent Issue = one isolated mutable worktree/execution context
-Communication mode: native tmux | Channel MCP when accepted
+original GPT Web conversation = Coordinator / Reviewer
+separate GPT Web conversation = Web Worker using @GitHub
+GitHub Actions = executable verification Runner / Evidence
 ```
 
-Dispatcher owns project environment preparation. Channel MCP, when used, is communication transport only.
+The Web Worker claims exactly one Attempt and performs repository writes. Commands or real runtime integration that cannot execute in the Web conversation are delegated to GitHub Actions and verified from exact Candidate run/job evidence.
 
 ## In Scope
 
@@ -75,8 +78,9 @@ Common product examples:
 
 Repository workflow examples:
 
-- Publisher/Dispatcher/Worker/Reviewer authorities remain separate.
-- Dispatcher launch does not claim the Issue.
+- Coordinator and Web Worker are separate GPT Web conversations.
+- Web Worker claims and executes exactly one Attempt.
+- GitHub Actions is Evidence infrastructure, not Task authority.
 - GitHub is durable repository Task authority.
 
 ## Implementation Requirements
@@ -90,7 +94,7 @@ C1: <claim>
 C2: <claim>
 ```
 
-Record exact Candidate SHA for code-dependent evidence. Do not report tests as PASS if not run.
+Record exact Candidate SHA for code-dependent evidence. Do not report tests as PASS if the actual Actions run/job was not read.
 
 ## Security Review
 
@@ -119,13 +123,12 @@ Record as applicable:
 
 ```text
 Attempt
-Worker identity
+Worker identity: web-gpt-worker
 Base/Candidate SHA
-PR
-Dispatcher execution-context evidence when relevant
-commands / CI run
+PR / branch when applicable
+GitHub Actions run/job
 versions/environment
-claim results
+Claim results
 known limitations
 ```
 
@@ -134,10 +137,11 @@ Do not persist secrets or unnecessary terminal transcripts.
 ## Completion Protocol
 
 ```text
-Publisher → ready + canonical handoff
-Dispatcher → isolated execution context + handoff delivery
-Worker → claim → Attempt N → report → review/blocked → owner:none → STOP
-Reviewer → ACCEPT | REVISE | BLOCK | SPLIT | NOT_PLANNED
+Coordinator/Publisher → status:ready + Web Worker entry
+separate Web GPT Worker → claim → Attempt N → repository changes → Actions Evidence
+→ [EXECUTION REPORT] | [BLOCKER REPORT]
+→ status:review | status:blocked → owner:none → STOP
+original GPT Web Coordinator → ACCEPT | REVISE | BLOCK | SPLIT | NOT_PLANNED
 ```
 
-Contract change returns to draft + Publisher Gate. Only Final Acceptance may set done/close.
+Contract change returns to draft + Publication Gate. Only Final Acceptance may set done/close.
