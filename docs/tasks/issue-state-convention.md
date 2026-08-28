@@ -9,7 +9,8 @@ Every independent Task Issue must keep this machine-readable block near the top 
 ```text
 Status: status:draft | status:ready | status:in-progress | status:review | status:blocked | status:done
 Active owner: none | <worker identity>
-Environment: env:codex | <other explicitly defined environment>
+Environment: env:web-gpt | env:codex | <other explicitly defined environment>
+Worker route: separate-gpt-web-conversation | <other explicit route>
 Task package: docs/tasks/<issue>-<slug>/
 Parent: <goal/issue or n/a>
 Candidate: <sha or n/a>
@@ -17,13 +18,18 @@ PR: <reference or n/a>
 Blocker: <short current blocker or none>
 ```
 
-The exact prose below the block may evolve, but these fields must remain unambiguous.
+Default repository implementation route is:
+
+```text
+Environment: env:web-gpt
+Worker route: separate-gpt-web-conversation
+```
+
+Codex/Dispatcher or another environment is optional and must be explicitly published for that Task.
+
+The prose below the block may evolve, but the state fields must remain unambiguous.
 
 ## 2. Why the Issue body is authoritative
-
-The collaboration protocol must work even when a repository has not yet provisioned a custom label taxonomy or a particular client cannot create labels.
-
-Therefore:
 
 ```text
 Issue body state block = required live state authority
@@ -31,13 +37,13 @@ labels / assignee = optional mirrors / convenience indexes
 comments = append-only history
 ```
 
-If labels later mirror state, a mismatch is an inconsistency that must be repaired; the Worker must not silently guess which value is intended.
+If an optional mirror conflicts with the body, repair the inconsistency rather than guessing.
 
 ## 3. Active ownership
 
 `Active owner: none` means the Task is unclaimed.
 
-A successful claim must atomically enough for practical GitHub coordination change:
+A successful Worker claim changes:
 
 ```text
 Status: status:ready
@@ -51,13 +57,13 @@ Status: status:in-progress
 Active owner: <worker identity>
 ```
 
-Then the Worker re-reads the Issue before write-side execution. If the re-read does not show its ownership, it stops.
+The Worker immediately re-reads the Issue before write-side execution. If durable ownership is not confirmed, it stops.
 
-GitHub assignee may mirror the owner when useful, but is not required for correctness.
+A GitHub assignee may mirror ownership but is not required for correctness.
 
 ## 4. Attempt identity
 
-Attempt number is derived from append-only Issue history, not stored as the only mutable counter in the state block.
+Attempt number is derived from append-only Issue history.
 
 Each successful `ready → in-progress` claim starts the next monotonically increasing Attempt.
 
@@ -80,14 +86,14 @@ post [BLOCKER REPORT]
 → Blocker: <current blocker>
 ```
 
-Coordinator REVISE/UNBLOCK:
+Coordinator REVISE / UNBLOCK:
 
 ```text
 Status: status:ready
 Active owner: none
 ```
 
-Coordinator final acceptance:
+Coordinator Final Acceptance:
 
 ```text
 post [FINAL ACCEPTANCE]
@@ -96,21 +102,21 @@ post [FINAL ACCEPTANCE]
 → close Issue
 ```
 
-## 6. Candidate/PR fields
+## 6. Candidate / PR fields
 
-`Candidate` and `PR` are current convenience pointers only. The immutable history/evidence remains in Attempt comments, commits, PRs and CI runs.
+`Candidate` and `PR` are current convenience pointers only. Immutable evidence remains in comments, commits, PRs and CI runs.
 
-Updating the current pointer must not erase previous Attempt history.
+Updating the pointer must not erase previous Attempt history.
 
 ## 7. Status labels
 
-Custom labels such as `status:ready` may be added later for queue search and UI convenience.
+Custom labels such as `status:ready` may be added as convenience indexes.
 
-If adopted, labels must mirror the body state and the repository should add a validator or explicit Publication Gate check. Labels do not change the Worker/Coordinator authority split.
+If adopted, labels must mirror the body state. Labels do not change Worker/Coordinator authority.
 
 ## 8. No runtime inference
 
-Neither tmux state nor `agent-runtime-mcp` output may mutate or infer this Issue state automatically in MVP.
+Neither tmux state nor `agent-runtime-mcp` output may mutate or infer Issue state automatically.
 
 ```text
 runtime idle
@@ -118,4 +124,4 @@ runtime idle
 != status:done
 ```
 
-Only the Worker/Coordinator lifecycle protocol changes Task state.
+Only repository collaboration roles change Task state.
