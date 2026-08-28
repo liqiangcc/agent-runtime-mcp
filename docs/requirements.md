@@ -2,205 +2,232 @@
 
 ## 1. Product goal
 
-Provide a persistent, inspectable and controllable execution runtime that lets a GPT Web Coordinator remotely operate terminal-based AI Workers such as Codex through MCP, while keeping durable project coordination in GitHub Issues.
+Provide a secure MCP communication channel for existing interactive terminal endpoints.
 
-The first Runtime Backend is tmux. The product boundary is **Agent Runtime**, not tmux command automation.
-
-The intended end-to-end path is:
+The product lets an MCP client remotely:
 
 ```text
-GPT Web
-→ secure remote MCP ingress
-→ agent-runtime-mcp on the runtime host
-→ tmux
-→ Codex Worker
+discover channel
+→ inspect channel metadata
+→ read bounded recent output
+→ write ordinary text
+→ send a small explicit set of control actions
 ```
 
-Remote MCP ingress is part of MVP. A remote SSH/multi-host Runtime Backend is not.
+The first backend is tmux.
 
-## 2. Primary actors
+The product boundary is **terminal channel transport**, not Worker management, Agent scheduling, Task coordination, repository workspace management, or tmux lifecycle automation.
 
-### GPT Web Coordinator
+## 2. Intended usage
 
-Needs to:
+A higher-level system may prepare a terminal however it wants:
 
-- connect to the Runtime MCP service remotely through a supported authenticated path;
-- discover available Workers;
-- inspect Worker runtime state and recent output;
-- send task-entry instructions to an idle/appropriate Worker;
-- interrupt or recover a stuck Worker;
-- create/restart/destroy runtime Workers when needed;
-- correlate a Worker with an external GitHub Issue without treating runtime metadata as Task authority.
+```text
+create worktree
+→ create tmux session/pane
+→ start Codex / shell / REPL / another CLI
+→ use agent-runtime-mcp as the communication path
+```
 
-### Codex Worker
+Those preparation steps are outside this MCP.
 
-Runs inside a persistent terminal runtime and executes one published Issue Attempt at a time according to repository rules.
-
-### Human operator
-
-Owns the machine/account permissions and must remain able to inspect/attach/recover the underlying tmux sessions directly.
+The MCP does not need to know why the channel exists or what program is running inside it.
 
 ## 3. Core use cases
 
-### UC0 — Connect GPT Web to the runtime safely
+### UC0 — Secure remote access
 
-The Coordinator can use the MCP service from ChatGPT Web without exposing an unauthenticated shell-equivalent endpoint.
+An authorized MCP client can reach the service through a supported secure remote MCP path without exposing unauthenticated terminal-input authority.
 
-The deployment may use an officially supported secure tunnel/private-connectivity mechanism or an authenticated HTTPS MCP endpoint.
+### UC1 — Discover channels
 
-Success requires actual write-capable MCP integration for mutation operations; a read-only connector is insufficient for the full remote-control goal.
+List existing terminal channels visible within the configured backend boundary.
 
-### UC1 — Discover persistent Workers
+Results are structured; callers do not parse human `tmux ls` output.
 
-The Coordinator can list Workers and obtain stable runtime identities plus enough metadata to decide whether a Worker can be used.
+### UC2 — Inspect a channel
 
-Success requires structured results rather than parsing raw `tmux ls` output in the model.
+Return mechanical metadata for one channel, such as backend, availability, optional cwd/title and supported capabilities.
 
-### UC2 — Observe a Worker
+The MCP does not classify semantic Agent/Task state.
 
-The Coordinator can fetch bounded recent terminal output and runtime metadata for a selected Worker.
+### UC3 — Read channel output
 
-Observation must not imply semantic Task completion.
+Read a bounded amount of recent terminal output with explicit truncation metadata.
 
-### UC3 — Send ordinary text safely
+### UC4 — Write ordinary text
 
-The Coordinator can send a multi-line Unicode prompt/instruction to a Worker without relying on shell quoting or interpreting prompt text as tmux special-key syntax.
+Send multi-line Unicode text as data to a selected channel without shell interpolation or accidental tmux-key interpretation.
 
-Ordinary text input and control-key input must be separate capabilities.
+### UC5 — Send explicit control input
 
-### UC4 — Send explicit control input
+Support a small closed set such as:
 
-The Coordinator can request a small, explicit set of control actions such as Enter or interrupt (`Ctrl-C`) without exposing arbitrary tmux key-language semantics as the default text interface.
+```text
+ENTER
+INTERRUPT
+ESCAPE
+```
 
-### UC5 — Create a persistent Worker
+### UC6 — Check service/backend health
 
-The Coordinator can create a Worker with a requested working directory and startup command/profile. The Worker remains available after the MCP client/web request disconnects.
+Distinguish remote MCP ingress health from backend availability and channel existence.
 
-### UC6 — Recover or restart a Worker
-
-The Coordinator can distinguish a missing/exited/unavailable runtime from a healthy one and explicitly restart it when policy allows.
-
-### UC7 — Destroy a Worker
-
-The Coordinator can explicitly remove a Worker runtime. Destruction must be a separate destructive operation and must not happen as a side effect of observation or transient failure.
-
-### UC8 — Correlate runtime with external Task
-
-The runtime may record an optional external reference such as `github:owner/repo#12` for operator visibility and routing assistance.
-
-This reference is correlation metadata only; Issue status and acceptance remain in GitHub.
-
-## 4. Required capabilities
-
-The MVP requires these capability groups:
+## 4. Required MVP capabilities
 
 ```text
 remote-mcp-ingress
 inventory
-observation
-text-input
+channel-inspection
+bounded-read
+text-write
 control-input
+backend-health
+```
+
+Not required:
+
+```text
+worker-registry
 worker-create
 worker-restart
 worker-destroy
-runtime-health
-external-reference
+external-task-reference
+worktree-management
+process-startup
+session-lifecycle
+scheduler
 ```
 
-Backend-specific commands are not product capabilities.
+## 5. Channel semantics
 
-## 5. Runtime semantics requirements
+Canonical domain model: `docs/channel-model.md`.
 
-- Every managed Worker has a stable `worker_id` independent from user-visible tmux names where practical.
-- Every Worker resolves to one concrete backend locator.
-- Runtime status is structured and intentionally non-semantic with respect to project completion.
-- Output capture is bounded by lines/bytes and never unbounded by default.
-- `last_activity` describes runtime I/O observation, not Task progress.
-- Runtime metadata can degrade to `unknown` when the backend cannot prove a field.
-- Missing runtime information must not be invented from terminal text.
+Key requirements:
 
-## 6. Task/coordination separation
+- channel identity is backend-neutral at the MCP boundary;
+- tmux target syntax is not required from normal callers;
+- channel state is mechanical (`available | unavailable | unknown`);
+- no semantic `idle`, `busy`, `working`, `done`, `blocked`, or review state;
+- output is bounded;
+- last activity, if exposed, is an I/O observation only;
+- missing facts degrade to unknown rather than being inferred from terminal prose.
 
-The runtime must not become a second Issue tracker.
+## 6. Explicit product boundary
 
-It must not own authoritative:
+The MCP must not own or interpret:
 
-- Task status;
-- project priority;
-- claim/assignee state;
-- acceptance decision;
-- verification result authority;
-- next-Task scheduling policy.
+- Worker identity or Worker lifecycle;
+- Agent type (Codex, Claude Code, shell, REPL, etc.);
+- GitHub Issue/Task/Attempt state;
+- project priority or scheduling;
+- Task assignment or claim;
+- success/acceptance/review decisions;
+- git worktree/branch/PR lifecycle;
+- tmux session/pane creation policy;
+- process startup/restart/recovery policy;
+- cleanup policy.
 
-A higher-level Coordinator may compose GitHub and Runtime tools, but that orchestration belongs to GPT Web, not the Runtime backend/server.
+A higher-level collaboration system may compose these concerns with Channel MCP tools.
 
-## 7. Persistence requirements
+## 7. tmux lifecycle boundary
 
-- A Worker survives loss/restart of the MCP client connection as long as the backend runtime itself remains alive.
-- Worker lifetime is independent from a single HTTP/MCP request lifetime.
-- Managed Worker identity should be recoverable after an MCP server process restart.
-- Runtime registry corruption or stale locators must degrade safely and be reconcilable with the backend.
-- The tmux backend remains directly inspectable with native tmux tooling.
+For MVP, tmux channels are prepared outside the MCP.
 
-## 8. Remote ingress requirements
+The service may discover and communicate with already-existing panes, but it does not:
 
-- GPT Web must reach the MCP server through a currently supported remote MCP integration path.
-- Private/local runtime-host deployment should prefer a supported secure tunnel/private-connectivity path when available.
-- Direct public exposure, if used, requires HTTPS plus standards-compatible authentication/authorization.
-- The system must not rely solely on ChatGPT UI confirmation as its server-side authorization boundary.
-- Deployment must verify current ChatGPT support for write/modify MCP actions before the remote-control dogfooding gate.
-- MCP protocol/SDK version compatibility must be verified at implementation time because ChatGPT/MCP integration evolves quickly.
+```text
+new-session
+new-window
+split-window
+kill-session
+kill-pane
+start Codex
+restart Codex
+create worktree
+```
 
-See `deployment.md`.
+If a channel disappears, return a structured failure; do not recreate it.
 
-## 9. Security requirements
+## 8. Backend visibility policy
 
-- Assume runtime control is approximately equivalent to shell authority of the service account.
-- Default deployment must not expose unauthenticated remote shell-equivalent access.
-- Backend commands must be invoked using structured argv/process APIs, not shell string concatenation.
-- Ordinary text input must not be interpreted as a shell command by the MCP server itself.
-- Captured terminal output must be treated as potentially sensitive.
-- Destructive lifecycle operations must be explicit and target one Worker.
-- The runtime must obey existing OS permissions and must not require root for normal operation.
+Deployment must define what tmux scope is visible to the service, for example:
 
-Full requirements are in `security.md`.
+- configured tmux socket/server;
+- operating-system account boundary;
+- optional session-name/filter allowlist.
 
-## 10. Operational requirements
+The MCP must not silently expand beyond the configured terminal namespace.
 
-- Useful failures must be structured: worker not found, backend unavailable, permission denied, runtime exited, invalid working directory, input failure, timeout, authentication/transport failure.
-- Read-only inventory/observation should remain usable when mutation is unavailable where possible.
-- Backend errors should preserve enough diagnostic context without dumping sensitive environment state.
-- Operations need finite timeouts; MCP calls must not wait indefinitely for a terminal program to become semantically idle.
-- Remote ingress health and tmux backend health must be distinguishable.
+## 9. Remote ingress requirements
 
-## 11. Non-goals for MVP
+- GPT Web or another MCP client must reach the server through a currently supported authenticated remote MCP integration path.
+- Private/local deployment should prefer supported private/tunnel connectivity when appropriate.
+- Direct network exposure requires HTTPS and standards-compatible authentication/authorization.
+- UI confirmation is not the server authorization boundary.
+- current MCP SDK/transport compatibility must be verified at implementation time.
+
+## 10. Security requirements
+
+Terminal write access is approximately terminal-input authority for every exposed channel.
+
+Therefore:
+
+- unauthenticated remote write access is forbidden;
+- backend commands use structured argv/process APIs, not shell string concatenation;
+- ordinary text is transported as data;
+- control input is a closed enum;
+- reads are bounded and potentially sensitive;
+- service logs do not record full terminal text/write payloads by default;
+- the service runs with ordinary least-privilege OS permissions;
+- no root is required for normal operation.
+
+See `docs/security.md`.
+
+## 11. Operational requirements
+
+Structured failures should include categories such as:
+
+```text
+CHANNEL_NOT_FOUND
+CHANNEL_UNAVAILABLE
+BACKEND_UNAVAILABLE
+BACKEND_OPERATION_FAILED
+INVALID_ARGUMENT
+CAPABILITY_UNSUPPORTED
+PERMISSION_DENIED
+TIMEOUT
+AUTHENTICATION_REQUIRED
+```
+
+Operations have finite timeouts and do not wait for semantic completion.
+
+## 12. Non-goals
 
 The MVP does not attempt to:
 
-- replace GitHub Issues;
-- autonomously choose project priorities;
-- infer Task success from Codex output;
-- parse Codex UI text into an authoritative state machine;
-- provide a generic remote shell API;
-- expose every tmux command or key sequence;
-- manage Docker/Kubernetes/SSH Runtime Backends;
-- multiplex many logical Workers through one shared interactive shell;
-- implement distributed scheduling across many runtime hosts;
-- store full terminal history as a durable knowledge base.
+- replace GitHub/Jira/another collaboration system;
+- manage Agent Workers;
+- choose or assign Tasks;
+- infer Agent completion from terminal output;
+- start/restart/destroy terminal sessions;
+- create repository workspaces;
+- provide a generic host-admin API;
+- expose arbitrary tmux command grammar;
+- store complete terminal history;
+- manage distributed execution hosts.
 
-Note: secure **remote MCP ingress** is in scope; a remote **SSH Runtime Backend** is not.
+## 13. MVP success criteria
 
-## 12. MVP success criteria
+The first usable version is successful when an authenticated remote MCP client can:
 
-The first usable version is successful when a GPT Web Coordinator can, through an authenticated supported remote MCP path:
-
-1. discover at least one managed tmux-backed Worker;
-2. inspect bounded recent output;
-3. safely send a multi-line Codex instruction;
-4. send Enter/interrupt explicitly;
-5. create/restart/destroy a persistent Worker;
-6. reconnect to the MCP service and rediscover that Worker;
-7. perform the above without treating terminal state as GitHub Task state;
-8. use the runtime in one real Issue-driven Codex Attempt with GitHub remaining the coordination authority;
-9. demonstrate that the runtime host is not exposed through an unauthenticated shell-equivalent MCP endpoint;
-10. record the live ChatGPT/MCP write-capability compatibility evidence used for dogfooding.
+1. discover an already-existing tmux pane as a Channel;
+2. inspect that Channel through structured metadata;
+3. read bounded recent output;
+4. write multi-line Unicode text safely as data;
+5. send Enter/interrupt explicitly;
+6. receive structured failure when the pane/backend disappears;
+7. reconnect and rediscover currently existing panes without a separate Worker registry;
+8. perform all of the above without knowing Codex, Worker, Issue, Task, worktree, or collaboration semantics;
+9. avoid unauthenticated public terminal control;
+10. demonstrate one upper-layer collaboration flow using the MCP purely as transport, with all Task meaning remaining outside the product.
