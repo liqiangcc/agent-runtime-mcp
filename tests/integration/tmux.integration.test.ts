@@ -1,6 +1,8 @@
+import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { after, before, describe, it } from 'node:test';
+import { ChannelError, type ChannelErrorCode } from '../../src/errors.js';
 import { TmuxBackend } from '../../src/tmux-backend.js';
 
 const execFileAsync = promisify(execFile);
@@ -21,8 +23,12 @@ async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function assertRejectCode(promise: Promise<unknown>, code: ChannelErrorCode): Promise<void> {
+  await assert.rejects(promise, (error: unknown) => error instanceof ChannelError && error.code === code);
+}
+
 describe('real tmux Channel backend', () => {
-  beforeAll(async () => {
+  before(async () => {
     await tmux('new-session', '-d', '-s', visibleSession);
     await tmux('new-session', '-d', '-s', hiddenSession);
 
@@ -33,7 +39,7 @@ describe('real tmux Channel backend', () => {
     await sleep(400);
   });
 
-  afterAll(async () => {
+  after(async () => {
     try {
       await tmux('kill-server');
     } catch {
@@ -45,15 +51,15 @@ describe('real tmux Channel backend', () => {
     const backend = new TmuxBackend({ socketName, allowedSessions: [visibleSession] });
     const channels = await backend.listChannels();
 
-    expect(channels).toHaveLength(1);
-    expect(channels[0].backend_kind).toBe('tmux');
-    expect(channels[0].state).toBe('available');
-    expect(channels[0].capabilities).toEqual(['read']);
-    expect(channels[0].channel_id).toMatch(/^tmux:[a-f0-9]{12}:\d+$/);
+    assert.equal(channels.length, 1);
+    assert.equal(channels[0].backend_kind, 'tmux');
+    assert.equal(channels[0].state, 'available');
+    assert.deepEqual(channels[0].capabilities, ['read']);
+    assert.match(channels[0].channel_id, /^tmux:[a-f0-9]{12}:\d+$/);
 
     const inspected = await backend.getChannel(channels[0].channel_id);
-    expect(inspected.channel_id).toBe(channels[0].channel_id);
-    expect(inspected.cwd).toBeTruthy();
+    assert.equal(inspected.channel_id, channels[0].channel_id);
+    assert.ok(inspected.cwd);
   });
 
   it('reads recent output with finite line bounds and explicit truncation', async () => {
@@ -67,10 +73,10 @@ describe('real tmux Channel backend', () => {
     const [channel] = await backend.listChannels();
     const read = await backend.readChannel(channel.channel_id, { lines: 12, bytes: 4096 });
 
-    expect(read.line_count).toBeLessThanOrEqual(12);
-    expect(read.byte_count).toBeLessThanOrEqual(4096);
-    expect(read.truncated).toBe(true);
-    expect(read.text).toMatch(/(30|世界)/);
+    assert.ok(read.line_count <= 12);
+    assert.ok(read.byte_count <= 4096);
+    assert.equal(read.truncated, true);
+    assert.match(read.text, /(30|世界)/);
   });
 
   it('applies a byte bound without corrupting UTF-8 text', async () => {
@@ -83,24 +89,24 @@ describe('real tmux Channel backend', () => {
     const [channel] = await backend.listChannels();
     const read = await backend.readChannel(channel.channel_id, { lines: 20, bytes: 64 });
 
-    expect(read.byte_count).toBeLessThanOrEqual(64);
-    expect(read.truncated).toBe(true);
-    expect(read.text).not.toContain('\uFFFD');
+    assert.ok(read.byte_count <= 64);
+    assert.equal(read.truncated, true);
+    assert.equal(read.text.includes('\uFFFD'), false);
   });
 
   it('returns BACKEND_UNAVAILABLE for a configured tmux server that is not running', async () => {
     const backend = new TmuxBackend({ socketName: `${socketName}-missing` });
-    await expect(backend.listChannels()).rejects.toMatchObject({ code: 'BACKEND_UNAVAILABLE' });
+    await assertRejectCode(backend.listChannels(), 'BACKEND_UNAVAILABLE');
   });
 
   it('returns CHANNEL_NOT_FOUND after the externally prepared pane is destroyed', async () => {
     const backend = new TmuxBackend({ socketName, allowedSessions: [visibleSession] });
     const [channel] = await backend.listChannels();
     const paneNumber = channel.channel_id.split(':').at(-1);
-    expect(paneNumber).toMatch(/^\d+$/);
+    assert.match(paneNumber ?? '', /^\d+$/);
 
     await tmux('kill-pane', '-t', `%${paneNumber}`);
 
-    await expect(backend.getChannel(channel.channel_id)).rejects.toMatchObject({ code: 'CHANNEL_NOT_FOUND' });
+    await assertRejectCode(backend.getChannel(channel.channel_id), 'CHANNEL_NOT_FOUND');
   });
 });
