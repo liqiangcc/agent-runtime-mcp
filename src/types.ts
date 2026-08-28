@@ -3,6 +3,18 @@ export type ChannelState = 'available' | 'unavailable' | 'unknown';
 export type ChannelCapability = 'read' | 'write-text' | 'control';
 export type TerminalControl = 'ENTER' | 'INTERRUPT' | 'ESCAPE';
 
+export interface TmuxChannelMetadata {
+  session_name: string;
+  window_id: string;
+  window_index: number;
+  pane_id: string;
+  pane_index: number;
+}
+
+export interface ChannelBackendMetadata {
+  tmux?: TmuxChannelMetadata;
+}
+
 export interface Channel {
   channel_id: string;
   backend_kind: BackendKind;
@@ -12,6 +24,7 @@ export interface Channel {
   title?: string;
   cwd?: string;
   last_activity?: string;
+  backend_metadata?: ChannelBackendMetadata;
 }
 
 export interface ChannelRead {

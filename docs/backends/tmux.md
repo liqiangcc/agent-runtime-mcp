@@ -20,7 +20,19 @@ It does not create project Workers, prepare task environments, or manage deploym
 
 The backend queries a configured tmux server/socket scope and returns existing panes through machine-oriented tmux format fields.
 
-Do not parse human-oriented `tmux ls` prose when structured fields are available.
+The structured discovery row includes:
+
+```text
+pane_id
+session_name
+window_id
+window_index
+pane_index
+pane_title
+pane_current_path
+```
+
+Do not parse human-oriented `tmux ls` prose when structured fields are available. Do not infer host tmux identity from pane title, cwd, captured terminal text, shell prompts, foreground applications, SSH text or nested tmux display text.
 
 Normal MCP callers receive a `channel_id` and do not construct raw tmux targets.
 
@@ -35,11 +47,30 @@ The backend must not query or control tmux servers outside configured scope.
 
 ## 4. Channel identity
 
-Use tmux pane identity plus configured server/socket namespace for the backend locator.
+Use tmux pane identity plus configured server/socket namespace for the opaque Channel locator/addressing identity.
+
+Every successfully discovered tmux Channel also publishes the backend-owned mechanical snapshot:
+
+```text
+backend_metadata.tmux
+├── session_name : string
+├── window_id    : string
+├── window_index : integer >= 0
+├── pane_id      : string
+└── pane_index   : integer >= 0
+```
+
+Rules:
+- `session_name`, `window_id`, and `pane_id` preserve tmux textual values exactly;
+- `window_index` and `pane_index` are parsed as non-negative base-10 integers;
+- malformed, missing, negative, non-integer or unsafe required identity fails closed as `BACKEND_OPERATION_FAILED`;
+- session/window/pane labels and indices are mechanical backend facts, not Worker/Task/Agent/application identity;
+- indices are current positions and may change with tmux layout/renumbering;
+- title/cwd/terminal output are not host tmux identity authority.
 
 A pane destroyed and recreated may become a different Channel. Persistent logical Agent/Worker/application identity is an upper-layer concern.
 
-All read/write/control operations resolve the opaque `channel_id` through the same configured scope/visibility path.
+All read/write/control operations continue to resolve the opaque `channel_id` through the same configured scope/visibility path. Publishing structured tmux identity does not add a session selector to mutation Tools and does not change the `channel_id` format.
 
 ## 5. Read
 
@@ -50,7 +81,7 @@ Requirements:
 - explicit truncation;
 - Unicode preserved where tmux/process encoding permits;
 - no persistent full-history logging by default;
-- contents never interpreted as Task/Agent/application state.
+- contents never interpreted as Task/Agent/application state or host tmux structural identity.
 
 ## 6. Ordinary text write
 
@@ -73,6 +104,8 @@ validated text
 ```
 
 Per-operation state prevents concurrent payload/target cross-contamination. Cleanup is best effort and must not mask the primary mutation result.
+
+The caller may use `backend_metadata.tmux.session_name` to choose a Channel, but the mutation itself still targets only the supplied opaque `channel_id`.
 
 ## 7. Control actions
 
@@ -140,7 +173,7 @@ waiting-review
 blocked
 ```
 
-A quiet pane or shell prompt has no product-level meaning.
+A quiet pane or shell prompt has no product-level meaning. Likewise, output that mentions another tmux session is terminal data and cannot override the host identity returned by structured tmux metadata.
 
 ## 12. Operator interoperability
 
@@ -155,6 +188,7 @@ Humans and upper layers remain free to use native tmux to create, attach, stop a
 - concurrent mutation isolation;
 - sensitive/untrusted output handling;
 - configured tmux scope enforcement;
+- fail-closed required identity parsing;
 - no root required for normal operation.
 
 If the MCP process is exposed remotely, access security belongs to the external deployment layer and does not alter TmuxBackend semantics.
@@ -162,7 +196,12 @@ If the MCP process is exposed remotely, access security belongs to the external 
 ## 14. Verification targets
 
 Tests cover at least:
-- structured discovery;
+- structured discovery including complete session/window/pane identity;
+- fail-closed malformed identity parsing;
+- list/get identity consistency;
+- multi-session target selection without output parsing;
+- misleading nested/remote-like terminal text cannot affect host identity selection;
+- exact write isolation after structured selection;
 - stable addressing during pane lifetime;
 - bounded read/truncation;
 - Unicode output;

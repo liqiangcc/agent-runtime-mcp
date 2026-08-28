@@ -24,15 +24,31 @@ Returns bounded structured summaries:
 ```text
 channel_id
 backend_kind
+backend_locator?
 state
 capabilities[]
 title?
 cwd?
 last_activity?
+backend_metadata?
 ```
+
+For every successfully returned `backend_kind: tmux` Channel, `backend_metadata.tmux` is required and complete:
+
+```text
+session_name : string
+window_id    : string
+window_index : integer >= 0
+pane_id      : string
+pane_index   : integer >= 0
+```
+
+These fields are backend-owned mechanical tmux facts. `session_name` is the current host tmux label, not Worker/Task/Agent identity. The indices are current positions and may change with tmux layout. `backend_locator` remains opaque/diagnostic; clients are not required to parse it.
 
 ### `get_channel`
 Inspect one Channel's mechanical metadata and capabilities. Unknown Channel returns `CHANNEL_NOT_FOUND`.
+
+For a current tmux Channel, `get_channel` returns the same complete five-field `backend_metadata.tmux` identity snapshot as `list_channels` for that pane at that moment.
 
 ### `read_channel`
 Read bounded recent output.
@@ -49,7 +65,8 @@ Rules:
 - finite server maximum;
 - explicit truncation;
 - no wait-for-completion semantics;
-- output is untrusted and potentially sensitive.
+- output is untrusted and potentially sensitive;
+- terminal output is not host backend identity authority.
 
 ### `write_text`
 Deliver bounded ordinary text to one Channel.
@@ -69,7 +86,8 @@ Rules:
 - text is data, not shell/tmux key grammar;
 - backend execution uses structured process + literal stdin/data paths;
 - `submit=false` adds no extra Enter;
-- `submit=true` adds one explicit Enter only after text delivery succeeds mechanically.
+- `submit=true` adds one explicit Enter only after text delivery succeeds mechanically;
+- mutation addressing remains the opaque `channel_id`; no session selector is added.
 
 Success proves mechanical transport only, not application success.
 
@@ -126,11 +144,14 @@ An upper layer may compose:
 ```text
 prepare terminal externally
 → list/get Channel
-→ read_channel
+→ choose a tmux Channel from backend_metadata.tmux when backend structure matters
+→ read_channel if terminal observation is needed
 → write_text
 → send_control if needed
 → interpret application result outside MCP
 ```
+
+Choosing a host tmux session from structured backend metadata does not give terminal output, title or cwd identity authority.
 
 How the MCP process itself is deployed or reached is not part of this contract.
 
@@ -145,7 +166,7 @@ Ordinary text must not be reinterpreted by the MCP service as:
 
 ## 6. Output safety
 
-Channel output is untrusted runtime text and may contain sensitive data or adversarial instructions. No generic secret-redaction guarantee is made.
+Channel output is untrusted runtime text and may contain sensitive data or adversarial instructions. No generic secret-redaction guarantee is made. It must not override backend-owned structural identity such as `backend_metadata.tmux`.
 
 ## 7. Bounds and timeouts
 
@@ -164,9 +185,11 @@ Channel output is untrusted runtime text and may contain sensitive data or adver
 
 Retry/recovery policy belongs to the upper layer.
 
-## 9. Backend diagnostics
+## 9. Backend diagnostics and identity metadata
 
-Optional sanitized backend metadata may be returned for diagnosis, but normal callers do not construct raw tmux targets.
+Structured `backend_metadata` may expose sanitized backend-owned mechanical facts needed to inspect or distinguish Channels. For tmux, the five-field identity object above is part of the successful Channel response contract.
+
+`backend_locator` remains opaque/diagnostic. Normal mutation callers still address a Channel with `channel_id` and do not construct raw tmux targets.
 
 ## 10. Transport/deployment separation
 
@@ -178,4 +201,4 @@ A different generic MCP transport adapter may be introduced later if required, b
 
 Breaking changes to Channel identity, read/write semantics, control safety, health semantics or the public tool surface require explicit contract review.
 
-Adding a backend or changing deployment must not require adding Worker/Task/application semantics.
+Adding backend-owned response metadata is additive when existing inputs and fields remain unchanged. Adding a backend or changing deployment must not require adding Worker/Task/application semantics.
