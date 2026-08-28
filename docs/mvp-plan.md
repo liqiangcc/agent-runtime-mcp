@@ -166,34 +166,56 @@ Historical #11 planning is retained for audit only and has no execution authorit
 Issue #12
 ```
 
-Status: **draft**.
+Status: **scenario selected; Publication Gate pending**.
 
-Primary use case:
-
-> One real upper layer communicates with an externally prepared interactive terminal using only the six accepted MCP capabilities, while all application meaning and endpoint lifecycle remain outside the product.
-
-The verification client/harness may use local stdio. No remote tunnel/provider is required.
-
-Key separation proof:
+### Frozen use case
 
 ```text
-upper layer
-= lifecycle + application meaning + workflow/retry/recovery control
+external fixture creates disposable tmux pane
+foreground application = bash --noprofile --norc
 
-Channel MCP
-= discovery + inspect + bounded read + text write + explicit control + health
+public MCP client = official TypeScript Client + StdioClientTransport
+        ↓
+agent-runtime-mcp stdio server
+        ↓
+health / list / get / read / write / control
 ```
 
-Dogfooding is a validation Task, not a request to add scenario-specific product semantics.
+The upper layer sends a deterministic shell marker command, observes it through `read_channel`, starts a long `sleep`, interrupts it through `send_control(INTERRUPT)`, then proves later write/read remains usable. Finally the external fixture destroys the pane and verifies MCP reports the missing endpoint without recreation.
 
-Publication Gate should select:
+### Separation proof
 
 ```text
-one upper-layer scenario
-one externally prepared disposable terminal endpoint
-one MCP client/harness able to call the six tools
-MCP capability Evidence
-separate application/workflow Evidence
+fixture / upper layer
+= endpoint create/destroy
++ shell command meaning
++ call sequencing
++ marker interpretation
++ final success/recovery decision
+
+Channel MCP
+= six accepted mechanical capabilities only
+```
+
+Local stdio is sufficient. No tunnel/provider/network proof is required.
+
+### Validation-only change rule
+
+Expected Task changes are test/client/CI/documentation infrastructure. If the public-MCP dogfood scenario requires changing product-source behavior, Tool schemas or adding a seventh capability, the Worker must stop and return the finding for Coordinator REVISE/SPLIT rather than silently expanding MVP-003.
+
+### Publication Gate
+
+Before `status:ready`, confirm:
+
+```text
+complete six-tool surface accepted
+frozen bash scenario recorded
+external endpoint lifecycle explicit
+official public MCP client path selected
+application interpretation belongs to upper layer
+negative missing-endpoint path defined
+exact-Candidate CI Evidence route defined
+product-source change gate explicit
 ```
 
 ## 9. Deferred / separate concerns
