@@ -1,11 +1,11 @@
 ---
 name: task-publisher
-description: Materialize, publish, or republish exactly one independent agent-runtime-mcp Worker Task through the Publication Gate. Do not execute, dispatch, review, or close the Task.
+description: Materialize, publish, or republish exactly one independent agent-runtime-mcp Worker Task through the Publication Gate. Do not execute, review, or close the Task.
 ---
 
 # Task Publisher
 
-Publish one Worker Task and produce the exact downstream handoff consumed by `task-dispatcher` or a directly invoked Worker.
+Publish one Worker Task and produce the minimal downstream entry for a separate GPT Web Worker conversation.
 
 ## Authority
 
@@ -18,18 +18,32 @@ Before publishing, read:
 5. `docs/tasks/issue-lifecycle-protocol.md`
 6. `docs/tasks/task.template.md`
 7. `docs/tasks/prompt.template.md`
-8. `docs/tasks/handoffs/codex.md`
+8. `docs/tasks/handoffs/web-gpt.md`
 9. relevant canonical docs
 
 This skill is procedure, not product authority.
 
+## Default routing
+
+For normal repository implementation in this project:
+
+```text
+Coordinator = current/original GPT Web conversation
+Worker = separate GPT Web conversation
+Environment = env:web-gpt
+Tooling = @GitHub
+Verification Runner = GitHub Actions
+```
+
+Codex/Dispatcher routes are optional alternatives only when explicitly selected for a Task; they are not the default.
+
 ## Required inputs
 
-Resolve from the request and repository state:
+Resolve from request and live repository state:
 
 - Goal / parent goal;
 - Task kind;
-- expected Worker/environment;
+- Worker/environment;
 - required capabilities;
 - hard dependencies;
 - Scope / Out of Scope;
@@ -39,19 +53,19 @@ Resolve from the request and repository state:
 - architecture/security invariants;
 - actual planning/base commit.
 
-If a required value cannot be resolved safely, keep the Task draft and stop rather than inventing it.
+If a required value cannot be safely resolved, keep the Task draft rather than inventing it.
 
 ## Preflight
 
-Before creating a new Issue:
+Before creating a Task:
 
 - search open/closed Issues for the same Goal;
 - reuse an existing Task when Goal/Scope/Success Criteria are unchanged;
-- distinguish a business Task from verification jobs or runtime execution details;
-- confirm the intended Worker route/capabilities;
-- confirm the canonical design is sufficiently frozen.
+- distinguish Task scope from CI jobs or execution mechanics;
+- confirm `env:web-gpt` is sufficient for repository authoring and GitHub Actions can provide required executable Evidence;
+- confirm canonical product design is sufficiently frozen.
 
-A failed/stalled Attempt is not a reason to create a duplicate Task.
+A failed/stalled Attempt does not create a duplicate Task.
 
 ## Materialize as draft
 
@@ -60,6 +74,8 @@ Create the real Issue first with:
 ```text
 Status: status:draft
 Active owner: none
+Environment: env:web-gpt
+Worker route: separate-gpt-web-conversation
 ```
 
 Then create:
@@ -69,41 +85,34 @@ docs/tasks/<issue>-<slug>/task.md
 docs/tasks/<issue>-<slug>/prompt.md
 ```
 
-The Issue is the live state snapshot; `task.md` is the stable Contract; `prompt.md` is bootstrap/navigation only.
-
-Do not persist dynamic Attempt results in Task Package files.
+Issue body is live state; `task.md` is the stable Contract; `prompt.md` is navigation/bootstrap only.
 
 ## Read-back Publication Gate
 
-A successful write is not publication. Re-read GitHub and verify:
+Re-read GitHub and verify:
 
 ```text
 Issue exists/open
 Issue number matches package path
 Status = status:draft
 Active owner = none
+Environment = env:web-gpt
 task.md resolves
 prompt.md resolves
-prompt points to the same Issue/task.md
-no task placeholders remain
-required canonical docs resolve
-Worker/environment/capabilities are explicit
-hard dependencies are satisfied or explicitly none
-Scope / Out of Scope are bounded
-Claims / Verification Plan are present
-Success Criteria are frozen
-Evidence Contract is present
-architecture/security implications are explicit
-no secrets/tokens/private terminal output were persisted
+prompt points to same Issue/task.md
+no placeholders remain
+canonical docs resolve
+required capabilities/dependencies explicit
+Scope / Out of Scope bounded
+Claims / Verification Plan present
+Success Criteria frozen
+Evidence Contract present
+security implications explicit
+GitHub Actions Evidence route sufficient for required executable checks
+no secrets persisted
 ```
 
-If any check fails:
-
-```text
-remain status:draft
-→ fix
-→ read back again
-```
+If any check fails, keep draft, fix, and read back again.
 
 ## Publish last
 
@@ -112,51 +121,48 @@ Only after Gate PASS:
 ```text
 Status: status:ready
 Active owner: none
+Environment: env:web-gpt
 Blocker: none
 Publication Gate: PASS
 ```
 
-Re-read the Issue again and confirm the Task is claimable.
+Then final read-back.
 
-## Downstream handoff
+## Downstream entry
 
-Produce exactly one canonical Worker handoff for the Codex route:
+Return only the short Web Worker entry:
 
 ```text
-$task-worker Execute Issue #<issue> using `docs/tasks/<issue>-<slug>/prompt.md`.
+@GitHub
+
+执行 liqiangcc/agent-runtime-mcp 的 Issue #<issue>，作为 Web Worker。
+
+必须使用 GitHub live state。
+
+入口：
+`docs/tasks/<issue>-<slug>/prompt.md`
+
+按仓库协议 claim、执行、报告后停止。
 ```
 
-This handoff is the input to `task-dispatcher` when a Dispatcher is being used.
-
-Do not paste the Task Contract into the handoff. Dispatcher transports this handoff unchanged; Worker reads GitHub.
+Do not paste the Task Contract into the handoff.
 
 ## Republication
 
-If Scope, Claims, Success Criteria, evidence authority, architecture/security assumptions, Worker routing/capabilities, or bootstrap contract change materially:
+If Scope, Claims, Success Criteria, evidence authority, architecture/security assumptions, Worker routing/capabilities, or bootstrap contract changes materially:
 
 ```text
 status:draft
-→ update canonical/process docs when required
-→ update task.md / prompt.md
-→ read-back Gate
+→ update canonical/task/bootstrap sources
+→ read-back Publication Gate
 → status:ready
-→ emit fresh handoff
+→ emit fresh short Web Worker entry
 ```
 
-Ordinary implementation bugs, test failures, or insufficient evidence use Reviewer → REVISE on the same Task and do not automatically require Contract republication.
+Ordinary implementation bugs/test failures/insufficient Evidence use Reviewer → REVISE on the same Issue.
 
 ## Completion rule
 
-Do not say the Task is published until:
+Do not call a Task published until Issue/task/prompt/dependency/capability/Gate/read-back all pass.
 
-```text
-Issue read-back PASS
-+ task.md read-back PASS
-+ prompt.md read-back PASS
-+ dependency/capability checks PASS
-+ Publication Gate PASS
-+ status:ready read-back PASS
-+ downstream handoff emitted
-```
-
-Publisher never claims the Issue, launches Codex, executes code, Reviews evidence, sets `status:done`, or closes the Issue.
+Publisher never claims or implements the Task, Reviews Evidence, sets `status:done`, or closes the Issue.
