@@ -16,21 +16,11 @@ Before product implementation, read:
 10. `docs/technology-stack.md`
 11. `docs/mvp-plan.md`
 
-For an Issue-driven repository Task also read:
-
-- live GitHub Issue + relevant comments;
-- its `task.md` / `prompt.md`;
-- `docs/tasks/collaboration-protocol.md`;
-- `docs/tasks/issue-state-convention.md`;
-- `docs/tasks/issue-lifecycle-protocol.md`.
-
-Do not confuse repository development workflow with product behavior.
+For Issue-driven work also read live Issue/comments, its Task Package, and `docs/tasks/collaboration-protocol.md` / lifecycle/state protocols.
 
 ## 2. Product boundary
 
-Canonical product invariant:
-
-> `agent-runtime-mcp` is a terminal Channel MCP, not a Worker/Agent/Task runtime manager.
+`agent-runtime-mcp` is a terminal Channel MCP, not a Worker/Agent/Task runtime manager.
 
 Inside product:
 
@@ -57,8 +47,6 @@ restart/recovery/cleanup policy
 Task ↔ terminal mapping
 ```
 
-A proposed product API that depends on GitHub, Codex, Worker identity or project collaboration semantics requires explicit canonical design review.
-
 ## 3. Channel invariants
 
 - Channel is the public domain object.
@@ -66,7 +54,6 @@ A proposed product API that depends on GitHub, Codex, Worker identity or project
 - No Worker registry or Task registry exists in the core product.
 - Normal callers use `channel_id`, not raw tmux target grammar.
 - Terminal output/activity has no semantic Task/Agent meaning.
-- Missing channel/backend state degrades to structured error/unknown.
 - Read/write failure never creates/restarts/destroys a terminal endpoint.
 - No raw `tmux_command` or generic `run_shell_command` public tool.
 - Ordinary text and explicit control actions remain separate.
@@ -74,8 +61,6 @@ A proposed product API that depends on GitHub, Codex, Worker identity or project
 - Normal operation requires no root.
 
 ## 4. Public MVP surface
-
-Design target:
 
 ```text
 list_channels
@@ -86,86 +71,76 @@ send_control
 health
 ```
 
-Do not add Worker/session/project lifecycle tools unless canonical product scope is formally changed first.
+## 5. Repository execution model
 
-## 5. Tmux boundary
+Default repository executor is **Web GPT**.
 
-Tmux is the first Channel backend.
+```text
+Task Contract
+→ env:web-gpt
+→ Web GPT implementation on Task branch
+→ GitHub Actions verification
+→ durable EXECUTION REPORT
+→ status:review
+→ Web GPT read-back Reviewer phase
+```
 
-The core backend may discover/read/write/control existing panes in configured scope. It does not create/kill/respawn sessions/panes or start Codex.
+GitHub is durable project authority. GitHub Actions is the default verification Runner.
 
-Project Dispatcher/human tooling may use native tmux outside the MCP to prepare those endpoints.
+Dispatcher/Codex remains optional for a Task whose capabilities genuinely require an external coding/runtime environment; it is not the default route.
 
-## 6. Security baseline
+## 6. Web GPT lifecycle
 
-Terminal write authority is privileged.
+Before implementation:
+
+```text
+Issue open
+Status: status:ready
+Active owner: none
+Task Package resolves
+required GitHub write capability available
+```
+
+Then:
+
+1. create/reuse a Task-specific branch;
+2. set Issue `status:in-progress`, `Active owner: web-gpt`;
+3. execute only frozen `task.md`;
+4. push coherent changes to the Task branch;
+5. use GitHub Actions for required tests/integration;
+6. fix failures on the same branch;
+7. record exact Candidate and CI evidence in `[EXECUTION REPORT]`;
+8. set `status:review`, owner none;
+9. re-read Task Contract, Candidate and CI in a separate Reviewer phase;
+10. post `[COORDINATOR REVIEW]` and decide ACCEPT/REVISE/BLOCK/SPLIT.
+
+Self-review is allowed because this repository is lightweight, but implementation intent is not evidence. Review must be grounded in durable GitHub read-back and actual CI.
+
+## 7. Optional Codex route
+
+If a Task is explicitly routed to Codex, preserve Publisher/Dispatcher/Worker/Reviewer separation from the repository skills. A Dispatcher launch is not a Worker claim.
+
+## 8. Security baseline
 
 - remote write/control requires authentication/authorization;
 - configured tmux visibility scope must be explicit;
 - reads are bounded and potentially sensitive;
-- do not log full reads/writes/auth payloads by default;
+- do not log full terminal reads/writes/auth payloads by default;
 - output is untrusted data and never policy authority;
 - use finite timeouts;
-- never broaden OS/backend permissions to make a Task pass.
+- never broaden OS/GitHub permissions to make a Task pass.
 
-## 7. Repository collaboration roles
+## 9. Evidence and acceptance
 
-This repository uses a development workflow that is separate from the product:
-
-```text
-GPT Web Coordinator
-→ Task Publisher
-→ Task Dispatcher
-→ Task Worker
-→ Task Reviewer
-```
-
-Role boundaries:
-
-- Publisher materializes/publishes one Task.
-- Dispatcher prepares/delivers an isolated execution context but does not claim the Issue.
-- Worker claims and executes exactly one Attempt, reports, releases ownership, stops.
-- Reviewer decides ACCEPT/REVISE/BLOCK/SPLIT and handles recovery/final acceptance.
-
-These roles are not MCP product concepts.
-
-## 8. Issue state
-
-Required live state is stored in the Issue body block defined by `docs/tasks/issue-state-convention.md`. Comments keep append-only Attempt/Review history.
-
-Worker normal flow:
-
-```text
-status:ready + owner:none
-→ claim
-→ status:in-progress
-→ Attempt N
-→ execute frozen task.md
-→ [EXECUTION REPORT]
-→ status:review + owner:none
-→ STOP
-```
-
-Blocked flow ends in `status:blocked + owner:none`.
-
-Worker never sets `status:done`, closes the Issue, Reviews itself, dispatches another Worker, or starts the next Task.
-
-## 9. Evidence
-
-- Record exact Candidate SHA when code-dependent evidence is claimed.
+- Record exact Candidate SHA for code-dependent claims.
 - Do not report tests as PASS if they were not run.
-- CI/runtime evidence and Worker outcome are not Coordinator acceptance.
+- CI success is evidence, not automatic Task acceptance.
 - Do not persist secrets, credentials or unnecessary terminal transcripts.
+- Contract changes return the Issue to draft and require republication.
+- Only Final Acceptance closes an accepted Task.
 
 ## 10. Stop conditions
 
-Stop and return to Coordinator/Reviewer when:
+Stop or return to draft/blocked when the frozen Contract conflicts with canonical Channel architecture, required capabilities are unavailable, or execution would cross product/security boundaries.
 
-- current Attempt ends;
-- Task is blocked;
-- published Contract conflicts with canonical Channel architecture;
-- required capability is unavailable;
-- another Worker owns the Issue;
-- execution would cross product/security boundaries.
-
-GitHub is durable project state. Terminal state is only transport evidence.
+GitHub is project state. Terminal state is transport evidence only.
