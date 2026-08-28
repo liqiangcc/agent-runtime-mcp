@@ -1,91 +1,91 @@
 # MCP Contract
 
-## 1. Contract design rule
+## 1. Contract rule
 
-The public MCP surface is derived from Coordinator use cases, not from tmux commands.
+The public MCP surface represents generic terminal communication capabilities.
 
 ```text
-Coordinator Goal
-→ Use Case
-→ Runtime Capability
-→ Domain Operation
-→ MCP Tool
+Channel discovery
+→ Channel observation
+→ Text delivery
+→ Explicit control
+→ Health
 ```
 
-The MCP server is not a generic `tmux` command proxy and is not a generic remote shell.
+It does not model Workers, Tasks, Issues, Agents, workspaces or collaboration policy.
 
-## 2. MVP tool surface
+## 2. MVP tools
 
-The following names are the initial design target. Exact schema names may evolve during implementation, but scope and semantics must remain consistent with the canonical requirements.
+### `list_channels`
 
-### `list_workers`
+Discover existing channels visible within configured backend scope.
 
-Goal: discover managed Workers.
-
-Returns structured Worker summaries:
+Returns bounded structured summaries:
 
 ```text
-worker_id
+channel_id
 backend_kind
-runtime_state
-cwd?
+state
 capabilities[]
+title?
+cwd?
 last_activity?
-external_reference?
 ```
 
-Rules:
+No terminal output is embedded by default.
 
-- do not return unbounded terminal output;
-- distinguish managed from unmanaged backend entities;
-- do not infer Task status.
+### `get_channel`
 
-### `get_worker`
+Inspect one channel's mechanical metadata and capabilities.
 
-Goal: inspect one Worker and its current runtime metadata.
+Unknown channel returns `CHANNEL_NOT_FOUND`.
 
-Returns the normalized Worker model plus bounded backend diagnostics where useful.
+### `read_channel`
 
-### `capture_output`
-
-Goal: observe recent terminal output.
+Read recent output from one channel.
 
 Input concept:
 
 ```text
-worker_id
-lines?        # finite bounded default/max
-bytes?        # optional finite bound
+channel_id
+lines?
+bytes?
 ```
 
-Returns `OutputCapture` with explicit truncation.
+Requirements:
 
-Must not wait for the Worker to become semantically complete.
+- finite server-side maximum;
+- explicit truncation metadata;
+- no wait-for-completion semantics;
+- returned text is untrusted and potentially sensitive.
 
-### `send_text`
+### `write_text`
 
-Goal: send arbitrary ordinary text safely to a Worker.
+Deliver ordinary text to one channel.
 
 Input concept:
 
 ```text
-worker_id
+channel_id
 text
 submit: boolean
 ```
 
 Rules:
 
-- multi-line Unicode must be supported;
-- arbitrary text is data, not tmux key syntax;
-- implementation must avoid shell interpolation;
-- `submit=true` means text delivery plus explicit Enter semantics.
+- multi-line Unicode supported;
+- text is data, not shell syntax;
+- text is not interpreted as tmux key grammar;
+- backend implementation avoids command-string interpolation;
+- `submit=true` adds explicit Enter after text delivery.
+
+The MCP does not inspect or constrain the foreground application type. Selecting the correct channel is the caller's responsibility.
 
 ### `send_control`
 
-Goal: perform one explicit terminal control action.
+Send one explicit terminal control action.
 
-MVP actions:
+MVP enum:
 
 ```text
 ENTER
@@ -93,152 +93,92 @@ INTERRUPT
 ESCAPE
 ```
 
-Do not accept free-form tmux key-language strings in MVP.
+Free-form tmux key grammar is not accepted.
 
-### `create_worker`
+### `health`
 
-Goal: create a persistent managed Worker.
+Report service/backend health separately from individual channel existence.
 
-Input concept:
+## 3. Deliberately omitted
 
-```text
-worker_id?
-cwd
-startup_profile?
-command?
-external_reference?
-```
-
-Rules:
-
-- policy validates cwd/command/profile;
-- creation must not modify GitHub Task state;
-- output includes actual worker identity and backend/runtime state.
-
-### `restart_worker`
-
-Goal: explicitly recover/relaunch one managed Worker while retaining its logical `worker_id` when possible.
-
-Restart is destructive to the current process/runtime state and must be explicit.
-
-### `destroy_worker`
-
-Goal: explicitly remove one managed Worker runtime.
-
-Rules:
-
-- must not be invoked implicitly by read/input errors;
-- must target exactly one Worker;
-- should be idempotent where practical.
-
-### `set_external_reference`
-
-Goal: set/clear non-authoritative correlation metadata such as a GitHub Issue reference.
-
-This tool does not read or mutate GitHub itself.
-
-## 3. Deliberately omitted from MVP
-
-### No `run_shell_command`
-
-A generic shell execution tool would collapse the product boundary into remote shell access and bypass Worker/runtime semantics.
-
-### No `tmux_command`
-
-Raw tmux command transport leaks the backend abstraction and creates a second unreviewed API surface.
-
-### No authoritative `assign_task`
-
-Task selection/assignment is a Coordinator + GitHub concern.
-
-The Coordinator can compose:
+The MVP has no:
 
 ```text
-GitHub: find/publish Issue
-→ Runtime: choose Worker
-→ Runtime: set external reference (optional)
-→ Runtime: send_text(task bootstrap)
+list_workers
+get_worker
+create_worker
+restart_worker
+destroy_worker
+set_external_reference
+assign_task
+claim_task
+wait_until_done
+create_worktree
+tmux_command
+run_shell_command
 ```
 
-A future convenience operation may be considered only if it remains orchestration-neutral and does not own Task lifecycle state.
+Reasons:
 
-### No `wait_until_done`
+- Worker/Task/Issue concepts belong to upper layers;
+- terminal/session lifecycle is prepared outside the Channel MCP;
+- arbitrary backend command tunneling would bypass the product boundary;
+- semantic completion cannot be proven by the channel layer.
 
-The runtime cannot reliably prove Codex Task completion from terminal state. A future `wait_for_runtime_condition` may wait for mechanical conditions such as output/activity/process changes, but not Issue completion.
+## 4. Composition
 
-## 4. Composition with GitHub
-
-Expected Coordinator flow:
+A project-specific system may compose tools like:
 
 ```text
-1. Read GitHub Issue queue.
-2. Select a `status:ready` Task according to project policy.
-3. List runtime Workers.
-4. Select an appropriate Worker.
-5. Optionally correlate Worker with Issue.
-6. Send the minimal Task bootstrap to Codex.
-7. Observe runtime as needed.
-8. Codex updates GitHub with durable report/state.
-9. Coordinator reviews GitHub evidence.
+project dispatcher prepares tmux pane + starts desired CLI
+→ list/get channel
+→ write_text(task bootstrap)
+→ read_channel for observation
+→ send_control if needed
 ```
 
-The Runtime server does not need GitHub credentials for this flow.
+The Channel MCP neither knows nor records the project Task mapping.
 
-## 5. Input safety semantics
+## 5. Input safety
 
-Text input must use a data path that does not reinterpret user text as:
+Ordinary text must not be reinterpreted as:
 
-- shell syntax in the MCP server;
+- shell syntax in the MCP service;
 - tmux command syntax;
 - tmux key names;
 - format-string control language.
 
-Special controls are separate enumerated operations.
+Control actions use a separate closed enum.
 
-## 6. Output safety semantics
+## 6. Output safety
 
-`capture_output` returns terminal text as untrusted runtime data.
+Channel output is untrusted runtime text and may contain sensitive data or adversarial instructions.
 
-Consumers must assume it may contain:
-
-- ANSI/control sequences;
-- prompts generated by tools;
-- file paths;
-- tokens accidentally printed by child processes;
-- adversarial text from repository/program output.
-
-The server should normalize/strip unsafe terminal control behavior as appropriate for text transport without pretending to redact all possible secrets.
+The service should normalize terminal control representation as needed for safe text transport, while making no promise of generic secret redaction.
 
 ## 7. Bounds and timeouts
 
-Every operation has finite execution bounds.
+All operations have finite bounds.
 
-Examples:
-
-- capture output: finite max lines/bytes;
-- backend command: finite timeout;
-- create/restart: returns based on runtime launch/liveness checks, not on Codex becoming semantically ready;
-- no tool call waits indefinitely for a human/agent prompt.
+- inventory has bounded result size;
+- reads have max lines/bytes;
+- backend commands have timeouts;
+- no call waits indefinitely for application-level state.
 
 ## 8. Idempotency
 
-Read operations are naturally idempotent.
+- list/get/read/health are read-only;
+- `write_text` is not idempotent;
+- `send_control` is not idempotent.
 
-Mutation semantics:
-
-- `create_worker`: duplicate `worker_id` returns structured conflict unless explicitly designed as ensure/create in a later contract;
-- `restart_worker`: repeated requests may restart repeatedly and therefore are not logically idempotent;
-- `destroy_worker`: already-gone should return a stable success/not-found classification rather than affecting another runtime;
-- `set_external_reference`: setting the same value is idempotent.
+Clients must not blindly retry mutation calls after an ambiguous timeout without considering duplicate input risk.
 
 ## 9. Backend diagnostics
 
-Public results may expose optional diagnostics such as backend kind and sanitized locator for operator troubleshooting.
+Optional sanitized backend metadata may be returned for diagnosis, but callers should not need to construct raw tmux targets for normal use.
 
-They must not require callers to construct tmux targets themselves for normal operations.
+## 10. Versioning
 
-## 10. Versioning rule
+Breaking changes to channel identity, read/write semantics, control safety or authentication require explicit contract review.
 
-Breaking changes to Worker identity, tool semantics, input/control safety, or Task/runtime boundary require explicit contract review and documentation update before implementation.
-
-Adding a backend should not by itself require changing the MCP contract.
+Adding a backend should not require adding Agent/Task semantics.
