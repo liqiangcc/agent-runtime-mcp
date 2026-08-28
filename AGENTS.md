@@ -12,12 +12,14 @@ Before starting any independent Task, read:
 4. `docs/architecture.md`
 5. `docs/runtime-model.md`
 6. `docs/mcp-contract.md`
-7. `docs/deployment.md`
-8. `docs/security.md`
-9. `docs/mvp-plan.md`
-10. the current GitHub Issue and relevant comments
-11. the current Task Package under `docs/tasks/<issue>-<slug>/`
-12. `docs/tasks/issue-lifecycle-protocol.md`
+7. `docs/technology-stack.md`
+8. `docs/deployment.md`
+9. `docs/security.md`
+10. `docs/mvp-plan.md`
+11. the current GitHub Issue and relevant comments
+12. the current Task Package under `docs/tasks/<issue>-<slug>/`
+13. `docs/tasks/issue-state-convention.md`
+14. `docs/tasks/issue-lifecycle-protocol.md`
 
 Do not infer current Task state from old chat history or terminal output when GitHub can be read directly.
 
@@ -30,7 +32,7 @@ canonical docs
 → prompt.md
 ```
 
-GitHub Issue fields/labels are the live Task-state snapshot; Issue comments are the append-only Attempt / Review / Acceptance history.
+The required live Task-state snapshot is the machine-readable state block in the GitHub Issue body as defined by `docs/tasks/issue-state-convention.md`. Labels/assignee may mirror it for convenience. Issue comments are the append-only Attempt / Review / Acceptance history.
 
 ## 2. Roles
 
@@ -181,9 +183,11 @@ docs/tasks/<issue>-<slug>/
 Responsibilities:
 
 ```text
-Issue
-= live status / owner / blocker / result summary
-+ append-only Attempt / Review / Acceptance history
+Issue body state block
+= live status / active owner / environment / blocker / candidate pointers
+
+Issue comments
+= append-only Attempt / Blocker / Review / Acceptance history
 
 task.md
 = stable Task execution contract
@@ -192,21 +196,23 @@ prompt.md
 = session bootstrap / navigation only
 ```
 
-Issue comments cannot silently redefine canonical architecture or the frozen Task Contract.
+Labels/assignee may mirror the live snapshot, but Worker correctness must not depend on custom labels existing. Issue comments cannot silently redefine canonical architecture or the frozen Task Contract.
 
 ## 10. Worker lifecycle
 
 Standard flow:
 
 ```text
-status:ready
+Status: status:ready
+Active owner: none
 → claim
-→ status:in-progress
+→ Status: status:in-progress
+→ Active owner: <worker>
 → Attempt N
 → execute current task.md only
 → [EXECUTION REPORT]
-→ status:review
-→ release active execution ownership
+→ Status: status:review
+→ Active owner: none
 → STOP
 ```
 
@@ -215,8 +221,8 @@ Blocked flow:
 ```text
 Attempt N
 → [BLOCKER REPORT]
-→ status:blocked
-→ release active execution ownership
+→ Status: status:blocked
+→ Active owner: none
 → STOP
 ```
 
@@ -240,7 +246,8 @@ Final closure order:
 
 ```text
 [FINAL ACCEPTANCE]
-→ status:done
+→ Status: status:done
+→ Active owner: none
 → close Issue
 ```
 
