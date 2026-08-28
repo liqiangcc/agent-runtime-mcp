@@ -1,15 +1,15 @@
 # agent-runtime-mcp
 
-A secure MCP communication channel for existing interactive terminal sessions, with tmux as the first backend.
+A small MCP Channel core for communicating with already-existing interactive terminal sessions, with tmux as the first backend.
 
 ## Product intent
 
-The core product is deliberately small:
+The core is deliberately small:
 
 ```text
-remote MCP client
-→ agent-runtime-mcp
-→ existing terminal channel
+local MCP transport (stdio)
+→ agent-runtime-mcp Channel service
+→ existing terminal Channel
 ```
 
 It provides:
@@ -18,43 +18,70 @@ It provides:
 list channels
 inspect channel
 read bounded output
-write text
+write bounded ordinary text
 send explicit control
-check health
+check backend health
 ```
 
 It does **not** decide what the terminal represents.
 
-A channel may contain Codex, another Agent CLI, a shell, a REPL or another interactive program.
+A Channel may contain Codex, another Agent CLI, a shell, a REPL or another interactive program.
+
+## Remote composition
+
+Remote use wraps the same local Channel core rather than redefining it.
+
+Selected MVP topology:
+
+```text
+ChatGPT / supported OpenAI MCP client
+→ OpenAI Secure MCP Tunnel
+→ customer-run tunnel-client
+→ existing local stdio agent-runtime-mcp
+→ configured tmux scope
+→ existing panes
+```
+
+Secure remote ingress, workspace/tunnel authorization and tunnel-client runtime are deployment composition around the Channel core. They are not a second implementation of Channel semantics.
+
+A direct-public HTTP/OAuth MCP adapter is not required for the selected MVP topology and is deferred unless a later independent use case requires it.
 
 ## Boundary
 
-Inside product:
+Inside Channel core:
 
-- secure remote MCP ingress;
 - backend-neutral Channel model;
-- existing-channel discovery;
+- MCP tool/schema surface;
+- local stdio MCP transport;
+- existing-Channel discovery;
 - bounded terminal output read;
-- safe text delivery;
+- bounded safe text delivery;
 - explicit Enter/interrupt/escape control;
-- tmux backend health/errors.
+- backend/service health and structured errors.
 
-Outside product:
+Deployment composition may own:
+
+- Secure MCP Tunnel / tunnel-client;
+- workspace/tunnel authorization;
+- secret injection/rotation;
+- local MCP/tunnel process supervision;
+- network/private-connectivity prerequisites.
+
+Outside Channel product semantics:
 
 - Worker/Agent identity;
 - Issue/Task/Attempt semantics;
 - scheduling and assignment;
 - git worktree/branch/PR lifecycle;
 - tmux session/pane creation;
-- starting/restarting Codex;
+- starting/restarting foreground programs;
 - recovery/cleanup policy;
-- mapping a project task to a terminal.
+- mapping a project Task to a terminal;
+- infrastructure administration.
 
-Those concerns belong to whatever upper-layer collaboration or automation system uses this MCP.
+## Current Channel implementation
 
-## Phase 2.5 implementation
-
-MVP-001 established the read-only Channel slice, MVP-002 added safe input, and MVP-002.5 exposes the already-established backend health capability. The current stdio server registers:
+The accepted stdio server registers:
 
 ```text
 list_channels
@@ -65,13 +92,11 @@ send_control
 health
 ```
 
-Secure remote ingress remains later MVP work.
-
 ### Requirements
 
 - Node.js 20 or newer;
 - npm;
-- tmux available to the service account for real backend use.
+- tmux available to the service account.
 
 Install and verify:
 
@@ -97,7 +122,7 @@ The MCP never creates panes. Prepare one with native tmux or another upper layer
 tmux -L agent-runtime new-session -d -s demo
 ```
 
-Then start the server with the same configured tmux scope:
+Start the server with the same configured tmux scope:
 
 ```bash
 TMUX_SOCKET_NAME=agent-runtime npm start
@@ -107,7 +132,7 @@ Optional configuration:
 
 ```text
 TMUX_SOCKET_NAME             named tmux server selected with tmux -L
-TMUX_SOCKET_PATH             explicit tmux socket selected with tmux -S (mutually exclusive with TMUX_SOCKET_NAME)
+TMUX_SOCKET_PATH             explicit tmux socket selected with tmux -S
 TMUX_ALLOWED_SESSIONS        comma-separated exact session allowlist
 TMUX_TIMEOUT_MS              finite tmux command timeout
 TMUX_MAX_CHANNELS            inventory result bound
@@ -116,15 +141,22 @@ TMUX_READ_MAX_LINES          maximum accepted line bound
 TMUX_READ_MAX_BYTES          maximum accepted UTF-8 byte bound
 ```
 
-A missing pane or unavailable tmux server returns a structured error; the service does not recreate or restart anything.
+A missing pane or unavailable tmux server returns a structured mechanical result/error; the service does not recreate or restart anything.
 
-### Health contract
+## Health contract
 
-`health` takes no `channel_id`. It reports only the configured backend/service mechanical state through `backend_kind`, `available`, and optional bounded `detail`. Backend health is independent of visible Channel inventory: a queryable tmux server may be healthy while `TMUX_ALLOWED_SESSIONS` exposes zero Channels.
+`health` takes no `channel_id`. It reports only configured backend/service mechanical state through `backend_kind`, `available`, and optional bounded `detail`.
 
-Health does not inspect foreground application meaning, Worker/Task readiness, remote-ingress reachability, or recovery policy. It never creates, restarts, or destroys terminal endpoints.
+```text
+backend health
+!= visible Channel count
+!= foreground application readiness
+!= Agent/Worker/Task state
+!= Secure MCP Tunnel/network reachability
+!= recovery policy
+```
 
-### Safe input contract
+## Safe input contract
 
 `write_text` accepts:
 
@@ -134,9 +166,11 @@ text
 submit: boolean
 ```
 
-Ordinary text is literal Unicode data. LF (`\n`) and TAB (`\t`) are allowed; every other Unicode `Cc` control character is rejected before tmux mutation. Each call has a hard **1 MiB UTF-8** maximum. The tmux backend loads the payload through stdin into an operation-unique temporary paste buffer and pastes it only to the exact resolved pane; caller text is never shell interpolation or caller-controlled tmux key grammar.
+Ordinary text is literal Unicode data. LF (`\n`) and TAB (`\t`) are allowed; every other Unicode `Cc` control character is rejected before tmux mutation. Each call has a hard **1 MiB UTF-8** maximum.
 
-`submit=false` adds no extra Enter. `submit=true` delivers the text first and then reuses the same explicit ENTER mapping as `send_control`.
+The tmux backend uses structured process invocation and an operation-unique temporary paste buffer loaded from stdin/data. Caller text is never shell interpolation or caller-controlled tmux key grammar.
+
+`submit=false` adds no extra Enter. `submit=true` delivers text first and then reuses the explicit ENTER mapping.
 
 `send_control` accepts only:
 
@@ -146,18 +180,14 @@ INTERRUPT
 ESCAPE
 ```
 
-The fixed tmux mappings are internal implementation data; arbitrary key names/macros are not a public API.
-
-Mutation success acknowledges mechanical transport only. `write_text` and `send_control` are **not idempotent**. If a timeout occurs after terminal delivery may have begun, the outcome is reported as mechanically unknown and the core does not retry automatically. An upper layer must decide whether recovery or retry is safe.
-
-Do not log or persist full terminal write payloads by default; terminal input/output may contain sensitive data.
+Mutation success acknowledges mechanical transport only. `write_text` and `send_control` are not idempotent; ambiguous mutation timeouts are not blindly retried by the core.
 
 ## Example composition
 
-A project-specific upper layer may do:
+An upper layer may do:
 
 ```text
-create worktree
+create workspace/worktree
 → create tmux pane
 → start desired interactive program
 → discover pane through agent-runtime-mcp
@@ -166,20 +196,13 @@ create worktree
 → send_control(if explicitly needed)
 ```
 
-`agent-runtime-mcp` owns only the communication steps. Lifecycle, application meaning, retries and acceptance remain outside the product.
+The upper layer owns lifecycle, application meaning, retry/recovery and acceptance.
 
-## Public design target
+## Remote MVP status
 
-```text
-list_channels
-get_channel
-read_channel
-write_text
-send_control
-health
-```
+The six-tool local Channel core is accepted. The remaining MVP remote Task is to prove the official Secure MCP Tunnel composition against an **actual write-capable target ChatGPT/OpenAI MCP environment**.
 
-No Worker registry or session lifecycle API is part of the core MVP.
+Until that environment and tunnel authority are verified, remote integration remains a deployment Gate rather than a reason to add HTTP/OAuth or tunnel concepts to Channel core.
 
 ## Documentation
 
