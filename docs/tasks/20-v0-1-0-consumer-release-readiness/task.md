@@ -36,8 +36,8 @@ Main flow:
   → use the six accepted public Tools
 Success: integrator can consume v0.1.0 without repository-internal workflow knowledge or old Worker Runtime assumptions
 Failure: docs/metadata/distribution policy are contradictory or insufficient to identify/run the accepted product
-Degradation: source-only clone/build may be accepted even when no npm package is published, but only if that policy is explicit
-Evidence: repository metadata + README/consumer docs + exact accepted CI + release/tag state as applicable
+Degradation: source-only clone/build is the accepted v0.1.0 distribution contract; npm/package publication is not required
+Evidence: repository metadata + README/consumer docs + exact accepted CI + release/tag state
 ```
 
 ## Accepted Product Contract
@@ -63,7 +63,7 @@ Release work may change documentation, package/repository metadata and version/r
 
 ### Source distribution | package distribution
 
-A Git clone/source release and an npm/package publication are different distribution policies. Do not silently convert `private: true` into a public package decision.
+v0.1.0 is a source-release checkpoint. `package.json` remains `private: true`; npm/package publication is not part of this Task.
 
 ### License policy | implementation mechanics
 
@@ -88,10 +88,10 @@ consumer docs
 = explain how to obtain/build/configure/use accepted v0.1.0
 
 repository/package metadata
-= identify the accepted product/version/distribution policy
+= identify the accepted product/version/source-only distribution policy
 
 release checkpoint
-= identify one immutable accepted source state if owner policy approves
+= identify one immutable accepted source state through v0.1.0 tag/GitHub Release
 
 Channel MCP runtime
 = unchanged six capabilities
@@ -106,11 +106,10 @@ No Channel data-path logic changes are planned.
 
 Release/control decisions remain external to runtime:
 
-- whether to publish source-only or a package;
-- which license to use;
-- whether/when to tag v0.1.0;
-- whether/when to create a GitHub Release;
-- repository description/topics.
+- source-only distribution is frozen for v0.1.0;
+- license selection remains an owner decision;
+- v0.1.0 tag/GitHub Release is created only after readiness changes are accepted;
+- repository identity is frozen to the generic Channel MCP meaning.
 
 ## Current Evidence / Gaps
 
@@ -128,53 +127,68 @@ Known readiness gaps:
 
 1. GitHub repository description still says `MCP server for managing agent runtime sessions`, which conflicts with the accepted Channel-only architecture.
 2. Public repository currently reports no license.
-3. Distribution policy is not frozen: source-only vs package publication.
-4. README has build/run instructions but no frozen consumer-facing stdio MCP configuration example for an upper-layer client.
-5. No immutable v0.1.0 release/tag checkpoint has been accepted.
+3. README has build/run instructions but no frozen consumer-facing stdio MCP configuration example for an upper-layer client.
+4. No immutable v0.1.0 release/tag checkpoint has been accepted.
 
 ## Publication Dependency / Decision Gate
 
-Keep this Task `status:draft` until the Coordinator has an explicit owner decision for all of:
-
-### D1 — Distribution
-
-Choose one:
+### D1 — Distribution — FROZEN
 
 ```text
-A. source-only v0.1.0
-   keep package private
-   consumers clone/build/run
-
-B. package distribution
-   requires separate package-surface review before publication
+source-only v0.1.0
+keep package.json private: true
+consumers clone/build/run
+no npm/package publication in this Task
 ```
 
-Do not infer B merely because the package version is 0.1.0.
+A future package distribution use case requires separate planning and package-surface review.
 
-### D2 — License
+### D2 — License — UNRESOLVED OWNER DECISION
 
-Owner selects the repository license policy. The Worker must not choose a license.
+Owner must select the repository license policy. The Worker must not choose a license.
 
-### D3 — Release checkpoint
+Until D2 is frozen:
 
-Decide whether v0.1.0 should be represented by a tag/GitHub Release after readiness changes are accepted.
+```text
+status:draft
+owner:none
+Blocker: awaiting-license-policy-decision
+```
 
-### D4 — Product identity
+### D3 — Release checkpoint — FROZEN
 
-Freeze concise repository identity wording aligned to:
+After consumer-readiness changes are accepted and canonical-main CI is green:
+
+```text
+create immutable v0.1.0 source checkpoint
+→ v0.1.0 tag
+→ GitHub Release for the same accepted commit
+```
+
+Do not create the tag/release before Coordinator Final Acceptance of the readiness Candidate.
+
+### D4 — Product identity — FROZEN
+
+Canonical identity meaning:
 
 > Generic MCP communication layer for already-existing interactive terminal Channels, with tmux as the first backend.
 
-Exact metadata wording may be shortened but must not reintroduce Worker/Task/lifecycle ownership.
+Repository metadata may use a concise equivalent such as:
+
+> MCP communication layer for existing interactive terminal Channels, with tmux as the first backend.
+
+It must not reintroduce Worker/Task/Agent-runtime lifecycle ownership.
 
 ## Required Capabilities After Decision Gate
 
-Depending on D1-D4, this Task may require only:
+After D2 is frozen, this Task requires only:
 
 - consumer-oriented README/documentation cleanup;
-- package metadata alignment that does not publish a package unless explicitly chosen;
-- repository identity checklist/evidence;
-- release/tag notes/checkpoint evidence.
+- one concrete local stdio MCP client configuration example;
+- repository identity metadata aligned to D4;
+- license state aligned to D2;
+- source-only distribution clarity with `private: true` preserved;
+- release readiness Evidence for a later Coordinator-created v0.1.0 tag/GitHub Release.
 
 No new MCP capability follows from these needs.
 
@@ -184,9 +198,9 @@ No new MCP capability follows from these needs.
 - **C2 Contract preservation:** exact six public Tools remain unchanged.
 - **C3 Consumer path:** documented source/build/run + stdio client configuration is sufficient to launch the accepted server with external tmux preparation.
 - **C4 Boundary preservation:** deployment/network/auth and endpoint lifecycle remain external.
-- **C5 Distribution clarity:** source-only vs package distribution is explicit and matches package metadata.
+- **C5 Distribution clarity:** v0.1.0 is explicitly source-only and `private: true` remains consistent with no npm publication.
 - **C6 License clarity:** repository license state matches the owner decision.
-- **C7 Version clarity:** v0.1.0 checkpoint/version policy is explicit and consistent.
+- **C7 Version clarity:** accepted readiness state is suitable for immutable v0.1.0 tag/GitHub Release on the same canonical commit.
 - **C8 Regression:** existing typecheck/unit/tmux/public-discovery/public-dogfood/static-boundary CI stays green if repository files change.
 
 ## Out of Scope
@@ -197,20 +211,31 @@ No new MCP capability follows from these needs.
 - endpoint lifecycle APIs;
 - Worker/Task/application semantics;
 - tunnel/provider/network/auth implementation;
-- npm publication unless D1 explicitly selects package distribution;
+- npm/package publication;
+- changing `private: true`;
 - automatically choosing a license;
+- creating the final tag/GitHub Release before Coordinator acceptance;
 - post-v0.1.0 feature roadmap.
 
 ## Publication Gate
 
-Coordinator may publish only after D1-D4 are explicitly resolved and live accepted main is re-read.
+Coordinator may publish only after D2 is explicitly resolved and live accepted main is re-read.
 
-If any policy decision remains unresolved:
+Current gate state:
+
+```text
+D1 source-only distribution: FROZEN
+D2 license: UNRESOLVED
+D3 v0.1.0 tag/GitHub Release after acceptance: FROZEN
+D4 generic Channel MCP identity: FROZEN
+```
+
+Therefore current Issue state remains:
 
 ```text
 status:draft
 owner:none
-Blocker: awaiting-release-policy-decisions
+Blocker: awaiting-license-policy-decision
 ```
 
 ## Completion Protocol
@@ -218,7 +243,7 @@ Blocker: awaiting-release-policy-decisions
 If/when published:
 
 ```text
-Coordinator freezes D1-D4
+Coordinator freezes D2 and re-runs Publication Gate
 → status:ready/env:web-gpt
 → separate Web GPT Worker claims one Attempt
 → consumer/release-readiness changes + Evidence
@@ -226,4 +251,6 @@ Coordinator freezes D1-D4
 → status:review | status:blocked + owner:none
 → STOP
 → Coordinator Review
+→ accepted canonical main CI
+→ Coordinator creates v0.1.0 tag/GitHub Release on accepted commit
 ```
