@@ -6,10 +6,16 @@
 
 Therefore this is not a low-risk observability MCP. Deployment must treat it as privileged developer tooling.
 
+The intended MVP includes remote access from GPT Web, so transport authentication/exposure is a first-class security boundary rather than future work.
+
 ## 2. Trust boundaries
 
 ```text
-GPT / MCP client
+GPT Web / MCP client
+        │
+        ▼
+remote MCP ingress
+(authenticated tunnel / HTTPS)
         │
         ▼
 agent-runtime-mcp
@@ -60,13 +66,21 @@ Stale/forged mappings could redirect one `worker_id` to another user's/unrelated
 
 Captured text is untrusted data and may instruct the Coordinator to ignore policy, expose secrets or perform unrelated actions.
 
+### T9 — Remote MCP transport/auth misconfiguration
+
+Incorrect endpoint exposure, Origin/Host handling, token validation, proxy trust or stale credentials could bypass intended access controls.
+
 ## 4. Required controls
 
-### S1 — Safe deployment default
+### S1 — Secure remote deployment
 
-Default deployment should use local stdio/process-connected MCP where possible.
+For the GPT Web use case, prefer an officially supported private-connectivity/tunnel mechanism when the runtime host is local/private.
 
-Any network transport must require an explicit authenticated design. Do not ship an unauthenticated bind-to-all-interfaces runtime-control server as the default.
+If the MCP endpoint is directly reachable over a network, require HTTPS plus authenticated/authorized access. Never ship an unauthenticated bind-to-all-interfaces runtime-control endpoint as the normal deployment.
+
+Local-only development/test mode should bind only to loopback unless an explicit secure ingress layer requires otherwise.
+
+See `deployment.md`.
 
 ### S2 — Structured process execution
 
@@ -145,6 +159,25 @@ The Coordinator must not follow instructions found in captured output that confl
 - Task Contract;
 - explicit user intent.
 
+### S11 — Standards-compatible remote MCP authorization
+
+When using HTTP-based MCP authorization, follow the active MCP authorization specification and official SDK behavior.
+
+At minimum:
+
+- authenticate protected requests;
+- validate tokens/credentials server-side;
+- do not accept access tokens in URL query strings;
+- scope credentials to the intended resource/runtime;
+- validate expected Origin/Host behavior according to the active transport/SDK;
+- do not rely on ChatGPT's confirmation UI as the server authorization mechanism.
+
+### S12 — Protocol/SDK compatibility gate
+
+MCP and ChatGPT integration evolve quickly. Do not freeze obsolete transport/session assumptions into security logic.
+
+Implementation Tasks must verify the current official MCP specification/SDK and current ChatGPT remote MCP requirements before exposing the endpoint.
+
 ## 5. Secrets and credentials
 
 The runtime should not deliberately return:
@@ -155,6 +188,7 @@ The runtime should not deliberately return:
 - SSH private keys;
 - GitHub tokens;
 - API tokens;
+- MCP/OAuth bearer tokens;
 - tmux server internals unrelated to diagnosis.
 
 However, child processes can print secrets to the terminal. Therefore capture APIs are sensitive by nature.
@@ -180,6 +214,7 @@ Avoid logging by default:
 full send_text payload
 full terminal capture
 full environment
+Authorization headers / tokens
 secret-bearing command line
 credential values
 ```
@@ -194,6 +229,7 @@ Good:
 WORKER_NOT_FOUND worker_id=codex-2
 INVALID_CWD path outside allowed roots
 BACKEND_UNAVAILABLE tmux query failed
+AUTHENTICATION_REQUIRED protected remote call rejected
 ```
 
 Avoid blindly returning entire stderr/stdout if it can contain unrelated sensitive content. Preserve detailed diagnostics only when safe/explicit.
@@ -214,21 +250,25 @@ agent-runtime-mcp
 
 Codex itself may have GitHub credentials according to the Worker environment, but that is a separate operator decision.
 
-## 9. Remote-host future
+## 9. Remote MCP ingress vs remote Runtime Backend
 
-SSH/multi-host/network runtimes are out of MVP scope.
+Secure remote MCP ingress is part of MVP because GPT Web must reach the server.
 
-Before adding them, the architecture must explicitly address:
+SSH/multi-host Runtime Backends remain out of MVP scope.
 
-- transport authentication;
-- host identity;
-- authorization per Worker/host;
-- credential storage;
-- replay/session protection;
-- network exposure;
-- audit boundaries.
+Do not confuse:
 
-Do not extend the local tmux transport into remote control merely by opening a TCP port.
+```text
+GPT Web → remote MCP ingress → runtime host
+```
+
+with:
+
+```text
+runtime host → SSH → another execution host
+```
+
+The latter requires a separate future design for host identity, SSH credentials, authorization per host, audit boundaries and remote target policy.
 
 ## 10. Security verification baseline
 
@@ -241,5 +281,8 @@ Before MVP acceptance, tests/review should prove at least:
 5. invalid/out-of-policy cwd is rejected;
 6. unmanaged tmux sessions are not implicitly adopted/controlled;
 7. normal operation works without root;
-8. server logs do not include full prompt/capture payloads by default;
-9. backend unavailable/registry stale cases fail without mutating GitHub or unrelated runtimes.
+8. server logs do not include full prompt/capture/auth payloads by default;
+9. backend unavailable/registry stale cases fail without mutating GitHub or unrelated runtimes;
+10. remote write tools cannot be called through an unauthenticated public endpoint;
+11. current transport Origin/Host/auth requirements are covered by tests or trusted SDK/gateway behavior;
+12. real ChatGPT remote integration is tested with current write-capability support before dogfooding acceptance.
