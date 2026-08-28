@@ -2,86 +2,44 @@
 
 ## 1. Product goal
 
-Provide a secure MCP communication channel for already-existing interactive terminal endpoints.
+`agent-runtime-mcp` provides generic MCP capabilities for communicating with already-existing interactive terminal Channels.
 
-The Channel core lets an MCP client:
+The product lets an MCP client:
 
 ```text
-discover channel
-→ inspect channel metadata
+discover Channel
+→ inspect mechanical metadata
 → read bounded recent output
-→ write ordinary text
-→ send a small explicit set of controls
+→ write bounded ordinary text
+→ send a small explicit control set
 → inspect backend/service health
 ```
 
 The first backend is tmux.
 
-The product boundary is **terminal Channel communication**, not Worker management, Agent scheduling, Task coordination, repository workspace management, tmux lifecycle automation, or infrastructure provisioning.
+The product boundary is **MCP Channel capability**, not deployment, network reachability, tunnel/provider integration, authentication topology, Worker management, Task coordination, workspace management, or terminal lifecycle.
 
-## 2. Intended composition
+## 2. Core use cases
 
-A higher-level system may prepare a terminal however it wants:
+### UC1 — Discover Channels
+List existing terminal Channels visible inside the configured backend scope.
 
-```text
-create worktree
-→ create tmux session/pane
-→ start Codex / shell / REPL / another CLI
-→ use agent-runtime-mcp as the communication path
-```
+### UC2 — Inspect a Channel
+Return mechanical metadata and supported capabilities without inferring Agent/Task/application state.
 
-Those preparation steps are outside Channel MCP.
-
-Remote use composes around the same Channel core:
-
-```text
-remote MCP client
-→ supported secure ingress / tunnel
-→ local agent-runtime-mcp transport
-→ Channel Service
-→ TmuxBackend
-→ existing pane
-```
-
-For the selected MVP topology, the Channel core may remain a local **stdio MCP server** while an external supported Secure MCP Tunnel makes it reachable remotely. A public HTTP listener inside `agent-runtime-mcp` is not required merely to satisfy the remote-use case.
-
-## 3. Core use cases
-
-### UC0 — Secure remote composition
-
-An authorized remote MCP client can use the accepted Channel surface through a currently supported secure remote MCP composition without exposing unauthenticated terminal-input authority.
-
-Remote reachability is a deployment property around the Channel core; it does not need to become a second Channel implementation.
-
-### UC1 — Discover channels
-
-List existing terminal Channels visible within the configured backend boundary.
-
-Results are structured; callers do not parse human `tmux ls` output.
-
-### UC2 — Inspect a channel
-
-Return mechanical metadata for one Channel, such as backend, availability, optional cwd/title and supported capabilities.
-
-The MCP does not classify semantic Agent/Task state.
-
-### UC3 — Read channel output
-
-Read a bounded amount of recent terminal output with explicit truncation metadata.
+### UC3 — Read bounded output
+Read finite recent terminal output with explicit truncation metadata.
 
 ### UC4 — Write ordinary text
+Send bounded multi-line Unicode text as data without shell interpolation or caller-controlled tmux key grammar.
 
-Send bounded multi-line Unicode text as data to a selected Channel without shell interpolation or accidental tmux-key interpretation.
+Rules:
+- LF (`\n`) and TAB (`\t`) are allowed ordinary text;
+- other Unicode `Cc` controls are rejected by `write_text`;
+- `submit=false` adds no extra Enter;
+- `submit=true` adds one explicit Enter only after successful text transport.
 
-Text/control separation is explicit:
-
-- LF (`\n`) and TAB (`\t`) are allowed ordinary text characters;
-- other Unicode `Cc` controls are rejected by `write_text` so ESC/interrupt-like controls cannot bypass `send_control`;
-- `submit=false` means the MCP appends no additional Enter;
-- `submit=true` performs text delivery first, then adds one explicit Enter only after successful text delivery.
-
-### UC5 — Send explicit control input
-
+### UC5 — Send explicit control
 Support exactly:
 
 ```text
@@ -90,19 +48,10 @@ INTERRUPT
 ESCAPE
 ```
 
-Free-form terminal/tmux key grammar is not ordinary text input.
-
 ### UC6 — Check backend/service health
+Report mechanical backend/service health independently from Channel inventory, application readiness, Worker/Task state, deployment reachability, or recovery policy.
 
-Return mechanical backend/service health independently from:
-
-- Channel existence/inventory;
-- foreground application readiness;
-- Agent/Worker/Task state;
-- remote tunnel/network reachability;
-- recovery decisions.
-
-## 4. Required MVP capabilities
+## 3. Required MVP capabilities
 
 ```text
 inventory
@@ -111,65 +60,57 @@ bounded-read
 text-write
 control-input
 backend-health
-secure-remote-composition
 ```
 
-`secure-remote-composition` means the accepted Channel core can be used through a supported authenticated remote path. It does **not** require the Channel core itself to own the public network ingress.
-
-Not required:
+Canonical public tools:
 
 ```text
-worker-registry
-worker-create
-worker-restart
-worker-destroy
-external-task-reference
-worktree-management
-process-startup
-session-lifecycle
-scheduler
-host-admin-api
-public-http-listener-in-core
+list_channels
+get_channel
+read_channel
+write_text
+send_control
+health
 ```
+
+## 4. Explicit product boundary
+
+The MCP does not own or interpret:
+
+```text
+Worker / Agent identity or lifecycle
+Issue / Task / Attempt semantics
+scheduling / assignment / review
+worktree / branch / PR lifecycle
+tmux session/pane creation or destruction
+process startup / restart / recovery
+application success / completion semantics
+deployment topology
+remote ingress / tunnel / proxy
+TLS / DNS / firewall / host administration
+workspace/client authorization policy
+provider account or credential lifecycle
+```
+
+Those concerns may exist around the MCP, but they are not MCP capabilities of this product.
 
 ## 5. Channel semantics
 
-Canonical domain model: `docs/channel-model.md`.
+See `docs/channel-model.md`.
 
 Key requirements:
-
 - Channel identity is backend-neutral at the MCP boundary;
-- tmux target syntax is not required from normal callers;
+- normal callers use `channel_id`, not raw tmux target grammar;
 - Channel state is mechanical (`available | unavailable | unknown`);
-- no semantic `idle`, `busy`, `working`, `done`, `blocked`, or review state;
-- output and input are bounded;
-- last activity, if exposed, is an I/O observation only;
+- no semantic `idle`, `working`, `done`, `blocked`, or review state;
+- input/output are bounded;
 - missing facts degrade to unknown rather than being inferred from terminal prose.
 
-## 6. Explicit product boundary
+## 6. tmux lifecycle boundary
 
-The Channel core must not own or interpret:
+Tmux endpoints are prepared outside the MCP.
 
-- Worker identity or lifecycle;
-- Agent type;
-- GitHub Issue/Task/Attempt state;
-- project priority/scheduling;
-- Task assignment/claim;
-- success/acceptance/review decisions;
-- git worktree/branch/PR lifecycle;
-- tmux session/pane creation policy;
-- process startup/restart/recovery policy;
-- cleanup policy;
-- tunnel/provider account provisioning;
-- DNS/firewall/OS service administration.
-
-A higher-level collaboration or deployment system may compose these concerns with Channel MCP.
-
-## 7. tmux lifecycle boundary
-
-For MVP, tmux Channels are prepared outside the MCP.
-
-The service may discover and communicate with already-existing panes, but it does not perform:
+The service may communicate with already-existing panes, but it does not perform:
 
 ```text
 new-session
@@ -177,76 +118,48 @@ new-window
 split-window
 kill-session
 kill-pane
-start Codex
-restart Codex
+respawn-pane
+start/restart interactive program
 create worktree
 ```
 
-If a Channel disappears, return a structured failure; do not recreate it.
+If a Channel disappears, return a structured failure. Do not recreate it.
 
-## 8. Backend visibility policy
+## 7. Backend visibility policy
 
-Deployment defines the tmux namespace visible to the service, for example:
+Configuration defines the tmux namespace visible to the backend, for example:
+- one tmux socket/server;
+- one OS account;
+- optional exact session allowlist.
 
-- configured tmux socket/server;
-- operating-system account boundary;
-- optional session-name/filter allowlist.
+No MCP operation may silently expand beyond that scope.
 
-Remote ingress authorization does not widen this Channel/backend scope.
+## 8. Transport and deployment boundary
 
-## 9. Remote composition requirements
+The current implementation can run as an MCP server over stdio.
 
-MVP remote use must satisfy all of the following:
+How an operator makes that MCP server reachable from another machine or product is a **deployment concern**. Tunnel choice, public/private networking, proxying, authentication, TLS and workspace integration are not product acceptance criteria for `agent-runtime-mcp`.
 
-- use a currently supported remote MCP integration path;
-- authorize terminal-capable access before protected Channel operations are exercised;
-- preserve the accepted six-tool Channel contract across the remote boundary;
-- keep remote connection/tunnel lifetime independent from tmux pane lifetime;
-- avoid unauthenticated public terminal control;
-- verify current client write/modify capability at Publication Gate;
-- verify current tunnel/transport/auth behavior from authoritative sources near execution time.
+A future generic MCP transport adapter may be added only if a distinct MCP-capability use case requires it. It must not turn deployment/provider semantics into Channel semantics.
 
-### Selected MVP topology
+## 9. Security requirements
 
-The preferred current topology is:
+Within the MCP capability boundary:
+- backend commands use structured executable/argv/stdin paths, never shell string interpolation;
+- ordinary text is bounded data;
+- explicit controls use a closed enum;
+- Channel scope is enforced for read/write/control;
+- reads and writes are finite;
+- full terminal payloads are not logged by default;
+- normal operation requires no root;
+- failures do not trigger endpoint lifecycle actions;
+- non-idempotent mutations are not blindly retried after ambiguous timeouts.
 
-```text
-ChatGPT / supported OpenAI remote MCP client
-→ OpenAI Secure MCP Tunnel
-→ customer-run tunnel-client
-→ local stdio agent-runtime-mcp
-→ TmuxBackend
-→ existing panes
-```
+If an operator exposes the MCP remotely, securing that deployment is the operator/deployment layer's responsibility and must not be modeled as Channel state.
 
-This topology keeps the Channel core local and avoids a public inbound MCP listener on the terminal host.
+## 10. Structured failures
 
-### Direct-public HTTP alternative
-
-A future direct-public MCP endpoint may use the then-current supported Streamable HTTP transport and authorization model. If implemented, it is a distinct transport/deployment concern and must satisfy the current MCP HTTP/auth resource-server requirements. It is **not** required for the selected MVP topology.
-
-## 10. Security requirements
-
-Terminal write access is approximately terminal-input authority for every exposed Channel.
-
-Therefore:
-
-- remote write/control must be authenticated and authorized by the selected remote composition;
-- backend commands use structured argv/process APIs and explicit stdin/data paths, not shell string concatenation;
-- ordinary text is transported as bounded data;
-- ordinary text cannot smuggle explicit ESC/interrupt controls through the text API;
-- control input is a closed enum;
-- reads are bounded and potentially sensitive;
-- service logs do not record full terminal text/write payloads by default;
-- Channel core runs with ordinary least-privilege OS permissions;
-- no root is required for normal Channel operation;
-- tunnel/control-plane/admin credentials are deployment secrets and are never persisted in the repository.
-
-See `docs/security.md`.
-
-## 11. Operational requirements
-
-Structured Channel/backend failures include categories such as:
+The product may report categories such as:
 
 ```text
 CHANNEL_NOT_FOUND
@@ -257,44 +170,35 @@ INVALID_ARGUMENT
 CAPABILITY_UNSUPPORTED
 PERMISSION_DENIED
 TIMEOUT
-AUTHENTICATION_REQUIRED
 ```
 
-Remote ingress/tunnel/auth failures remain attributable to the ingress layer; they are not silently rewritten as Channel/backend failures.
+Operations do not wait for application-level semantic completion.
 
-Operations have finite input/output bounds and finite timeouts and do not wait for semantic completion.
-
-Mutation calls are non-idempotent. An ambiguous timeout must not trigger a blind automatic retry inside the Channel core.
-
-## 12. Non-goals
+## 11. Non-goals
 
 The MVP does not attempt to:
-
+- deploy itself to a network;
+- verify or manage a tunnel/provider;
+- implement workspace authorization policy;
 - replace GitHub/Jira/another collaboration system;
 - manage Agent Workers;
-- choose or assign Tasks;
-- infer Agent completion from terminal output;
-- start/restart/destroy terminal sessions;
-- create repository workspaces;
-- provide a generic host-admin API;
-- expose arbitrary tmux command grammar;
+- infer application completion;
+- create/restart/destroy terminal endpoints;
+- provide a generic host-admin or shell-command API;
 - store complete terminal history;
-- manage distributed execution hosts;
-- provision tunnel/provider accounts as Channel tools;
-- require a direct-public HTTP/OAuth server inside Channel core.
+- manage distributed hosts.
 
-## 13. MVP success criteria
+## 12. MVP success criteria
 
-The first usable version is successful when an authorized intended remote MCP client can, through the selected secure composition:
+The Channel MCP capability set is complete when an MCP client can:
 
 1. discover an already-existing tmux pane as a Channel;
-2. inspect that Channel through structured metadata;
+2. inspect it through structured metadata;
 3. read bounded recent output;
-4. write bounded multi-line Unicode text safely as ordinary data;
-5. send Enter/interrupt/escape explicitly;
+4. write bounded ordinary Unicode text safely;
+5. send ENTER / INTERRUPT / ESCAPE explicitly;
 6. query mechanical backend/service health;
-7. receive structured Channel/backend failures when the pane/backend disappears;
-8. disconnect/reconnect and rediscover currently existing panes without a Worker registry or endpoint lifecycle side effect;
-9. perform the above without knowing Codex, Worker, Issue, Task, worktree, or collaboration semantics;
-10. prevent unauthorized remote terminal authority;
-11. demonstrate one upper-layer collaboration flow using Channel MCP purely as transport, with all Task meaning remaining outside the product.
+7. receive structured failure when a Channel/backend disappears;
+8. do all of the above without Worker/Task/application semantics;
+9. do all of the above without endpoint lifecycle authority;
+10. demonstrate one upper-layer use case that consumes the six MCP capabilities while keeping workflow meaning outside the product.
