@@ -6,7 +6,7 @@
 GitHub Issue: #2
 MVP phase: Phase 1
 Task kind: combined implementation + verification
-Design base commit: 87d9c322eaab828e3e4982b71604647146122372
+Design base commit: f975ea999a132792c31d0cf9811af3c43e67f857
 Session bootstrap: docs/tasks/2-tmux-channel-discovery-read/prompt.md
 Expected worker: codex
 Dispatch route: task-dispatcher bootstrap-native
