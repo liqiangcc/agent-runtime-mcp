@@ -15,47 +15,40 @@ Required capabilities: <capability list>
 Hard dependencies: <none or explicit dependencies>
 ```
 
-> Live status, owner, blocker, active branch/PR/runtime and Attempt results belong in the GitHub Issue / durable execution records, not this file.
+Live Task state belongs in GitHub Issue/comments, not this file.
 
 ## Goal
 
-A single verifiable statement of what this Task must accomplish.
-
-## Why / Context
-
-Explain the product goal, architecture gap, risk or MVP milestone that makes this Task necessary now.
+A single verifiable statement of what this repository Task must accomplish.
 
 ## Canonical / Process Sources
 
-Worker must read at least:
+Read:
 
 - `AGENTS.md`
 - `docs/tasks/collaboration-protocol.md`
 - `docs/tasks/issue-state-convention.md`
 - `docs/tasks/issue-lifecycle-protocol.md`
-- task-relevant canonical docs listed here
+- task-relevant canonical product docs.
 
-## Preconditions
+For product implementation, current canonical product sources start with:
 
-- Required prior Issue/Task:
-- Required runtime/tooling:
-- Required permissions:
-- Required test environment:
-- Current external integration assumptions to verify (if any):
-- Existing candidate/branch/PR to reuse:
+```text
+docs/requirements.md
+docs/channel-architecture.md
+docs/channel-model.md
+docs/mcp-contract.md
+```
 
 ## Dispatch Requirements
 
 ```text
 Expected child environment/capabilities:
-Bootstrap dispatch allowed: yes | no
-Runtime-backed dispatch required: yes | no
-Isolation requirement: one Issue = one isolated mutable worktree/runtime
+Isolation: one concurrent Issue = one isolated mutable worktree/execution context
+Communication mode: native tmux | Channel MCP when accepted
 ```
 
-Dispatcher transports the canonical Worker handoff only. It does not claim or implement the Task.
-
-If an existing issue-linked worktree/runtime is present, reconcile it rather than overwriting it.
+Dispatcher owns project environment preparation. Channel MCP, when used, is communication transport only.
 
 ## In Scope
 
@@ -67,28 +60,28 @@ If an existing issue-linked worktree/runtime is present, reconcile it rather tha
 
 ## Architecture Invariants
 
-List only invariants directly relevant to this Task. Reference canonical docs rather than copying everything.
+List only Task-relevant invariants.
 
-Examples when relevant:
+Common product examples:
 
-- GitHub remains Task authority.
+- Channel is the MCP product domain object.
+- Worker/Agent/Task/worktree lifecycle stays outside product code.
+- existing tmux pane lifecycle is prepared externally.
+- terminal text/activity is not semantic Agent/Task state.
+- tmux-specific behavior stays behind `ChannelBackend` / `TmuxBackend`.
+- ordinary text is separate from explicit control input.
+- backend execution uses structured argv/stdin, not shell interpolation.
+- remote write/control requires authentication/authorization.
+
+Repository workflow examples:
+
 - Publisher/Dispatcher/Worker/Reviewer authorities remain separate.
-- Runtime state must not become Task state.
-- tmux-specific behavior remains behind `RuntimeBackend`.
-- remote MCP ingress is separate from Runtime Backend routing.
-- ordinary text input is separate from control input.
-- backend commands use structured process execution, not shell string concatenation.
-- remote runtime control must not be exposed through an unauthenticated public endpoint.
-
-## Files Expected to Change
-
--
+- Dispatcher launch does not claim the Issue.
+- GitHub is durable repository Task authority.
 
 ## Implementation Requirements
 
 1.
-
-If implementation is not part of this Task, write `N/A`.
 
 ## Claims / Verification
 
@@ -97,27 +90,15 @@ C1: <claim>
 C2: <claim>
 ```
 
-### Verification plan
-
-| Claim | Environment / execution plane | Command / method | Required evidence |
-|---|---|---|---|
-| C1 | <...> | <...> | <...> |
-| C2 | <...> | <...> | <...> |
-
-Verification must identify the exact Candidate SHA when behavior depends on code identity.
-
-Do not report tests as PASS when they were not run. For external integration claims, record actual live capability/environment/date rather than relying on design assumptions.
+Record exact Candidate SHA for code-dependent evidence. Do not report tests as PASS if not run.
 
 ## Security Review
 
 ```text
 Security-sensitive: yes | no
-Threats touched: <T1.. from docs/security.md or n/a>
-Required controls: <S1.. from docs/security.md or n/a>
+Threats/controls from docs/security.md:
 Remote ingress affected: yes | no
 ```
-
-If implementation weakens a canonical security control, stop and require formal design change.
 
 ## Success Criteria
 
@@ -126,100 +107,37 @@ Freeze before execution.
 1. SC1:
 2. SC2:
 
-```text
-C1 PASS when:
-C2 PASS when:
-```
-
-Do not lower criteria after observing results merely to obtain PASS.
+Do not lower criteria after observing results.
 
 ## Failure / Blocked Rules
 
-### FAIL
-
-Define behavior/evidence that means implementation or claim failed.
-
-### BLOCKED
-
-Define missing capability/dependency/environment conditions that prevent further valid execution.
-
-### Resume condition
-
-State the minimum concrete condition required to resume.
+Define FAIL, BLOCKED and minimal resume condition.
 
 ## Evidence Contract
 
-At minimum record as applicable:
+Record as applicable:
 
 ```text
-Attempt:
-Worker: codex
-Base commit:
-Candidate commit:
-PR:
-Dispatcher/runtime mapping when relevant:
-Commands / CI run:
-Environment:
-Relevant versions:
-External integration capability/date (if relevant):
-Claim results:
-Artifacts / logs:
-Known limitations:
+Attempt
+Worker identity
+Base/Candidate SHA
+PR
+Dispatcher execution-context evidence when relevant
+commands / CI run
+versions/environment
+claim results
+known limitations
 ```
 
-Do not commit or paste secrets, credentials, private terminal history or unnecessary large artifacts.
-
-## Deliverables
-
-- Code/docs:
-- Candidate commit / PR:
-- Tests/evidence:
-- Task bootstrap prompt:
+Do not persist secrets or unnecessary terminal transcripts.
 
 ## Completion Protocol
 
-Publisher:
-
 ```text
-status:draft
-→ materialize/read-back Publication Gate
-→ status:ready + no owner
-→ canonical Worker handoff
+Publisher → ready + canonical handoff
+Dispatcher → isolated execution context + handoff delivery
+Worker → claim → Attempt N → report → review/blocked → owner:none → STOP
+Reviewer → ACCEPT | REVISE | BLOCK | SPLIT | NOT_PLANNED
 ```
 
-Dispatcher:
-
-```text
-re-read ready/no-owner/capabilities
-→ isolated Worker runtime
-→ deliver handoff unchanged
-→ no Task-state mutation
-```
-
-Worker:
-
-```text
-status:ready
-→ claim
-→ status:in-progress
-→ Attempt N
-→ execute this Contract only
-→ [EXECUTION REPORT] or [BLOCKER REPORT]
-→ status:review or status:blocked
-→ release ownership
-→ STOP
-```
-
-Reviewer:
-
-```text
-read Issue + Contract + candidate/evidence
-→ ACCEPT | REVISE | BLOCK | SPLIT | NOT_PLANNED
-```
-
-Unchanged-contract REVISE returns to ready and emits a fresh handoff for Dispatcher. Contract change returns to Publisher. Only Final Acceptance may set `status:done` and close.
-
-Full protocols:
-
-- `docs/tasks/collaboration-protocol.md`
-- `docs/tasks/issue-lifecycle-protocol.md`
+Contract change returns to draft + Publisher Gate. Only Final Acceptance may set done/close.
