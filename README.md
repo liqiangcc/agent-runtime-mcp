@@ -52,17 +52,19 @@ Outside product:
 
 Those concerns belong to whatever upper-layer collaboration or automation system uses this MCP.
 
-## Phase 1 implementation
+## Phase 2 implementation
 
-MVP-001 implements only the read-only slice:
+MVP-001 established the read-only Channel slice and MVP-002 adds safe input. The current stdio server registers:
 
 ```text
 list_channels
 get_channel
 read_channel
+write_text
+send_control
 ```
 
-The server uses the official MCP TypeScript server SDK v2 and stdio transport. `write_text`, `send_control`, remote ingress and tmux lifecycle remain outside this phase.
+The separate public `health` tool and secure remote ingress remain later MVP work.
 
 ### Requirements
 
@@ -78,8 +80,6 @@ npm run typecheck
 npm test
 npm run test:integration
 ```
-
-During the first dependency-resolution bootstrap, `npm install` may be used to create `package-lock.json`; committed builds use the lockfile.
 
 Build and run over stdio:
 
@@ -117,19 +117,49 @@ TMUX_READ_MAX_BYTES          maximum accepted UTF-8 byte bound
 
 A missing pane or unavailable tmux server returns a structured error; the service does not recreate or restart anything.
 
+### Safe input contract
+
+`write_text` accepts:
+
+```text
+channel_id
+text
+submit: boolean
+```
+
+Ordinary text is literal Unicode data. LF (`\n`) and TAB (`\t`) are allowed; every other Unicode `Cc` control character is rejected before tmux mutation. Each call has a hard **1 MiB UTF-8** maximum. The tmux backend loads the payload through stdin into an operation-unique temporary paste buffer and pastes it only to the exact resolved pane; caller text is never shell interpolation or caller-controlled tmux key grammar.
+
+`submit=false` adds no extra Enter. `submit=true` delivers the text first and then reuses the same explicit ENTER mapping as `send_control`.
+
+`send_control` accepts only:
+
+```text
+ENTER
+INTERRUPT
+ESCAPE
+```
+
+The fixed tmux mappings are internal implementation data; arbitrary key names/macros are not a public API.
+
+Mutation success acknowledges mechanical transport only. `write_text` and `send_control` are **not idempotent**. If a timeout occurs after terminal delivery may have begun, the outcome is reported as mechanically unknown and the core does not retry automatically. An upper layer must decide whether recovery or retry is safe.
+
+Do not log or persist full terminal write payloads by default; terminal input/output may contain sensitive data.
+
 ## Example composition
 
-A project-specific Dispatcher may do:
+A project-specific upper layer may do:
 
 ```text
 create worktree
 → create tmux pane
-→ start Codex
+→ start desired interactive program
 → discover pane through agent-runtime-mcp
-→ write_text(task handoff)
+→ write_text(application input)
+→ read_channel(observation)
+→ send_control(if explicitly needed)
 ```
 
-`agent-runtime-mcp` only owns the communication step. The final two write/control capabilities are planned for a later MVP phase.
+`agent-runtime-mcp` owns only the communication steps. Lifecycle, application meaning, retries and acceptance remain outside the product.
 
 ## Public design target
 

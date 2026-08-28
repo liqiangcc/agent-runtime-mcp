@@ -1,6 +1,7 @@
 export type BackendKind = 'tmux';
 export type ChannelState = 'available' | 'unavailable' | 'unknown';
 export type ChannelCapability = 'read' | 'write-text' | 'control';
+export type TerminalControl = 'ENTER' | 'INTERRUPT' | 'ESCAPE';
 
 export interface Channel {
   channel_id: string;
@@ -25,6 +26,20 @@ export interface ChannelRead {
 export interface ReadChannelOptions {
   lines?: number;
   bytes?: number;
+}
+
+export interface WriteTextOptions {
+  submit: boolean;
+}
+
+export interface WriteTextResult {
+  channel_id: string;
+  submitted: boolean;
+}
+
+export interface SendControlResult {
+  channel_id: string;
+  control: TerminalControl;
 }
 
 export interface BackendHealth {

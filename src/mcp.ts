@@ -2,10 +2,17 @@ import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import type { ChannelBackend } from './backend.js';
 import { toStructuredError } from './errors.js';
-import { getChannel, listChannels, readChannel } from './handlers.js';
+import { getChannel, listChannels, readChannel, sendControl, writeText } from './handlers.js';
+import { TERMINAL_CONTROLS } from './input.js';
 import { HARD_MAX_READ_BYTES, HARD_MAX_READ_LINES } from './tmux-backend.js';
 
 export const MVP_001_TOOL_NAMES = ['list_channels', 'get_channel', 'read_channel'] as const;
+export const MVP_002_TOOL_NAMES = [...MVP_001_TOOL_NAMES, 'write_text', 'send_control'] as const;
+export const MUTATION_TOOL_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+} as const;
 
 export function createMcpServer(backend: ChannelBackend): McpServer {
   const server = new McpServer({ name: 'agent-runtime-mcp', version: '0.1.0' });
@@ -16,7 +23,7 @@ export function createMcpServer(backend: ChannelBackend): McpServer {
       description: 'List existing terminal channels visible in the configured backend scope.',
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    async () => runReadOnlyTool(() => listChannels(backend)),
+    async () => runTool(() => listChannels(backend)),
   );
 
   server.registerTool(
@@ -28,7 +35,7 @@ export function createMcpServer(backend: ChannelBackend): McpServer {
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    async ({ channel_id }) => runReadOnlyTool(() => getChannel(backend, channel_id)),
+    async ({ channel_id }) => runTool(() => getChannel(backend, channel_id)),
   );
 
   server.registerTool(
@@ -43,7 +50,7 @@ export function createMcpServer(backend: ChannelBackend): McpServer {
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async ({ channel_id, lines, bytes }) =>
-      runReadOnlyTool(() =>
+      runTool(() =>
         readChannel(backend, channel_id, {
           ...(lines !== undefined ? { lines } : {}),
           ...(bytes !== undefined ? { bytes } : {}),
@@ -51,10 +58,38 @@ export function createMcpServer(backend: ChannelBackend): McpServer {
       ),
   );
 
+  server.registerTool(
+    'write_text',
+    {
+      description:
+        'Deliver bounded ordinary Unicode terminal text to one existing channel. LF/TAB are allowed; explicit controls use send_control.',
+      inputSchema: z.object({
+        channel_id: z.string().min(1).max(128).describe('Opaque channel identifier returned by list_channels.'),
+        text: z.string().describe('Ordinary terminal text; maximum 1 MiB UTF-8, excluding non-LF/TAB control characters.'),
+        submit: z.boolean().describe('Append one explicit ENTER only after text transport succeeds.'),
+      }),
+      annotations: MUTATION_TOOL_ANNOTATIONS,
+    },
+    async ({ channel_id, text, submit }) => runTool(() => writeText(backend, channel_id, text, submit)),
+  );
+
+  server.registerTool(
+    'send_control',
+    {
+      description: 'Send one explicit reviewed terminal control to an existing channel.',
+      inputSchema: z.object({
+        channel_id: z.string().min(1).max(128).describe('Opaque channel identifier returned by list_channels.'),
+        control: z.enum(TERMINAL_CONTROLS),
+      }),
+      annotations: MUTATION_TOOL_ANNOTATIONS,
+    },
+    async ({ channel_id, control }) => runTool(() => sendControl(backend, channel_id, control)),
+  );
+
   return server;
 }
 
-async function runReadOnlyTool(action: () => Promise<object>) {
+async function runTool(action: () => Promise<object>) {
   try {
     const payload = await action();
     return {

@@ -62,7 +62,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Reject lifecycle/raw-command product escape hatches
+      - name: Reject product-boundary and unsafe-process escape hatches
         shell: bash
         run: |
           prohibited='list_workers|create_worker|restart_worker|destroy_worker|assign_task|claim_task|tmux_command|run_shell_command|new-session|new-window|split-window|kill-session|kill-pane|respawn-pane'
@@ -70,4 +70,16 @@ jobs:
             echo 'Product boundary violation detected in src/' >&2
             exit 1
           fi
-          echo 'Static Channel boundary check passed.'
+          if grep -R -n -E 'shell:[[:space:]]*true|(^|[^[:alnum:]_])sh[[:space:]]+-c' src; then
+            echo 'Unsafe shell execution detected in src/' >&2
+            exit 1
+          fi
+          if ! grep -q 'HARD_MAX_WRITE_BYTES = 1024 \* 1024' src/input.ts; then
+            echo 'Missing hard 1 MiB write bound.' >&2
+            exit 1
+          fi
+          if ! grep -q 'codePoint !== 0x0a && codePoint !== 0x09' src/input.ts; then
+            echo 'Missing ordinary-text control separation guard.' >&2
+            exit 1
+          fi
+          echo 'Static Channel/input boundary check passed.'
