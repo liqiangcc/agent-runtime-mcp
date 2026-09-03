@@ -58,6 +58,27 @@ jobs:
       - name: Real isolated tmux integration
         run: npm run test:integration
 
+  tmux-endpoint-keeper-recovery:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install tmux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux
+          tmux -V
+      - name: Install dependencies
+        run: npm ci
+      - name: Build candidate
+        run: npm run build --silent
+      - name: Record exact keeper recovery candidate
+        run: echo "candidate=${GITHUB_SHA}"
+      - name: Real deployment-layer keeper recovery proof
+        run: node scripts/verify-tmux-endpoint-keeper.mjs
+
   public-mcp-discovery:
     runs-on: ubuntu-latest
     steps:
