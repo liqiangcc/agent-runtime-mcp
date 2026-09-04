@@ -180,11 +180,16 @@ jobs:
             package-lock.json
             scripts/package-runtime.mjs
             scripts/verify-runtime-package.mjs
-            .github/workflows/ci.yml
             docs/runtime-package.md
           )
           if grep -n '0\.1\.0' "${critical_files[@]}"; then
-            echo 'Release-critical path is pinned to historical version 0.1.0.' >&2
+            echo 'Release-critical historical version pin detected.' >&2
+            exit 1
+          fi
+          old_version='0.1.0'
+          old_archive="agent-runtime-mcp-v${old_version}"
+          if grep -n -F "$old_archive" .github/workflows/ci.yml .github/workflows/release.yml; then
+            echo 'Release workflow still contains a historical archive path.' >&2
             exit 1
           fi
           echo 'release-critical-version-pins=NONE'
