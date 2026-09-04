@@ -155,6 +155,62 @@ jobs:
           fi
           echo 'Static Channel/input/health boundary check passed.'
 
+  release-preparation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate release identity preflight
+        shell: bash
+        run: |
+          release_tag="v$(node -p "require('./package.json').version")"
+          node scripts/release-preflight.mjs "$release_tag"
+          if node scripts/release-preflight.mjs 'v0.0.0'; then
+            echo 'Mismatched release tag unexpectedly passed preflight.' >&2
+            exit 1
+          fi
+          echo 'release-tag-mismatch=REJECTED'
+      - name: Reject release-critical historical version pins
+        shell: bash
+        run: |
+          critical_files=(
+            package.json
+            package-lock.json
+            scripts/package-runtime.mjs
+            scripts/verify-runtime-package.mjs
+            .github/workflows/ci.yml
+            docs/runtime-package.md
+          )
+          if grep -n '0\.1\.0' "${critical_files[@]}"; then
+            echo 'Release-critical path is pinned to historical version 0.1.0.' >&2
+            exit 1
+          fi
+          echo 'release-critical-version-pins=NONE'
+      - name: Validate tag-only publication workflow boundary
+        shell: bash
+        run: |
+          workflow='.github/workflows/release.yml'
+          test -f "$workflow"
+          grep -F "tags: ['v*.*.*']" "$workflow"
+          if grep -E -n 'workflow_dispatch:|schedule:|pull_request:|branches:' "$workflow"; then
+            echo 'Release workflow must be tag-only.' >&2
+            exit 1
+          fi
+          test "$(grep -c 'contents: write' "$workflow")" -eq 1
+          test "$(grep -c 'contents: read' "$workflow")" -ge 1
+          publish_line="$(grep -n '^  publish-release:' "$workflow" | cut -d: -f1)"
+          write_line="$(grep -n '^      contents: write' "$workflow" | cut -d: -f1)"
+          test -n "$publish_line"
+          test -n "$write_line"
+          test "$write_line" -gt "$publish_line"
+          grep -F 'node scripts/release-preflight.mjs "${GITHUB_REF_NAME}"' "$workflow"
+          grep -F 'gh release create "${GITHUB_REF_NAME}"' "$workflow"
+          grep -F -- '--draft' "$workflow"
+          grep -F 'gh release edit "${GITHUB_REF_NAME}" --draft=false' "$workflow"
+          echo 'release-workflow-static-preflight=PASS'
+
   runtime-deployment-bundle:
     runs-on: ubuntu-latest
     steps:
@@ -169,13 +225,34 @@ jobs:
           tmux -V
       - name: Install repository dependencies
         run: npm ci
-      - name: Build exact runtime archive and SHA-256
-        run: npm run package:runtime
+      - name: Resolve runtime package metadata
+        shell: bash
+        run: |
+          package_name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          bundle_name="${package_name}-v${version}"
+          archive_name="${bundle_name}.tar.gz"
+          echo "PACKAGE_VERSION=${version}" >> "$GITHUB_ENV"
+          echo "BUNDLE_NAME=${bundle_name}" >> "$GITHUB_ENV"
+          echo "ARCHIVE_NAME=${archive_name}" >> "$GITHUB_ENV"
+          echo "CHECKSUM_NAME=${archive_name}.sha256" >> "$GITHUB_ENV"
+      - name: Build deterministic runtime archive and SHA-256
+        shell: bash
+        run: |
+          npm run package:runtime
+          first_digest="$(awk '{print $1}' "artifacts/${CHECKSUM_NAME}")"
+          npm run package:runtime
+          second_digest="$(awk '{print $1}' "artifacts/${CHECKSUM_NAME}")"
+          test "$first_digest" = "$second_digest"
+          echo "RUNTIME_SHA256=${second_digest}" >> "$GITHUB_ENV"
+          echo "archive=${ARCHIVE_NAME}"
+          echo "sha256=${second_digest}"
+          echo 'deterministic-runtime-package=PASS'
       - name: Verify checksum and extract into an empty directory
         shell: bash
         run: |
-          archive="${GITHUB_WORKSPACE}/artifacts/agent-runtime-mcp-v0.1.0.tar.gz"
-          checksum="${archive}.sha256"
+          archive="${GITHUB_WORKSPACE}/artifacts/${ARCHIVE_NAME}"
+          checksum="${GITHUB_WORKSPACE}/artifacts/${CHECKSUM_NAME}"
           test -f "$archive"
           test -f "$checksum"
           (cd "$(dirname "$archive")" && sha256sum -c "$(basename "$checksum")")
@@ -185,29 +262,35 @@ jobs:
           mkdir -p "$extract_root"
           tar -xzf "$archive" -C "$extract_root"
 
-          package_root="${extract_root}/agent-runtime-mcp-v0.1.0"
+          package_root="${extract_root}/${BUNDLE_NAME}"
           test -f "${package_root}/dist/src/server.js"
           test -f "${package_root}/package.json"
           test -f "${package_root}/package-lock.json"
           test -f "${package_root}/README.md"
+          test -x "${package_root}/deployment/tmux-endpoint-keeper.sh"
           test ! -e "${package_root}/src"
           test ! -e "${package_root}/tests"
           test ! -e "${package_root}/dist/tests"
           test ! -e "${package_root}/scripts"
           test ! -e "${package_root}/node_modules"
           test ! -e "${package_root}/tsconfig.json"
+          test ! -e "${package_root}/.github"
+          test ! -e "${package_root}/docs"
           echo "PACKAGE_ROOT=${package_root}" >> "$GITHUB_ENV"
+          echo 'clean-archive-shape=PASS'
       - name: Clean-room production install
         shell: bash
         run: npm ci --omit=dev
         working-directory: ${{ env.PACKAGE_ROOT }}
-      - name: Packaged stdio health and list_channels proof
+      - name: Packaged stdio runtime and six-Tool proof
         run: node scripts/verify-runtime-package.mjs "${PACKAGE_ROOT}"
+      - name: Packaged deployment-layer keeper recovery proof
+        run: node scripts/verify-tmux-endpoint-keeper.mjs "${PACKAGE_ROOT}"
       - name: Upload verified deployment bundle evidence
         uses: actions/upload-artifact@v4
         with:
-          name: agent-runtime-mcp-v0.1.0-${{ github.sha }}
+          name: ${{ env.BUNDLE_NAME }}-sha256-${{ env.RUNTIME_SHA256 }}-${{ github.sha }}
           path: |
-            artifacts/agent-runtime-mcp-v0.1.0.tar.gz
-            artifacts/agent-runtime-mcp-v0.1.0.tar.gz.sha256
+            artifacts/${{ env.ARCHIVE_NAME }}
+            artifacts/${{ env.CHECKSUM_NAME }}
           if-no-files-found: error

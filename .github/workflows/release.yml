@@ -1,0 +1,235 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+jobs:
+  verify-release:
+    runs-on: ubuntu-latest
+    outputs:
+      bundle_name: ${{ steps.metadata.outputs.bundle_name }}
+      archive_name: ${{ steps.metadata.outputs.archive_name }}
+      checksum_name: ${{ steps.metadata.outputs.checksum_name }}
+      runtime_sha256: ${{ steps.package.outputs.runtime_sha256 }}
+      artifact_name: ${{ steps.package.outputs.artifact_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install tmux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux
+          tmux -V
+      - name: Install repository dependencies
+        run: npm ci
+      - name: Validate immutable tag identity and checked-in release note
+        shell: bash
+        run: |
+          test "${GITHUB_REF_TYPE}" = 'tag'
+          head_commit="$(git rev-parse HEAD)"
+          tagged_commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"
+          test "$head_commit" = "$tagged_commit"
+          test "$head_commit" = "$GITHUB_SHA"
+          node scripts/release-preflight.mjs "${GITHUB_REF_NAME}"
+          echo "release-tag=${GITHUB_REF_NAME}"
+          echo "tagged-commit=${tagged_commit}"
+      - name: Resolve release artifact metadata
+        id: metadata
+        shell: bash
+        run: |
+          package_name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          bundle_name="${package_name}-v${version}"
+          archive_name="${bundle_name}.tar.gz"
+          checksum_name="${archive_name}.sha256"
+          echo "bundle_name=${bundle_name}" >> "$GITHUB_OUTPUT"
+          echo "archive_name=${archive_name}" >> "$GITHUB_OUTPUT"
+          echo "checksum_name=${checksum_name}" >> "$GITHUB_OUTPUT"
+          echo "BUNDLE_NAME=${bundle_name}" >> "$GITHUB_ENV"
+          echo "ARCHIVE_NAME=${archive_name}" >> "$GITHUB_ENV"
+          echo "CHECKSUM_NAME=${checksum_name}" >> "$GITHUB_ENV"
+      - name: Build deterministic release archive from exact tag
+        id: package
+        shell: bash
+        run: |
+          npm run package:runtime
+          first_digest="$(awk '{print $1}' "artifacts/${CHECKSUM_NAME}")"
+          npm run package:runtime
+          second_digest="$(awk '{print $1}' "artifacts/${CHECKSUM_NAME}")"
+          test "$first_digest" = "$second_digest"
+          artifact_name="release-${BUNDLE_NAME}-sha256-${second_digest}"
+          echo "runtime_sha256=${second_digest}" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=${artifact_name}" >> "$GITHUB_OUTPUT"
+          echo "release-archive=${ARCHIVE_NAME}"
+          echo "release-sha256=${second_digest}"
+          echo 'deterministic-release-package=PASS'
+      - name: Verify checksum and clean archive shape
+        shell: bash
+        run: |
+          archive="${GITHUB_WORKSPACE}/artifacts/${ARCHIVE_NAME}"
+          checksum="${GITHUB_WORKSPACE}/artifacts/${CHECKSUM_NAME}"
+          test -f "$archive"
+          test -f "$checksum"
+          (cd "$(dirname "$archive")" && sha256sum -c "$(basename "$checksum")")
+
+          extract_root="${RUNNER_TEMP}/agent-runtime-mcp-release-package"
+          rm -rf "$extract_root"
+          mkdir -p "$extract_root"
+          tar -xzf "$archive" -C "$extract_root"
+
+          package_root="${extract_root}/${BUNDLE_NAME}"
+          test -f "${package_root}/dist/src/server.js"
+          test -f "${package_root}/package.json"
+          test -f "${package_root}/package-lock.json"
+          test -f "${package_root}/README.md"
+          test -x "${package_root}/deployment/tmux-endpoint-keeper.sh"
+          test ! -e "${package_root}/src"
+          test ! -e "${package_root}/tests"
+          test ! -e "${package_root}/dist/tests"
+          test ! -e "${package_root}/scripts"
+          test ! -e "${package_root}/node_modules"
+          test ! -e "${package_root}/tsconfig.json"
+          test ! -e "${package_root}/.github"
+          test ! -e "${package_root}/docs"
+          echo "PACKAGE_ROOT=${package_root}" >> "$GITHUB_ENV"
+      - name: Clean-room production install
+        run: npm ci --omit=dev
+        working-directory: ${{ env.PACKAGE_ROOT }}
+      - name: Verify packaged stdio runtime and exact six Tools
+        run: node scripts/verify-runtime-package.mjs "${PACKAGE_ROOT}"
+      - name: Verify packaged keeper recovery
+        run: node scripts/verify-tmux-endpoint-keeper.mjs "${PACKAGE_ROOT}"
+      - name: Upload verified exact-tag release assets for publication job
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.artifact_name }}
+          path: |
+            artifacts/${{ steps.metadata.outputs.archive_name }}
+            artifacts/${{ steps.metadata.outputs.checksum_name }}
+          if-no-files-found: error
+
+  publish-release:
+    needs: verify-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Revalidate tag identity before publication
+        shell: bash
+        run: |
+          test "${GITHUB_REF_TYPE}" = 'tag'
+          head_commit="$(git rev-parse HEAD)"
+          tagged_commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"
+          test "$head_commit" = "$tagged_commit"
+          test "$head_commit" = "$GITHUB_SHA"
+          node scripts/release-preflight.mjs "${GITHUB_REF_NAME}"
+      - name: Download verified release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.verify-release.outputs.artifact_name }}
+          path: artifacts
+      - name: Reverify downloaded release assets
+        shell: bash
+        run: |
+          archive_name='${{ needs.verify-release.outputs.archive_name }}'
+          checksum_name='${{ needs.verify-release.outputs.checksum_name }}'
+          expected_digest='${{ needs.verify-release.outputs.runtime_sha256 }}'
+          test -f "artifacts/${archive_name}"
+          test -f "artifacts/${checksum_name}"
+          (cd artifacts && sha256sum -c "$checksum_name")
+          actual_digest="$(awk '{print $1}' "artifacts/${checksum_name}")"
+          test "$actual_digest" = "$expected_digest"
+          echo "publication-sha256=${actual_digest}"
+      - name: Fail closed if a Release already exists for this immutable tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          response_file="${RUNNER_TEMP}/existing-release.json"
+          http_code="$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}")"
+          case "$http_code" in
+            404)
+              echo 'existing-release=NONE'
+              ;;
+            200)
+              echo "A GitHub Release already exists for ${GITHUB_REF_NAME}; refusing to overwrite it." >&2
+              cat "$response_file" >&2
+              exit 1
+              ;;
+            *)
+              echo "Unable to establish existing Release state; HTTP ${http_code}." >&2
+              cat "$response_file" >&2
+              exit 1
+              ;;
+          esac
+      - name: Create recoverable draft Release with verified assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            "artifacts/${{ needs.verify-release.outputs.archive_name }}" \
+            "artifacts/${{ needs.verify-release.outputs.checksum_name }}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file "docs/releases/${GITHUB_REF_NAME}.md" \
+            --draft \
+            --verify-tag
+      - name: Verify draft Release asset set before publication
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_ARCHIVE: ${{ needs.verify-release.outputs.archive_name }}
+          EXPECTED_CHECKSUM: ${{ needs.verify-release.outputs.checksum_name }}
+        run: |
+          release_json="${RUNNER_TEMP}/draft-release.json"
+          gh release view "${GITHUB_REF_NAME}" --json tagName,isDraft,assets > "$release_json"
+          RELEASE_JSON="$release_json" node --input-type=module <<'NODE'
+          import { readFile } from 'node:fs/promises';
+          const release = JSON.parse(await readFile(process.env.RELEASE_JSON, 'utf8'));
+          if (release.tagName !== process.env.GITHUB_REF_NAME) throw new Error('draft Release tag mismatch');
+          if (release.isDraft !== true) throw new Error('Release must remain draft until asset verification completes');
+          const actual = release.assets.map((asset) => asset.name).sort();
+          const expected = [process.env.EXPECTED_ARCHIVE, process.env.EXPECTED_CHECKSUM].sort();
+          if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+            throw new Error(`draft Release assets mismatch: ${JSON.stringify(actual)}`);
+          }
+          console.log(`draft-release-assets=${actual.join(',')}`);
+          NODE
+      - name: Publish verified Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${GITHUB_REF_NAME}" --draft=false
+      - name: Confirm published Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release_json="${RUNNER_TEMP}/published-release.json"
+          gh release view "${GITHUB_REF_NAME}" --json tagName,isDraft,assets,url > "$release_json"
+          RELEASE_JSON="$release_json" node --input-type=module <<'NODE'
+          import { readFile } from 'node:fs/promises';
+          const release = JSON.parse(await readFile(process.env.RELEASE_JSON, 'utf8'));
+          if (release.tagName !== process.env.GITHUB_REF_NAME) throw new Error('published Release tag mismatch');
+          if (release.isDraft !== false) throw new Error('Release did not become public');
+          console.log(`published-release=${release.url}`);
+          console.log(`published-assets=${release.assets.map((asset) => asset.name).sort().join(',')}`);
+          NODE
