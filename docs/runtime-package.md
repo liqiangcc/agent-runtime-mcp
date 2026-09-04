@@ -1,8 +1,15 @@
-# v0.1.0 Runtime Deployment Bundle
+# Runtime Deployment Bundle
 
-`agent-runtime-mcp-v0.1.0.tar.gz` is the runnable deployment artifact for the accepted Channel MCP MVP.
+The release archive is named from the declared package version:
 
-It is a generic MCP communication layer for already-existing interactive terminal Channels, with tmux as the first backend.
+```text
+agent-runtime-mcp-v<version>.tar.gz
+agent-runtime-mcp-v<version>.tar.gz.sha256
+```
+
+For release `v0.1.1`, `<version>` is `0.1.1`. Future runtime bundles use the version declared by `package.json`; the packaging path is not pinned to a specific historical release.
+
+The bundle is a runnable deployment artifact for the accepted Channel MCP. It is a generic MCP communication layer for already-existing interactive terminal Channels, with tmux as the first backend.
 
 ## Host prerequisites
 
@@ -14,17 +21,19 @@ npm
 tmux
 ```
 
-The archive does not bundle Node.js, npm, tmux, `node_modules`, TypeScript source, tests, or build tooling.
+The archive does not bundle Node.js, npm, tmux, `node_modules`, TypeScript source, tests, repository scripts, or build tooling.
 
 ## Verify and extract
 
-When the checksum file is distributed beside the archive:
+Replace `<version>` with the release version you downloaded:
 
 ```bash
-sha256sum -c agent-runtime-mcp-v0.1.0.tar.gz.sha256
-tar -xzf agent-runtime-mcp-v0.1.0.tar.gz
-cd agent-runtime-mcp-v0.1.0
+sha256sum -c agent-runtime-mcp-v<version>.tar.gz.sha256
+tar -xzf agent-runtime-mcp-v<version>.tar.gz
+cd agent-runtime-mcp-v<version>
 ```
+
+The checksum file is part of the formal release asset set and is generated from the exact release archive. Do not substitute a checksum copied from release-note prose.
 
 ## Install production dependencies
 
@@ -34,17 +43,64 @@ npm ci --omit=dev
 
 The packaged application is already compiled. The target host does not run TypeScript compilation.
 
-## Prepare tmux outside the MCP
+## Prepare or recover the tmux endpoint outside the MCP
 
-`agent-runtime-mcp` only communicates with already-existing tmux panes. Endpoint creation, process startup, restart, recovery, and cleanup remain external operator responsibilities.
+`agent-runtime-mcp` only communicates with existing tmux panes. Endpoint creation, supervision and recovery remain deployment/operator responsibilities.
 
-For example, an operator may prepare a tmux server/session separately:
+The bundle includes the accepted operator-side helper:
+
+```text
+deployment/tmux-endpoint-keeper.sh
+```
+
+It exposes only two deployment commands:
+
+```text
+ensure  # idempotently create the reserved keeper session when missing
+status  # report available/degraded/unavailable without mutation
+```
+
+The helper is shipped executable. It uses the same endpoint-selection variables as the tmux backend:
+
+```text
+TMUX_SOCKET_NAME
+TMUX_SOCKET_PATH
+TMUX_KEEPER_SESSION
+```
+
+`TMUX_SOCKET_NAME` and `TMUX_SOCKET_PATH` are mutually exclusive. When neither is set, the helper defaults to socket name `agent-runtime`; `TMUX_KEEPER_SESSION` defaults to `agent-runtime-keeper`.
+
+Example:
+
+```bash
+TMUX_SOCKET_NAME=agent-runtime \
+TMUX_KEEPER_SESSION=agent-runtime-keeper \
+  ./deployment/tmux-endpoint-keeper.sh ensure
+
+TMUX_SOCKET_NAME=agent-runtime \
+TMUX_KEEPER_SESSION=agent-runtime-keeper \
+  ./deployment/tmux-endpoint-keeper.sh status
+```
+
+The intended recovery sequence is:
+
+```text
+configured tmux endpoint absent
+→ public MCP health reports available=false
+→ deployment helper ensure
+→ tmux endpoint/keeper exists
+→ the same running MCP process reports available=true
+```
+
+If the tmux server later disappears, the operator/supervisor invokes `ensure` again. The MCP itself does not recreate the endpoint.
+
+Application sessions may still be prepared separately with native tmux, for example:
 
 ```bash
 tmux -L agent-runtime new-session -d -s demo
 ```
 
-This native tmux command is an operator action; it is not performed by the MCP or by the deployment package.
+If application sessions should be the only discoverable Channels, configure `TMUX_ALLOWED_SESSIONS` so the reserved keeper session is outside the visible Channel set.
 
 ## Run the packaged stdio MCP server
 
@@ -80,19 +136,19 @@ health
 
 ## Deployment boundary
 
-This archive is a runnable application artifact, not deployment infrastructure.
+This archive is a runnable application artifact plus focused operator-side keeper support. The helper does not become an MCP capability and does not grant product-owned lifecycle authority.
 
-It does not provide or manage:
+The bundle does not define or manage:
 
 ```text
-systemd or another supervisor
+systemd or another supervisor policy
 Docker/container policy
 tunnel/proxy/provider configuration
 network listeners or reachability
 TLS/DNS/firewall
 authentication/authorization topology
 host provisioning
-tmux endpoint lifecycle
+automatic tmux endpoint recovery policy
 ```
 
 If the MCP is exposed beyond a trusted local process boundary, the operator/deployment layer is responsible for suitable access control and transport security.

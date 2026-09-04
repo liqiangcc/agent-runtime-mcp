@@ -1,17 +1,22 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { resolve } from 'node:path';
+import { readFile, stat } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { Client } from '@modelcontextprotocol/client';
 import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 const execFileAsync = promisify(execFile);
 const EXPECTED_TOOLS = ['get_channel', 'health', 'list_channels', 'read_channel', 'send_control', 'write_text'];
+const runtimeRootArg = process.argv[2];
+const runtimeRoot = resolve(runtimeRootArg ?? '.');
+const runtimeManifest = JSON.parse(await readFile(join(runtimeRoot, 'package.json'), 'utf8'));
 const socketName = `agent-runtime-keeper-${process.pid}-${Date.now()}`;
 const keeperSession = `keeper-${process.pid}-${Date.now()}`;
 const workerSession = `worker-${process.pid}-${Date.now()}`;
 const safeEnvironment = getDefaultEnvironment();
-const keeperScript = resolve('deployment/tmux-endpoint-keeper.sh');
+const keeperScript = join(runtimeRoot, 'deployment', 'tmux-endpoint-keeper.sh');
+const serverScript = join(runtimeRoot, 'dist', 'src', 'server.js');
 const deploymentEnvironment = {
   ...safeEnvironment,
   TMUX_SOCKET_NAME: socketName,
@@ -41,7 +46,7 @@ async function tmux(...args) {
 }
 
 async function keeper(command) {
-  return execFileAsync('bash', [keeperScript, command], {
+  return execFileAsync(keeperScript, [command], {
     encoding: 'utf8',
     timeout: 5000,
     maxBuffer: 1024 * 1024,
@@ -54,13 +59,17 @@ async function health(client) {
   return asRecord(payload.health, 'health.health');
 }
 
+const keeperStats = await stat(keeperScript);
+assert.equal(keeperStats.isFile(), true, 'keeper helper must be a regular file');
+assert.notEqual(keeperStats.mode & 0o111, 0, 'keeper helper must be executable');
+
 await tmux('kill-server').catch(() => undefined);
 
-const client = new Client({ name: 'tmux-endpoint-keeper-verifier', version: '0.1.0' });
+const client = new Client({ name: 'tmux-endpoint-keeper-verifier', version: runtimeManifest.version });
 const transport = new StdioClientTransport({
   command: 'node',
-  args: ['dist/src/server.js'],
-  cwd: process.cwd(),
+  args: [serverScript],
+  cwd: runtimeRoot,
   env: {
     ...safeEnvironment,
     TMUX_SOCKET_NAME: socketName,
@@ -75,6 +84,8 @@ try {
   const toolNames = toolList.tools.map((tool) => tool.name).sort();
   assert.deepEqual(toolNames, EXPECTED_TOOLS);
   console.log(`public-tools=${toolNames.join(',')}`);
+  console.log(`keeper-runtime-root=${runtimeRoot}`);
+  console.log(`packaged-runtime=${runtimeRootArg ? 'yes' : 'no'}`);
 
   let statusFailed = false;
   try {
@@ -114,8 +125,8 @@ try {
   assert.equal(afterRecovery.available, true);
   console.log('health-after-recovery=healthy');
 
-  const status = await keeper('status');
-  assert.match(status.stdout, /available/);
+  const statusResult = await keeper('status');
+  assert.match(statusResult.stdout, /available/);
   await tmux('has-session', '-t', `=${keeperSession}`);
 
   console.log(`candidate=${process.env.GITHUB_SHA ?? 'local'}`);

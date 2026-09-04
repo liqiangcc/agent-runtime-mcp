@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { access, readFile, readdir } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { access, readFile, readdir, stat } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { Client } from '@modelcontextprotocol/client';
 import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 const execFileAsync = promisify(execFile);
 const EXPECTED_TOOLS = ['get_channel', 'health', 'list_channels', 'read_channel', 'send_control', 'write_text'];
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(scriptDir, '..');
+const sourceManifest = JSON.parse(await readFile(join(repoRoot, 'package.json'), 'utf8'));
 
 function asRecord(value, label) {
   assert.ok(value !== null && typeof value === 'object' && !Array.isArray(value), `${label} must be an object`);
@@ -53,6 +57,7 @@ const requiredPaths = [
   'package.json',
   'package-lock.json',
   'dist/src/server.js',
+  'deployment/tmux-endpoint-keeper.sh',
 ];
 for (const path of requiredPaths) {
   assert.equal(await exists(join(packageRoot, path)), true, `missing required package path: ${path}`);
@@ -75,21 +80,31 @@ for (const path of forbiddenPaths) {
 
 const topLevel = (await readdir(packageRoot)).sort();
 for (const entry of topLevel) {
-  assert.ok(['LICENSE', 'README.md', 'dist', 'node_modules', 'package-lock.json', 'package.json'].includes(entry), `unexpected top-level runtime entry: ${entry}`);
+  assert.ok(
+    ['LICENSE', 'README.md', 'deployment', 'dist', 'node_modules', 'package-lock.json', 'package.json'].includes(entry),
+    `unexpected top-level runtime entry: ${entry}`,
+  );
 }
 assert.deepEqual((await readdir(join(packageRoot, 'dist'))).sort(), ['src']);
+assert.deepEqual((await readdir(join(packageRoot, 'deployment'))).sort(), ['tmux-endpoint-keeper.sh']);
+
+const keeperStats = await stat(join(packageRoot, 'deployment', 'tmux-endpoint-keeper.sh'));
+assert.equal(keeperStats.isFile(), true, 'packaged keeper helper must be a regular file');
+assert.notEqual(keeperStats.mode & 0o111, 0, 'packaged keeper helper must remain executable');
 
 const manifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
-assert.equal(manifest.name, 'agent-runtime-mcp');
-assert.equal(manifest.version, '0.1.0');
+assert.equal(manifest.name, sourceManifest.name);
+assert.equal(manifest.version, sourceManifest.version);
 assert.equal(manifest.private, true);
-assert.equal(manifest.description, 'Generic MCP communication layer for already-existing interactive terminal Channels, with tmux as the first backend.');
+assert.equal(manifest.description, sourceManifest.description);
 assert.deepEqual(manifest.scripts, { start: 'node dist/src/server.js' });
 assert.equal(manifest.devDependencies, undefined);
 
 const lock = JSON.parse(await readFile(join(packageRoot, 'package-lock.json'), 'utf8'));
-assert.equal(lock.name, 'agent-runtime-mcp');
-assert.equal(lock.version, '0.1.0');
+assert.equal(lock.name, sourceManifest.name);
+assert.equal(lock.version, sourceManifest.version);
+assert.equal(lock.packages[''].name, sourceManifest.name);
+assert.equal(lock.packages[''].version, sourceManifest.version);
 assert.equal(lock.packages[''].devDependencies, undefined);
 for (const [packagePath, metadata] of Object.entries(lock.packages)) {
   assert.notEqual(metadata?.dev, true, `dev-only package leaked into runtime lockfile: ${packagePath}`);
@@ -108,7 +123,7 @@ const safeEnvironment = getDefaultEnvironment();
 // Endpoint lifecycle is intentionally external to the packaged MCP process.
 await tmux(socketName, 'new-session', '-d', '-s', allowedSession);
 
-const client = new Client({ name: 'agent-runtime-mcp-package-verifier', version: '0.1.0' });
+const client = new Client({ name: 'agent-runtime-mcp-package-verifier', version: sourceManifest.version });
 const transport = new StdioClientTransport({
   command: 'npm',
   args: ['--silent', 'start'],
@@ -125,7 +140,9 @@ try {
   await client.connect(transport);
 
   const toolList = await client.listTools();
-  assert.deepEqual(toolList.tools.map((tool) => tool.name).sort(), EXPECTED_TOOLS);
+  const toolNames = toolList.tools.map((tool) => tool.name).sort();
+  assert.deepEqual(toolNames, EXPECTED_TOOLS);
+  console.log(`packaged-public-tools=${toolNames.join(',')}`);
 
   const healthPayload = requireSuccess(await callTool(client, 'health'), 'health');
   const health = asRecord(healthPayload.health, 'health.health');
@@ -140,6 +157,7 @@ try {
   assert.equal(channel.backend_kind, 'tmux');
   assert.equal(channel.state, 'available');
   assert.deepEqual(channel.capabilities, ['read', 'write-text', 'control']);
+  console.log(`packaged-runtime-version=${manifest.version}`);
 } finally {
   await client.close().catch(() => undefined);
   await tmux(socketName, 'kill-server').catch(() => undefined);
