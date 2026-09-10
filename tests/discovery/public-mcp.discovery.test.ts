@@ -122,6 +122,22 @@ test('official stdio client discovers only the allowed externally prepared tmux 
     const afterRead = requireSuccess(await client.callTool({ name: 'read_channel', arguments: { channel_id: String(channel.channel_id), lines: 20, bytes: 4096 } }), 'read after wait');
     assert.equal(asRecord(afterRead.read, 'read').channel_id, String(channel.channel_id));
     console.log('STDIO_WAIT_EVIDENCE', JSON.stringify({ reason: waited.reason, elapsed_ms: Date.now() - waitStarted, next_cursor: typeof waited.next_cursor === 'string' }));
+
+    const cancel = new AbortController();
+    const cancelStarted = Date.now();
+    const cancelled = client.callTool({ name: 'wait_channel_event', arguments: { channel_id: String(channel.channel_id), after_cursor: observation.cursor, idle_ms: 250, timeout_ms: 5000 } }, { signal: cancel.signal });
+    setTimeout(() => cancel.abort(), 100);
+    let cancelledResult: unknown;
+    try { cancelledResult = await cancelled; } catch { cancelledResult = undefined; }
+    assert.ok(Date.now() - cancelStarted < 2000);
+    console.log('STDIO_CANCEL_EVIDENCE', JSON.stringify({ elapsed_ms: Date.now() - cancelStarted, released: true, response_error: (cancelledResult as { isError?: boolean } | undefined)?.isError === true }));
+
+    const disconnectStarted = Date.now();
+    const disconnected = client.callTool({ name: 'wait_channel_event', arguments: { channel_id: String(channel.channel_id), after_cursor: observation.cursor, idle_ms: 250, timeout_ms: 5000 } });
+    setTimeout(() => { void client.close(); }, 100);
+    await disconnected.catch(() => undefined);
+    assert.ok(Date.now() - disconnectStarted < 2000);
+    console.log('STDIO_DISCONNECT_EVIDENCE', JSON.stringify({ elapsed_ms: Date.now() - disconnectStarted, waiter_released: true }));
   } finally {
     await client.close().catch(() => undefined);
     await tmux(socketName, 'kill-server').catch(() => undefined);
