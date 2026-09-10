@@ -7,7 +7,7 @@ import { Client } from '@modelcontextprotocol/client';
 import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 const execFileAsync = promisify(execFile);
-const EXPECTED_TOOLS = ['get_channel', 'health', 'list_channels', 'read_channel', 'send_control', 'write_text'];
+const EXPECTED_TOOLS = ['get_channel', 'health', 'list_channels', 'read_channel', 'send_control', 'wait_channel_event', 'write_text'];
 const runtimeRootArg = process.argv[2];
 const runtimeRoot = resolve(runtimeRootArg ?? '.');
 const runtimeManifest = JSON.parse(await readFile(join(runtimeRoot, 'package.json'), 'utf8'));
