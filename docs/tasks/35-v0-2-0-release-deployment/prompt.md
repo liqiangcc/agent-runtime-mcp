@@ -12,8 +12,11 @@ main. Confirm the Issue is `status:ready` with owner none before claiming an
 Attempt; this draft is not claimable until the Coordinator passes Publication
 Gate.
 
-The target is accepted main
-`a921067ebaa8c38b7c8ee6a0b879d1c6671d53f0` and package version `0.2.0`.
+The accepted implementation baseline is main
+`a921067ebaa8c38b7c8ee6a0b879d1c6671d53f0`; package version is `0.2.0`. The
+final tag target must be freshly resolved from canonical `main` after the
+reviewed release-note correction is integrated, rather than assuming the
+baseline SHA.
 Prepare exact-tag release and a reversible switch of the existing Linux
 `agent-runtime-mcp-tunnel.service` bridge only after explicit Coordinator
 authorization. Keep the existing v0.1.1 runtime and checksum as rollback.

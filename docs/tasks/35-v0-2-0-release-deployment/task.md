@@ -11,9 +11,10 @@ Candidate commit: n/a
 Session bootstrap: docs/tasks/35-v0-2-0-release-deployment/prompt.md
 Preferred worker: coordinator-authorized-codex-a
 Environment: env:codex
-Handoff profile: docs/tasks/handoffs/web-gpt.md
+Handoff profile: docs/tasks/handoffs/codex.md
 Required capabilities: github-read-write, github-actions-evidence, release-tag-and-release-write, linux-systemd-read-write, package-installation, tmux-read-only-observation
 Hard dependencies: Issue #32 final acceptance; Issue #29 v0.1.1 release record; accepted main a921067ebaa8c38b7c8ee6a0b879d1c6671d53f0
+Release target: resolve to the exact canonical-main SHA after the reviewed v0.2.0 release-note correction is integrated; a921067 is the accepted implementation baseline, not a fixed final tag target
 ```
 
 Live Task state belongs in Issue #35. This draft is a preparation contract;
@@ -37,8 +38,11 @@ Trigger:
 Coordinator authorizes publication and cutover after this preparation gate
 
 Preconditions:
-- Issue #32 is complete and remains closed; accepted implementation is on
+- Issue #32 is complete and remains closed; accepted implementation baseline is
   main at a921067ebaa8c38b7c8ee6a0b879d1c6671d53f0.
+- The final release target is freshly resolved from canonical `main` after any
+  reviewed release-note correction is integrated; it must not be assumed to be
+  the baseline SHA.
 - Current metadata, lockfile and release note identify v0.2.0.
 - Existing v0.1.1 Release/tag and rollback archive remain available and their
   recorded checksum matches the local rollback copy.
@@ -46,12 +50,13 @@ Preconditions:
   without exposing credentials; visible application sessions are known.
 
 Main flow:
-1. run version/release preflight and build the v0.2.0 archive from the exact
-   accepted main/tag commit;
+1. fetch canonical `main`, resolve its exact post-correction release target
+   SHA, and run version/release preflight against that commit;
 2. verify checksum, clean-room production install, seven-tool discovery and
    accepted Issue #32 wait evidence;
-3. create immutable v0.2.0 tag and let the tag-only workflow publish exactly
-   the verified archive/checksum (Coordinator action);
+3. create immutable v0.2.0 tag at that resolved canonical-main SHA and let the
+   tag-only workflow publish exactly the verified archive/checksum (Coordinator
+   action);
 4. stage the downloaded release under a versioned runtime directory, install
    production dependencies and verify the staged stdio server;
 5. record service/bridge configuration and tmux inventory, then perform one
@@ -222,7 +227,9 @@ commands must be bounded, redact secrets and preserve unrelated tmux channels.
 
 ## Implementation Requirements
 
-1. Re-read live #32 acceptance and verify exact accepted main SHA.
+1. Re-read live #32 acceptance and verify accepted baseline a921067; after the
+   release-note correction is integrated, resolve and record the new exact
+   canonical-main SHA that will receive the v0.2.0 tag.
 2. Verify package/lock/runtime/release-note identity for `0.2.0`; use the
    tag-only workflow for formal assets.
 3. Independently verify checksum, extracted package, seven tools and accepted
@@ -241,7 +248,8 @@ commands must be bounded, redact secrets and preserve unrelated tmux channels.
 ## Claims / Verification
 
 ```text
-C1: exact accepted main/tag/release identity is consistent for v0.2.0.
+C1: the final v0.2.0 tag/release identity is consistent with the exact
+    post-correction canonical-main SHA (a921067 is baseline evidence only).
 C2: v0.2.0 archive and checksum are independently verified from the Release.
 C3: staged package exposes the accepted seven-tool surface and wait behavior.
 C4: v0.1.1 rollback archive/checksum remain available and verify.
@@ -254,8 +262,8 @@ C8: rollback restores v0.1.1 when cutover checks fail or authorization is
 
 ## Success Criteria
 
-1. SC1: v0.2.0 tag, Release assets and checksum point to accepted main and pass
-   release workflow verification.
+1. SC1: v0.2.0 tag, Release assets and checksum point to the exact
+   post-correction canonical-main SHA and pass release workflow verification.
 2. SC2: clean-room staged package verifies exactly seven public tools and the
    accepted Issue #32 observation/wait contract.
 3. SC3: v0.1.1 rollback archive and checksum remain available and verify.
@@ -277,10 +285,13 @@ servers, expose credentials or lower a failed criterion.
 ## Publication Dependency / Alignment Gate
 
 Before this Task can become `status:ready`, Coordinator must re-read closed
-Issue #32 acceptance, accepted main `a921067ebaa8c38b7c8ee6a0b879d1c6671d53f0`,
-the v0.2.0 release-note correction (if merged), and current host inventory.
-The Task stays draft until release/cutover authority, target service and
-rollback path are confirmed. No unaccepted branch may substitute for main.
+Issue #32 acceptance and accepted implementation baseline
+`a921067ebaa8c38b7c8ee6a0b879d1c6671d53f0`, then fetch canonical `main` after
+the reviewed v0.2.0 release-note correction and record that resulting exact
+SHA as the release target. The Task stays draft until release/cutover
+authority, target service and rollback path are confirmed. No unaccepted branch
+may substitute for canonical main, and the baseline SHA must not be tagged if
+the correction has added a newer reviewed commit.
 
 ## Evidence Contract
 
