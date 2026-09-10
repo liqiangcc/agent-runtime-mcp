@@ -1,4 +1,4 @@
-# Issue #32 — proposed bounded Channel event-wait contract
+# Issue #32 — frozen bounded Channel event-wait contract
 
 This document is the detailed design companion to `task.md`. It records the Coordinator-accepted direction for canonical publication, while implementation, discovery-test execution and Publication Gate readiness remain pending.
 
@@ -105,7 +105,7 @@ The contract must explicitly state:
 - sampling failure, overrun or ring eviction is a continuity gap;
 - output_idle means “the sampler observed no snapshot change for the interval after at least one post-cursor change”, not “the process emitted no bytes”.
 
-An exact byte observer is not required for this design draft and should be a separate decision because it changes buffering, lifecycle and security properties.
+An exact byte observer is not required for this Contract and should be a separate decision because it changes buffering, lifecycle and security properties.
 
 ## Identity and fail-closed behavior
 
@@ -117,7 +117,7 @@ Do not use `%pane_id` as the sole identity:
 4. capture at most 200 lines/64 KiB;
 5. immediately repeat identity, `/proc` and visibility reads; discard the capture and invalidate observation on any mismatch/failure;
 6. invalidate the observer on server restart or any uncertain sample gap;
-7. if a pane disappears, return `channel_closed` only when both identity checks succeed, the server generation is unchanged and the authorized pane is absent; otherwise return `BACKEND_UNAVAILABLE`/`CHANNEL_INSTANCE_CHANGED`/`OBSERVATION_GAP`. A later appearance after a gap always requires fresh `observe:true`. Visibility is revalidated at wait registration and completion, so a pane moved/renamed out of the allowlist cannot keep an old lease authorized.
+7. if a pane may be absent, do not run target-specific capture: perform a separate scoped inventory query bracketed by stable server-generation and visibility reads. Return `channel_closed` only when both generation reads are stable and the authorized pane is absent from that inventory; otherwise return `BACKEND_UNAVAILABLE`/`CHANNEL_INSTANCE_CHANGED`/`OBSERVATION_GAP`. A later appearance after a gap always requires fresh `observe:true`. Visibility is revalidated at wait registration and completion, so a pane moved/renamed out of the allowlist cannot keep an old lease authorized.
 
 Session names and indices are mutable metadata, not lifetime identity. No wait result may claim `channel_closed` when the backend is merely unavailable or when disappearance/reappearance cannot be attributed to the same server generation. Exact probe output is in `probes.md`.
 
@@ -194,7 +194,7 @@ The final names may use the repository's existing `ChannelErrorCode` naming, but
 | identity | tmux server restart | CHANNEL_INSTANCE_CHANGED or equivalent; no rebind |
 | identity | pane disappears/reappears | fail closed unless same instance proven |
 | identity | identity/visibility changes before or after capture | discard sample; explicit continuity error |
-| closure | stable server, authorized pane absent before/after capture | confirmed `channel_closed` |
+| closure | stable generation reads bracket scoped inventory; authorized pane absent (no capture) | confirmed `channel_closed` |
 | backend | backend unavailable | explicit BACKEND_UNAVAILABLE, never channel_closed by guess |
 | composition | wait→read | real MCP client receives mechanical result then bounded read |
 | semantics | long silent command/waiting input | result remains output_idle/timeout only; no completed/success |
@@ -202,8 +202,8 @@ The final names may use the repository's existing `ChannelErrorCode` naming, but
 | existing | six-tool regression | original read/write/control/health behavior and security tests still pass |
 | scope | web wake-up | NOT_VERIFIED / out of scope; no claim of cross-round wake-up |
 
-## Resolved direction and remaining decisions
+## Frozen direction and activation
 
 Coordinator direction is resolved: use `get_channel(observe:true)` plus exactly one `wait_channel_event`; use `snapshot_change`; expose opaque `channel_instance`; omit `latest_cursor`; preserve the input cursor on timeout; and keep `BACKEND_UNAVAILABLE` distinct from confirmed same-server `channel_closed`.
 
-Remaining Publication Gate work is verification of the frozen v0.2.0 ceilings and canonical read-back. Seven-tool discovery/runtime tests and advertised host wait bounds belong to the later implementation Evidence, not this design publication.
+Activation is conditional on the Coordinator Publication Gate and live `status:ready` + successful claim. Seven-tool discovery/runtime tests and host-support evidence belong to the later implementation Candidate.

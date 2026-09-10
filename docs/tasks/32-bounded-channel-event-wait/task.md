@@ -1,20 +1,20 @@
-# Task 32 — bounded Channel event wait (design draft)
+# Task 32 — bounded Channel event wait (frozen implementation Contract)
 
-> **Draft status:** this package is a Coordinator-reviewable design proposal. It is not executable until the Coordinator freezes the Contract, applies any required canonical-document changes, passes the Publication Gate, and moves Issue #32 to `status:ready`.
+> **Activation condition:** this Contract is frozen for implementation preparation, but remains non-claimable until the Coordinator passes the Publication Gate, moves Issue #32 to `status:ready`, and the authorized Codex executor successfully claims an Attempt.
 
 ## Metadata
 
 ```text
 GitHub Issue: #32
 Task ID: 32-bounded-channel-event-wait
-Task kind: combined implementation + verification (design draft)
+Task kind: combined implementation + verification (frozen Contract; activation pending)
 Target feature version: v0.2.0
 Base commit: 1f2ad6579d4fb18cdbb8f7cb2c92630aa5d100d6
 Candidate commit: n/a (design branch only)
 Session bootstrap: docs/tasks/32-bounded-channel-event-wait/prompt.md
 Executor route: coordinator-authorized-codex-a (the existing tmux `a` session)
 Environment: env:codex
-Handoff profile: docs/tasks/handoffs/codex.md (reference only; no handoff is emitted during this draft)
+Handoff profile: docs/tasks/handoffs/codex.md (reference for the post-claim execution)
 Required capabilities: github-read-write, repository-code-authoring, github-actions-evidence, real-tmux-host-evidence
 Hard dependencies: Coordinator approval of the public-contract extension; canonical-main alignment before publication
 ```
@@ -274,7 +274,7 @@ The first tmux adapter must make identity executable on the supported Linux host
 
 1. invoke one structured `tmux -S <configured-socket> display-message -p -t <opaque-target> -F '<pid>|<session_id>|<window_id>|<pane_id>|<pane_pid>|<session_name>|<window_index>|<pane_index>'` command;
 2. parse `pid` and read `/proc/<pid>/stat` field 22 (server process starttime) plus `/proc/sys/kernel/random/boot_id`;
-3. validate pane fields and configured visibility, compare the complete tuple with the prior sample, then capture at most 200 lines/64 KiB;
+3. validate pane fields and configured visibility, compare the complete tuple with the prior sample, then capture at most 200 lines/64 KiB only when the pane is present;
 4. immediately repeat the identity and visibility reads; discard the capture and invalidate observation if any identity/scope check fails or changes.
 
 The observer binds each cursor to:
@@ -288,7 +288,7 @@ pane_identity        = server generation + pane ID (lifetime basis); session/win
 sequence             = bounded observer watermark
 ```
 
-The token is opaque and should be authenticated or unguessable; callers never construct it. Session names and window/pane indices are mutable location metadata, not lifetime identity. Tmux pane IDs alone are insufficient because a server restart can reset/reuse IDs. A pane process replacement is a new Channel instance unless continuity is explicitly proven. If the server identity changes, the observer is invalidated. A command failure or missing pane creates a gap; a later success after that gap cannot prove continuity, even when the pane id is reused, so fail closed with `CHANNEL_INSTANCE_CHANGED`/`OBSERVATION_GAP` and require a fresh cursor. If `/proc` identity reads are unavailable or contradictory, fail closed rather than downgrade identity. On a stable server generation, if the identity query succeeds before and after capture and the authorized pane is absent both times, return confirmed `channel_closed`; an unavailable/ambiguous server cannot prove closure and returns `BACKEND_UNAVAILABLE` or a continuity error instead.
+The token is opaque and should be authenticated or unguessable; callers never construct it. Session names and window/pane indices are mutable location metadata, not lifetime identity. Tmux pane IDs alone are insufficient because a server restart can reset/reuse IDs. A pane process replacement is a new Channel instance unless continuity is explicitly proven. If the server identity changes, the observer is invalidated. A command failure or missing pane creates a gap; a later success after that gap cannot prove continuity, even when the pane id is reused, so fail closed with `CHANNEL_INSTANCE_CHANGED`/`OBSERVATION_GAP` and require a fresh cursor. If `/proc` identity reads are unavailable or contradictory, fail closed rather than downgrade identity. For confirmed closure, first perform a scoped inventory query bracketed by stable server-generation reads; if the authorized pane is absent in that inventory, return `channel_closed` without attempting target-specific capture. An unavailable/ambiguous server or unstable generation cannot prove closure and returns `BACKEND_UNAVAILABLE` or a continuity error instead.
 
 Configured visibility is revalidated on every sample and at wait registration/completion. A pane moved or renamed out of the allowlist invalidates the observer and cannot retain authorization from an old lease.
 
@@ -439,17 +439,15 @@ Do not lower SCs or label snapshot quiet as exact silence to avoid a blocker. A 
 
 ## Publication Dependency / Alignment Gate
 
-This is a contract-before-implementation revision targeting v0.2.0. Canonical contract/design documents are published on this draft branch; seven-tool discovery tests, runtime wait acceptance, and real-host wait-window claims accompany the later implementation Candidate and are not prerequisites for this design publication. The current six-tool implementation remains the baseline until that Candidate adds the seventh tool. Probe timings below are feasibility evidence, not web-host support claims.
+This is a frozen v0.2.0 implementation Contract. Canonical contract/design documents are published on this branch; seven-tool discovery tests, runtime wait acceptance, and host-support claims accompany the later implementation Candidate. The current six-tool implementation remains the baseline until that Candidate adds the seventh tool.
 
-Before this draft can become executable, the Coordinator must:
+Activation requires the Coordinator to:
 
-1. decide whether `get_channel(observe=true)` is the acquisition surface or whether a separate observation tool is required;
-2. decide whether `observe` is a Channel capability and whether the selected observation model is acceptable for all supported backends;
-3. freeze cursor acknowledgement/timeout semantics and exact error names;
-4. verify the frozen v0.2.0 server ceilings on the implementation Candidate and separately measure host/client support; do not convert probe timings into web-host guarantees;
-5. update `docs/channel-model.md`, `docs/mcp-contract.md`, `docs/backends/tmux.md`, `docs/requirements.md`, `docs/security.md`, `README.md`, and discovery/test contracts as required;
-6. confirm no current main changes alter the Channel identity or six-tool baseline;
-7. pass Publication Gate and transition the Issue to `status:ready + owner:none` before the authorized Codex executor in the `a` session claims an implementation Attempt.
+1. re-read the accepted `get_channel(observe=true)`/`wait_channel_event` direction and frozen cursor/error semantics;
+2. confirm the aligned canonical documents and implementation Evidence route;
+3. confirm no current main changes alter the Channel identity or six-tool baseline;
+4. Confirm the Evidence route can verify frozen limits; actual Candidate verification occurs during implementation acceptance.
+5. pass Publication Gate and transition the Issue to `status:ready + owner:none` before the authorized Codex executor in the `a` session claims an implementation Attempt.
 
 ## Evidence Contract
 
@@ -467,4 +465,4 @@ six-tool regression plus exact seven-tool discovery result
 explicit snapshot limitations and web-host capability NOT_VERIFIED status
 ```
 
-This design-only Attempt records no product Candidate or runtime PASS. Any later implementation must produce exact-SHA Actions and host evidence before Coordinator Review.
+This frozen Contract contains no product Candidate or runtime PASS. Any later implementation must produce exact-SHA Actions and host evidence before Coordinator Review.

@@ -84,7 +84,7 @@ The result contains `reason: output_idle | timeout | channel_closed`, `channel_i
 
 The server uses a monotonic absolute deadline. A late backend sample completed at/after the deadline cannot beat `timeout`; a stale/overrun sample is a continuity error. Quiet is never application completion or success.
 
-For tmux, every sample revalidates configured visibility and the server-generation/pane identity immediately before and immediately after `capture-pane`; a mismatch or failed `/proc` identity read discards the capture and invalidates observation. Pane id plus server generation is the endpoint lifetime basis; session names and window/pane indices are mutable location metadata. A pane process replacement is a new Channel instance unless the backend can prove continuity.
+For tmux, every present-pane sample revalidates configured visibility and the server-generation/pane identity immediately before and immediately after `capture-pane`; a mismatch or failed `/proc` identity read discards the capture and invalidates observation. If the pane may be missing, the adapter performs a separate scoped inventory query bracketed by stable server-generation/visibility reads and does not attempt target-specific capture. Only that stable inventory absence may produce `channel_closed`; otherwise the result is an explicit backend/scope/continuity failure. Pane id plus server generation is the endpoint lifetime basis; session names and window/pane indices are mutable location metadata. A pane process replacement is a new Channel instance unless the backend can prove continuity.
 
 ### `read_channel`
 Read bounded recent output.
