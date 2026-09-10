@@ -14,7 +14,7 @@ import type {
   WriteTextOptions,
   WriteTextResult,
 } from './types.js';
-import { ObservationManager, type ObservationSample } from './observation.js';
+import { ObservationManager, type ObservationLifecycle, type ObservationSample } from './observation.js';
 
 const PANE_FORMAT = [
   '#{pane_id}',
@@ -152,11 +152,11 @@ export class TmuxBackend implements ChannelBackend {
   private readonly scopeFingerprint: string;
   private readonly observations: ObservationManager;
 
-  constructor(config: TmuxBackendConfig = {}, runner: CommandRunner = new NodeCommandRunner()) {
+  constructor(config: TmuxBackendConfig = {}, runner: CommandRunner = new NodeCommandRunner(), lifecycle?: ObservationLifecycle) {
     this.config = resolveConfig(config);
     this.runner = runner;
     this.scopeFingerprint = createHash('sha256').update(this.scopeKey()).digest('hex').slice(0, 12);
-    this.observations = new ObservationManager({ sample: (channelId) => this.sampleObservation(channelId), validate: (channelId, identity) => this.validateObservation(channelId, identity) });
+    this.observations = new ObservationManager({ sample: (channelId) => this.sampleObservation(channelId), validate: (channelId, identity) => this.validateObservation(channelId, identity) }, undefined, undefined, lifecycle);
   }
 
   async listChannels(): Promise<Channel[]> {
