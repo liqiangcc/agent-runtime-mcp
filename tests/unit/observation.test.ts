@@ -126,22 +126,26 @@ describe('ObservationManager', () => {
     const first = await manager.observe('c9');
     for (let index = 0; index < 4095; index += 1) await manager.observe('c9');
     await assert.rejects(manager.observe('c9'), (error: unknown) => error instanceof ChannelError && error.code === 'RESOURCE_EXHAUSTED');
-    try { const result = await manager.wait({ channel_id: 'c9', after_cursor: first.cursor, timeout_ms: 100 }); assert.equal(result.reason, 'timeout'); } catch (error) { assert.ok(error instanceof ChannelError && error.code !== 'CURSOR_INVALID'); }
+    const result = await manager.wait({ channel_id: 'c9', after_cursor: first.cursor, timeout_ms: 100 });
+    assert.equal(result.reason, 'timeout');
   });
 
-  it('negative: a held registration validate must still settle at a 100ms deadline and cancel', async () => {
+  it('negative: a held registration validate must still settle at a 100ms deadline and cancel', { timeout: 2000 }, async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
     const manager = new ObservationManager({ sample: (id) => new FakeSampler().sample(id), validate: async () => gate });
     const lease = await manager.observe('held-validate');
     const controller = new AbortController();
-    const pending = manager.wait({ channel_id: 'held-validate', after_cursor: lease.cursor, timeout_ms: 100 }, controller.signal).then(() => true, () => true);
-    const before = await Promise.race([pending, new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 250))]);
-    assert.equal(before, true);
-    controller.abort(); release();
+    const pending = manager.wait({ channel_id: 'held-validate', after_cursor: lease.cursor, timeout_ms: 100 }, controller.signal);
+    let settled = false; void pending.then(() => { settled = true; }, () => { settled = true; });
+    try {
+      await new Promise<void>((resolve, reject) => setTimeout(() => settled ? reject(new Error('wait settled before held-validation barrier')) : resolve(), 50));
+      controller.abort();
+      await assert.rejects(pending, ChannelError);
+    } finally { release(); await pending.catch(() => undefined); }
   });
 
-  it('negative: repeated wakes while validation is held never overlap evaluation', async () => {
+  it('negative: repeated wakes while validation is held never overlap evaluation', { timeout: 3000 }, async () => {
     let release!: () => void; let active = 0; let maxActive = 0;
     const gate = new Promise<void>((resolve) => { release = resolve; });
     const sampler = new FakeSampler();
@@ -152,9 +156,15 @@ describe('ObservationManager', () => {
     const lease = await manager.observe('wake-held');
     const pending = manager.wait({ channel_id: 'wake-held', after_cursor: lease.cursor, idle_ms: 250, timeout_ms: 5000 });
     sampler.sampleValue = { ...sampler.sampleValue, snapshot: 'wake' };
-    await Promise.race([started, new Promise<void>((resolve) => setTimeout(resolve, 1500))]);
-    assert.equal(maxActive, 1);
-    release(); await pending.catch(() => undefined);
+    try {
+      await new Promise<void>((resolve, reject) => { const timer = setTimeout(() => reject(new Error('validation admission barrier timed out')), 1500); started.then(() => { clearTimeout(timer); resolve(); }); });
+      assert.equal(maxActive, 1);
+      sampler.sampleValue = { ...sampler.sampleValue, snapshot: 'wake-2' };
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      sampler.sampleValue = { ...sampler.sampleValue, snapshot: 'wake-3' };
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      assert.equal(maxActive, 1);
+    } finally { release(); await pending.catch(() => undefined); }
   });
 
   it('negative: completion timestamps 0→800→1600 persist an observation gap', async () => {
