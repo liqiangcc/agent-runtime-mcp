@@ -69,7 +69,7 @@ describe('ObservationManager', () => {
     sampler.sampleValue = { ...sampler.sampleValue, state: 'closed' };
     const result = await manager.wait({ channel_id: 'c4', after_cursor: lease.cursor, idle_ms: 250, timeout_ms: 1000 });
     assert.equal(result.reason, 'channel_closed');
-    await assert.rejects(manager.wait({ channel_id: 'c4', after_cursor: lease.cursor, timeout_ms: 100 }), (error: unknown) => error instanceof ChannelError && (error.code === 'CURSOR_INVALID' || error.code === 'CURSOR_EXPIRED'));
+    await assert.rejects(manager.wait({ channel_id: 'c4', after_cursor: lease.cursor, timeout_ms: 100 }), (error: unknown) => error instanceof ChannelError && (error.code === 'CURSOR_INVALID' || error.code === 'CURSOR_EXPIRED' || error.code === 'CHANNEL_INSTANCE_CHANGED'));
   });
 
   it('accepts the frozen maximum idle/timeout bounds while cancellation remains prompt', async () => {
@@ -104,5 +104,29 @@ describe('ObservationManager', () => {
     const pending = manager.wait({ channel_id: 'c7', after_cursor: lease.cursor, idle_ms: 250, timeout_ms: 1000 });
     setTimeout(() => { allowed = false; }, 300);
     await assert.rejects(pending, (error: unknown) => error instanceof ChannelError && error.code === 'PERMISSION_DENIED');
+  });
+
+  it('does not return idle after a slow completion validation crosses the deadline', async () => {
+    const sampler = new FakeSampler();
+    let validating = false;
+    const manager = new ObservationManager({
+      sample: async (channelId) => { if (validating) await new Promise((resolve) => setTimeout(resolve, 180)); return sampler.sample(channelId); },
+      validate: async () => { await new Promise((resolve) => setTimeout(resolve, 180)); },
+    });
+    const lease = await manager.observe('c8');
+    const pending = manager.wait({ channel_id: 'c8', after_cursor: lease.cursor, idle_ms: 250, timeout_ms: 300 });
+    validating = true;
+    sampler.sampleValue = { ...sampler.sampleValue, snapshot: 'deadline-change' };
+    const result = await pending;
+    assert.notEqual(result.reason, 'output_idle');
+  });
+
+  it('keeps existing leases valid when the bounded token table is exhausted', async () => {
+    const manager = new ObservationManager(new FakeSampler());
+    const first = await manager.observe('c9');
+    for (let index = 0; index < 4095; index += 1) await manager.observe('c9');
+    await assert.rejects(manager.observe('c9'), (error: unknown) => error instanceof ChannelError && error.code === 'RESOURCE_EXHAUSTED');
+    const result = await manager.wait({ channel_id: 'c9', after_cursor: first.cursor, timeout_ms: 100 });
+    assert.equal(result.reason, 'timeout');
   });
 });

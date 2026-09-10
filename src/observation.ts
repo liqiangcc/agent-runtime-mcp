@@ -29,6 +29,7 @@ const MAX_TOKENS = 4096;
 export class ObservationManager {
   private readonly observers = new Map<string, Observer>();
   private readonly tokens = new Map<string, Token>();
+  private readonly retired = new Map<string, ChannelErrorCode>();
   private readonly creating = new Map<string, Promise<Observer>>();
   private waiterCount = 0;
   private activeSamples = 0;
@@ -63,14 +64,16 @@ export class ObservationManager {
     const idle = input.idle_ms ?? OBSERVE_DEFAULT_IDLE_MS;
     const timeout = input.timeout_ms ?? OBSERVE_DEFAULT_TIMEOUT_MS;
     if (!Number.isInteger(idle) || idle < 250 || idle > 60000 || !Number.isInteger(timeout) || timeout < 100 || timeout > 60000) throw new ChannelError('WAIT_ARGUMENT_INVALID', 'idle_ms must be 250..60000 and timeout_ms must be 100..60000');
+    const deadline = this.now() + timeout;
     if (signal?.aborted) throw new ChannelError('BACKEND_OPERATION_FAILED', 'Wait cancelled');
-    const token = this.tokens.get(input.after_cursor); if (!token) throw new ChannelError('CURSOR_INVALID', 'Unknown observation cursor');
+    const token = this.tokens.get(input.after_cursor); if (!token) { const retired = this.retired.get(input.after_cursor); throw new ChannelError(retired ?? 'CURSOR_INVALID', retired ? 'Observation cursor is no longer valid' : 'Unknown observation cursor'); }
     const observer = this.observers.get(token.channelId);
     if (!observer || token.observer !== observer.id || token.channelId !== input.channel_id) throw new ChannelError('CURSOR_INVALID', 'Cursor is not bound to this channel');
     this.validateToken(observer, token);
-    if (this.sampler.validate) await this.sampler.validate(input.channel_id, observer.identity);
+    if (this.sampler.validate) await this.runSample(() => this.sampler.validate!(input.channel_id, observer!.identity));
+    if (this.now() >= deadline) return this.result(observer, 'timeout', input, idle, timeout, token.seq, false);
     if (this.waiterCount >= MAX_WAITERS_GLOBAL || observer.waiters.size >= MAX_WAITERS_PER_CHANNEL) throw new ChannelError('WAITER_LIMIT', 'Waiter limit reached');
-    this.waiterCount += 1; const deadline = this.now() + timeout;
+    this.waiterCount += 1;
     try {
       return await new Promise<WaitChannelEventResult>((resolve, reject) => {
         let done = false; let timer: NodeJS.Timeout | undefined;
@@ -87,8 +90,14 @@ export class ObservationManager {
             if (now - observer.lastSampleAt > MAX_SAMPLE_GAP_MS) throw new ChannelError('OBSERVATION_GAP', 'Observation sample gap exceeded bound');
             const events = observer.events.filter((e) => e.seq > token.seq); const last = events.at(-1);
             if (last && observer.lastSampleAt >= last.at + idle && now < deadline) {
-              if (this.sampler.validate) await this.sampler.validate(input.channel_id, observer.identity);
-              return finish(() => resolve(this.result(observer, 'output_idle', input, idle, timeout, last.seq, true, events[0], last)));
+              const candidateSeq = last.seq;
+              if (this.sampler.validate) await this.runSample(() => this.sampler.validate!(input.channel_id, observer.identity));
+              this.validateToken(observer, token);
+              const afterValidateNow = this.now();
+              const currentLast = observer.events.filter((e) => e.seq > token.seq).at(-1);
+              if (afterValidateNow >= deadline) return finish(() => resolve(this.result(observer, 'timeout', input, idle, timeout, token.seq, currentLast !== undefined)));
+              if (!currentLast || currentLast.seq !== candidateSeq || observer.lastSampleAt < currentLast.at + idle) return void evaluate();
+              return finish(() => resolve(this.result(observer, 'output_idle', input, idle, timeout, currentLast.seq, true, observer.events.find((e) => e.seq > token.seq), currentLast)));
             }
             if (now >= deadline) return finish(() => resolve(this.result(observer, 'timeout', input, idle, timeout, token.seq, events.length > 0, events[0], last)));
             timer = setTimeout(() => { timer = undefined; void evaluate(); }, Math.min(SAMPLE_INTERVAL_MS, Math.max(1, deadline - now)));
@@ -103,13 +112,15 @@ export class ObservationManager {
   }
 
   private scheduleSample(observer: Observer): void {
-    if (observer.sampling || observer.closed || observer.failure || this.activeSamples >= 2) return;
-    if (this.now() - observer.lastSampleAt > MAX_SAMPLE_GAP_MS) { observer.failure = 'OBSERVATION_GAP'; clearInterval(observer.timer); for (const wake of observer.waiters) wake(); return; }
+    if (observer.sampling || observer.closed || observer.failure) return;
+    if (this.now() - observer.lastSampleAt > MAX_SAMPLE_GAP_MS) { observer.failure = 'OBSERVATION_GAP'; clearInterval(observer.timer); for (const wake of observer.waiters) wake(); this.maybeDispose(observer); return; }
+    if (this.activeSamples >= 2) return;
     observer.sampling = true;
     void this.sample(observer).finally(() => { observer.sampling = false; this.maybeDispose(observer); });
   }
   private async sample(observer: Observer): Promise<void> {
     const started = this.now(); if (observer.validUntil <= started) { this.expire(observer); return; }
+    if (started - observer.lastSampleAt > MAX_SAMPLE_GAP_MS) { observer.failure = 'OBSERVATION_GAP'; clearInterval(observer.timer); for (const wake of observer.waiters) wake(); this.maybeDispose(observer); return; }
     try {
       const sample = await this.runSample(() => this.sampler.sample(observer.channelId)); const finished = this.now();
       if (finished - started > MAX_SAMPLE_GAP_MS) throw new ChannelError('OBSERVATION_GAP', 'Observation sample exceeded one second');
@@ -125,9 +136,9 @@ export class ObservationManager {
     } catch (error) { observer.failure = error instanceof ChannelError ? error.code : 'BACKEND_UNAVAILABLE'; clearInterval(observer.timer); for (const wake of observer.waiters) wake(); }
   }
   private expire(observer: Observer): void { observer.failure = 'CURSOR_EXPIRED'; clearInterval(observer.timer); for (const wake of observer.waiters) wake(); this.maybeDispose(observer); }
-  private maybeDispose(observer: Observer): void { if (observer.waiters.size > 0 || (observer.validUntil > this.now() && !observer.failure && !observer.closed)) return; clearInterval(observer.timer); if (this.observers.get(observer.channelId) !== observer) return; this.observers.delete(observer.channelId); for (const [cursor, token] of this.tokens) if (token.observer === observer.id) this.tokens.delete(cursor); }
+  private maybeDispose(observer: Observer): void { if (observer.waiters.size > 0 || (observer.validUntil > this.now() && !observer.failure && !observer.closed)) return; clearInterval(observer.timer); if (this.observers.get(observer.channelId) !== observer) return; this.observers.delete(observer.channelId); const code: ChannelErrorCode = observer.failure ?? (observer.closed ? 'CHANNEL_INSTANCE_CHANGED' : 'CURSOR_INVALID'); for (const [cursor, token] of this.tokens) if (token.observer === observer.id) { this.tokens.delete(cursor); this.retired.set(cursor, code); } while (this.retired.size > 256) this.retired.delete(this.retired.keys().next().value as string); }
   private validateToken(observer: Observer, token: Token): void { const now = this.now(); if (token.exp < now || observer.validUntil < now || observer.failure === 'CURSOR_EXPIRED') throw new ChannelError('CURSOR_EXPIRED', 'Observation cursor expired'); if (token.instance !== observer.instance) throw new ChannelError('CHANNEL_INSTANCE_CHANGED', 'Channel instance changed'); if (token.seq < observer.evicted) throw new ChannelError('OBSERVATION_GAP', 'Observation history no longer retains this cursor'); }
-  private issue(observer: Observer, seq: number): ObservationLease { const exp = Math.min(this.now() + LEASE_MS, observer.created + LIFETIME_MS); for (const [cursor, token] of this.tokens) if (token.exp < this.now()) this.tokens.delete(cursor); if (this.tokens.size >= MAX_TOKENS) { const oldest = this.tokens.keys().next().value as string | undefined; if (oldest) this.tokens.delete(oldest); } const token = randomBytes(24).toString('base64url'); this.tokens.set(token, { observer: observer.id, channelId: observer.channelId, instance: observer.instance, seq, exp }); return { cursor: token, channel_instance: observer.instance, model: 'snapshot_change', issued_at: new Date(this.wall()).toISOString(), valid_until: new Date(this.wall() + (exp - this.now())).toISOString(), continuity: 'complete' }; }
+  private issue(observer: Observer, seq: number): ObservationLease { const exp = Math.min(this.now() + LEASE_MS, observer.created + LIFETIME_MS); for (const [cursor, token] of this.tokens) if (token.exp < this.now()) this.tokens.delete(cursor); if (this.tokens.size >= MAX_TOKENS) throw new ChannelError('RESOURCE_EXHAUSTED', 'Observation cursor limit reached; existing leases remain valid'); const token = randomBytes(24).toString('base64url'); this.tokens.set(token, { observer: observer.id, channelId: observer.channelId, instance: observer.instance, seq, exp }); return { cursor: token, channel_instance: observer.instance, model: 'snapshot_change', issued_at: new Date(this.wall()).toISOString(), valid_until: new Date(this.wall() + (exp - this.now())).toISOString(), continuity: 'complete' }; }
   private async runSample<T>(fn: () => Promise<T>): Promise<T> { if (this.activeSamples >= 2) await new Promise<void>((resolve) => this.sampleQueue.push(resolve)); this.activeSamples += 1; try { return await fn(); } finally { this.activeSamples -= 1; this.sampleQueue.shift()?.(); } }
   private result(observer: Observer, reason: WaitChannelEventResult['reason'], input: WaitChannelEventInput, idle: number, timeout: number, seq: number, activity: boolean, first?: Event, last?: Event): WaitChannelEventResult { const next = reason === 'output_idle' ? this.issue(observer, seq).cursor : input.after_cursor; return { reason, channel_id: input.channel_id, channel_instance: observer.instance, observed_at: new Date(this.wall()).toISOString(), next_cursor: next, activity_observed: activity, ...(first ? { first_activity_at: first.wall } : {}), ...(last ? { last_activity_at: last.wall } : {}), observation_model: 'snapshot_change', idle_ms: idle, timeout_ms: timeout }; }
 }
