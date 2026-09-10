@@ -23,6 +23,8 @@ Channel
 └── backend_metadata?     # structured backend-owned mechanical identity/metadata
 ```
 
+When the optional observation capability is requested, the response also exposes an opaque `channel_instance` for the observed endpoint generation. It is not Worker, Agent or application identity and is not a replacement for `channel_id` mutation addressing.
+
 ### `channel_id`
 
 Stable-enough API identity for addressing one channel during its lifetime. Callers should not need to construct raw tmux target syntax.
@@ -92,6 +94,7 @@ A Channel exposes explicit transport capabilities:
 read
 write-text
 control
+observe                 # optional bounded snapshot_change observation
 ```
 
 Backend/service capability may additionally expose:
@@ -102,6 +105,8 @@ inventory
 ```
 
 The MCP does not expose Worker-create, Task-assign, Issue-claim, restart-policy, worktree-management, or scheduler capabilities.
+
+`observe` means that `get_channel(observe:true)` may establish a shared lease-bound cursor for `wait_channel_event`. The cursor binds the service instance, observer epoch, configured scope, tmux server generation and Channel instance. Expiry, sampler gaps, server restart, or unproven pane recreation fail closed.
 
 ## 5. Output observation
 
@@ -123,6 +128,10 @@ Requirements:
 - captured text is untrusted and potentially sensitive;
 - no semantic Task/Agent state inference from text;
 - captured text is not backend identity authority.
+
+### Bounded event observation
+
+`wait_channel_event` reports only mechanically observed `snapshot_change` activity followed by quiet. `output_idle` requires new activity after the caller's opaque cursor; it never means that an application is complete. A timeout keeps the input cursor for continuation, and cancellation releases the waiter. Snapshot sampling can miss bytes, coalesce repeated text, or observe redraws; unchanged snapshots do not prove byte-level silence.
 
 ## 6. Text input
 

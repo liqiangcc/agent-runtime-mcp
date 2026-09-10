@@ -8,13 +8,14 @@ This package is a Coordinator-reviewable design draft for Issue #32. It is not c
 GitHub Issue: #32
 Task Contract draft: docs/tasks/32-bounded-channel-event-wait/task.md
 Detailed design draft: docs/tasks/32-bounded-channel-event-wait/design.md
-Worker route if later published: separate-gpt-web-conversation
+Executor route if later published: coordinator-authorized-codex-a (existing tmux `a` session)
+Environment if later published: env:codex
 Reviewer / authority: original GPT Web Coordinator conversation
 ```
 
 ## Navigation
 
-Read the live Issue and comments, then the draft `task.md` and `design.md`, canonical product docs, and repository collaboration/lifecycle protocols. Do not claim an Attempt while the Issue remains a proposal/draft. The Coordinator must decide the open contract questions, update canonical docs as required, pass Publication Gate, and emit a fresh Worker handoff before implementation begins.
+Read the live Issue and comments, then the draft `task.md` and `design.md`, canonical product docs, and repository collaboration/lifecycle protocols. Do not claim an Attempt while the Issue remains a proposal/draft. The Coordinator must freeze the remaining finite bounds, pass Publication Gate, and explicitly authorize the Codex executor in the existing `a` session before implementation begins. Seven-tool discovery/runtime tests are later implementation Evidence, not prerequisites for publishing this design.
 
 ## Explicit boundary
 

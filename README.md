@@ -4,7 +4,7 @@ A generic MCP communication layer for already-existing interactive terminal Chan
 
 ## Product surface
 
-The current MCP server exposes exactly:
+The current `main` MCP server exposes exactly:
 
 ```text
 list_channels
@@ -14,6 +14,8 @@ write_text
 send_control
 health
 ```
+
+Issue #32 defines the additive target contract: `get_channel(observe=true)` plus the seventh `wait_channel_event` tool. That target is documented here before implementation; the current runtime remains six-tool until its Candidate is integrated and verified.
 
 The product owns the **MCP capabilities and Channel semantics** behind those tools.
 
@@ -33,6 +35,7 @@ bounded output read
 bounded ordinary-text write
 explicit ENTER / INTERRUPT / ESCAPE
 backend/service health
+bounded snapshot-change event wait
 structured Channel/backend errors
 tmux scope enforcement
 ```
@@ -146,7 +149,10 @@ prepare endpoint externally
 → list_channels
 → get_channel
 → read_channel
+→ get_channel(observe=true) before a write that needs bounded waiting
 → write_text
+→ wait_channel_event
+→ read_channel
 → send_control when explicitly needed
 → interpret application result outside MCP
 ```

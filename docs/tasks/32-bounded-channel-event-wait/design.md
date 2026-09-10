@@ -1,6 +1,6 @@
 # Issue #32 — proposed bounded Channel event-wait contract
 
-This document is the detailed design companion to `task.md`. It is intentionally a proposal: canonical product documents remain unchanged until the Coordinator approves the surface and runs the Publication Gate.
+This document is the detailed design companion to `task.md`. It records the Coordinator-accepted direction for canonical publication, while implementation, discovery-test execution and Publication Gate readiness remain pending.
 
 ## Recommendation in one sentence
 
@@ -57,14 +57,14 @@ The caller saves the pre-write cursor. The observer is already running or is sta
 
 Wait does not make the caller's watermark advance merely because it sampled something:
 
-| wait outcome | `activity_observed` | `latest_cursor` | `next_cursor` | continuation |
-|---|---:|---|---|---|
-| `output_idle` | true | latest sample | latest sample | activity acknowledged |
-| `timeout` | false or true | latest sample | original `after_cursor` | call again with original cursor |
-| `channel_closed` | false or true | latest before close | original cursor, then invalid | fresh observe required |
-| cancelled | n/a | n/a | n/a | original cursor remains usable |
+| wait outcome | `activity_observed` | `next_cursor` | continuation |
+|---|---:|---|---|
+| `output_idle` | true | last retained activity sequence | activity acknowledged |
+| `timeout` | false or true | original `after_cursor` | call again with original cursor |
+| `channel_closed` | false or true | original cursor, then invalid | fresh observe required |
+| cancelled | n/a | no result body | original cursor remains usable |
 
-This prevents a timeout from silently consuming a fast command's activity. `latest_cursor` is informational; only `next_cursor` is an acknowledgement cursor.
+This prevents a timeout from silently consuming a fast command's activity. There is no public `latest_cursor`; only `next_cursor` is an acknowledgement cursor.
 
 ## State machine
 
@@ -87,7 +87,7 @@ baseline cursor
      └─ expiry/restart/gap → explicit error; never rebind
 ```
 
-Priority is cancellation, continuity error, confirmed closure, idle threshold, timeout. Cancellation is a transport event and has no successful result body. A gap always wins over a potentially stale quiet interval.
+Priority is cancellation, continuity error, confirmed closure, idle threshold, timeout. Cancellation is a transport event and has no successful result body. A gap always wins over a potentially stale quiet interval. Samples carry monotonic start/capture/completion timestamps; completion after the absolute deadline cannot win, and a quiet threshold at or after the deadline is `timeout`.
 
 ## Observation model
 
@@ -107,35 +107,36 @@ An exact byte observer is not required for this design draft and should be a sep
 
 Do not use `%pane_id` as the sole identity:
 
-1. bind the observer to the configured scope fingerprint;
-2. record tmux server identity/generation in each sample;
-3. record pane structural identity (pane ID plus session/window facts);
+1. invoke one structured `tmux -S <socket> display-message` query for pid, session/window/pane ids and pane pid;
+2. read `/proc/<server-pid>/stat` field 22 and `/proc/sys/kernel/random/boot_id`;
+3. compare socket path, server pid/starttime/boot id and pane structural tuple with the prior sample;
 4. invalidate the observer on server restart or any uncertain sample gap;
-5. if a pane disappears and later appears without proof of the same instance, return `CHANNEL_INSTANCE_CHANGED` (or equivalent) and require a new `observe:true` call.
+5. if a pane disappears and later appears without proof of the same instance, return `CHANNEL_INSTANCE_CHANGED`/`OBSERVATION_GAP` and require a new `observe:true` call.
 
-No wait result may claim `channel_closed` when the backend is merely unavailable or when disappearance/reappearance cannot be attributed to the same server generation.
+Session names and indices are mutable metadata, not lifetime identity. No wait result may claim `channel_closed` when the backend is merely unavailable or when disappearance/reappearance cannot be attributed to the same server generation. Exact probe output is in `probes.md`.
 
 ## Cancellation and lifetime
 
-The server should pass the MCP request cancellation signal to the waiter. On abort/disconnect/deadline, remove the waiter from the shared observer and release all waiter-specific memory/timers. The observer lease may remain alive for subsequent calls during its finite validity window.
+The server must pass the MCP request cancellation signal at `ctx.mcpReq.signal` to the waiter. On abort/disconnect/deadline, remove the waiter from the shared observer and release all waiter-specific memory/timers. The observer lease may remain alive for subsequent calls during its finite validity window. Pinned SDK 2.0.0 cancellation/disconnect probes passed; unsupported signal delivery is a blocker, not a timeout-only degradation.
 
-If the SDK/stdio host cannot expose cancellation, the implementation must still enforce its hard deadline and report the capability limitation; it must not retain unbounded abandoned waiters.
+If a supported SDK/transport cannot expose cancellation, the implementation Attempt is blocked; it must not silently degrade cancellation to timeout-only behavior. Deadline cleanup remains mandatory as an independent bound.
 
 ## Resource limits (candidate values)
 
-These are proposal values, not verified host guarantees:
+These are provisional feasibility bounds, not advertised host guarantees:
 
 ```text
 idle_ms:       100..60_000
 timeout_ms:    100..60_000, default 30_000
 lease:         5 min default, 15 min maximum
-sample period: 100 ms default, 50 ms minimum
+sample period: 250 ms default, 100 ms minimum
 history:       256 records or 64 KiB
 waiters:       2 per Channel, 32 global
+sampling:      1 observer per Channel, 2 global subprocess batches
 observer mem:  4 MiB global
 ```
 
-The Coordinator must revise these values if the real host probe shows a smaller effective MCP/backend/client bound. “Host supports 60 s” cannot be claimed from code or YAML alone.
+The observer starts at `observe:true`, remains alive with zero waiters until `valid_until`, and a wait never renews it. A later `observe:true` can renew only within the maximum lease and issues a new cursor. Lease expiry during an active wait returns `CURSOR_EXPIRED`; history eviction advances an oldest-sequence watermark and an older cursor returns `OBSERVATION_GAP`. The Coordinator must revise these values if a real host probe shows a smaller effective MCP/backend/client bound. “Host supports 60 s” cannot be claimed from code or YAML alone.
 
 ## Error and result vocabulary
 
@@ -175,7 +176,7 @@ The final names may use the repository's existing `ChannelErrorCode` naming, but
 | idle | continuous output | no immediate repeated returns; timeout or idle after actual quiet |
 | observation | repeated text | limitation documented; no exact byte claim |
 | observation | ANSI redraw | snapshot-change behavior documented and tested |
-| continuation | timeout after activity | next_cursor remains original; continuation can observe pending activity |
+| continuation | timeout after activity | no latest cursor is exposed; next_cursor remains original and continuation can observe pending activity |
 | cancellation | client cancel/disconnect | waiter removed; later resource probe shows no leak |
 | limits | per-channel/global caps | explicit WAITER_LIMIT/RESOURCE_EXHAUSTED; endpoint untouched |
 | cursor lifecycle | expiry/gap | CURSOR_EXPIRED/OBSERVATION_GAP; fresh observe required |
@@ -184,17 +185,12 @@ The final names may use the repository's existing `ChannelErrorCode` naming, but
 | backend | backend unavailable | explicit BACKEND_UNAVAILABLE, never channel_closed by guess |
 | composition | wait→read | real MCP client receives mechanical result then bounded read |
 | semantics | long silent command/waiting input | result remains output_idle/timeout only; no completed/success |
-| host | supported wait upper bound | exact server/backend/client versions and elapsed timing; unknown if not proven |
+| host | supported wait upper bound | exact server/backend/client versions and elapsed timing; provisional probe bound is not advertised support |
 | existing | six-tool regression | original read/write/control/health behavior and security tests still pass |
 | scope | web wake-up | NOT_VERIFIED / out of scope; no claim of cross-round wake-up |
 
-## Open decisions for Coordinator
+## Resolved direction and remaining decisions
 
-1. Is `get_channel(observe:true)` the smallest acceptable acquisition surface, or is an explicit `observe_channel` tool clearer despite adding another public tool?
-2. Is `snapshot_change` acceptable for the first backend, or is byte-level activity required before publication?
-3. Should `channel_instance` be returned as a separate opaque field or remain only inside cursor/results?
-4. Are timeout results with `latest_cursor` plus unchanged `next_cursor` sufficiently clear, or should the result omit `latest_cursor` to prevent accidental acknowledgement?
-5. Which MCP SDK cancellation hook is authoritative for stdio and tunnel-hosted clients?
-6. What finite idle/timeout/lease/sample/resource values pass the real host probe without exceeding client/tunnel limits?
-7. Should an unavailable tmux server be reported as `BACKEND_UNAVAILABLE` even if a waiter had previously observed a pane, reserving `channel_closed` for confirmed same-server loss?
-8. Which canonical docs must be changed in the same publication/implementation Task, and how is the seven-tool compatibility/version transition communicated?
+Coordinator direction is resolved: use `get_channel(observe:true)` plus exactly one `wait_channel_event`; use `snapshot_change`; expose opaque `channel_instance`; omit `latest_cursor`; preserve the input cursor on timeout; and keep `BACKEND_UNAVAILABLE` distinct from confirmed same-server `channel_closed`.
+
+Remaining decisions before Publication Gate are the exact finite defaults/maxima after host evidence, whether Linux `/proc` identity is the supported tmux host prerequisite, and the final canonical version/discovery wording. Seven-tool discovery/runtime tests belong to the later implementation Evidence, not this design publication.

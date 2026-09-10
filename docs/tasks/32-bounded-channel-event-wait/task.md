@@ -11,9 +11,9 @@ Task kind: combined implementation + verification (design draft)
 Base commit: 1f2ad6579d4fb18cdbb8f7cb2c92630aa5d100d6
 Candidate commit: n/a (design branch only)
 Session bootstrap: docs/tasks/32-bounded-channel-event-wait/prompt.md
-Preferred worker: web-gpt-worker
-Environment: env:web-gpt
-Handoff profile: docs/tasks/handoffs/web-gpt.md
+Executor route: coordinator-authorized-codex-a (the existing tmux `a` session)
+Environment: env:codex
+Handoff profile: docs/tasks/handoffs/codex.md (reference only; no handoff is emitted during this draft)
 Required capabilities: github-read-write, repository-code-authoring, github-actions-evidence, real-tmux-host-evidence
 Hard dependencies: Coordinator approval of the public-contract extension; canonical-main alignment before publication
 ```
@@ -199,7 +199,6 @@ The first implementation should wait for `output_idle`; an `output_changed` filt
   channel_id: string,
   channel_instance: string,
   observed_at: string,
-  latest_cursor: string,             // latest observer watermark; informational
   next_cursor: string,               // caller continuation/acknowledgement cursor
   activity_observed: boolean,
   first_activity_at?: string,
@@ -212,11 +211,10 @@ The first implementation should wait for `output_idle`; an `output_changed` filt
 
 Cursor consumption rules are part of the safety contract:
 
-- `output_idle` requires at least one activity observation strictly after `after_cursor`; `next_cursor` advances to `latest_cursor` and acknowledges the interval.
-- `timeout` never acknowledges activity. `next_cursor` remains equal to `after_cursor`, even if the observer internally sampled changes. A caller may continue with the same cursor; it must not be forced to skip activity merely because the waiter deadline elapsed.
+- `output_idle` requires at least one activity observation strictly after `after_cursor`; `next_cursor` advances to the last retained activity sequence and acknowledges the interval.
+- `timeout` never acknowledges activity. `next_cursor` remains equal to `after_cursor`, even if the observer internally sampled changes. A caller may continue with the same cursor; it must not be forced to skip activity merely because the waiter deadline elapsed. No `latest_cursor` is exposed.
 - `channel_closed` is returned only when disappearance is mechanically confirmed within the same backend instance. The cursor is not reusable after closure; if reappearance cannot be proven to be the same Channel instance, the next operation fails explicitly.
 - Cancellation returns no successful wait result. The waiter is removed, and a later call may reuse the original cursor. The observer itself remains alive within its finite lease.
-- `latest_cursor` is diagnostic and must not be treated as an acknowledgement cursor after timeout. This prevents timeout continuation from silently consuming activity.
 
 ### State machine and precedence
 
@@ -249,7 +247,7 @@ idle threshold satisfied → output_idle
 deadline reached → timeout
 ```
 
-If an activity sample and deadline arrive together, the implementation uses the monotonic sample timestamp and returns `output_idle` only when the threshold is satisfied; otherwise it returns `timeout` without advancing the caller cursor.
+Every sample carries monotonic `sample_started`, `sample_captured` and `sample_completed` timestamps. The waiter has an absolute monotonic deadline (`wait_started + timeout_ms`); a sample completed after that deadline cannot satisfy idle, even if its captured snapshot is quiet. A stale sample whose capture age exceeds the frozen freshness/overrun tolerance is a continuity gap. If the quiet threshold timestamp is at or after the deadline, `timeout` wins and `next_cursor` remains the input cursor.
 
 ## Observation model and feasibility
 
@@ -269,35 +267,42 @@ An exact byte-stream observer (for example a carefully isolated tmux pipe) is a 
 
 ### Channel-instance binding
 
+The first tmux adapter must make identity executable on the supported Linux host. Each sample is read in this order:
+
+1. invoke one structured `tmux -S <configured-socket> display-message -p -t <opaque-target> -F '<pid>|<session_id>|<window_id>|<pane_id>|<pane_pid>|<session_name>|<window_index>|<pane_index>'` command;
+2. parse `pid` and read `/proc/<pid>/stat` field 22 (server process starttime) plus `/proc/sys/kernel/random/boot_id`;
+3. validate pane fields and compare the complete tuple with the prior sample before accepting a digest.
+
 The observer binds each cursor to:
 
 ```text
 service_instance_id  = generated per MCP process start
 observer_epoch       = increments whenever a shared observer is recreated
 scope_fingerprint    = configured tmux socket/server visibility scope
-tmux_server_identity = observed server identity/generation (not pane ID alone)
+tmux_server_identity = socket path + tmux server pid + Linux process starttime + boot_id
 pane_identity        = pane ID plus structural identity snapshot
 sequence             = bounded observer watermark
 ```
 
-The token is opaque and should be authenticated or unguessable; callers never construct it. Tmux pane IDs alone are insufficient because a server restart can reset/reuse IDs. If the server identity changes, the observer is invalidated. If a pane disappears and later reappears without proof of the same instance, fail closed with `CHANNEL_INSTANCE_CHANGED` (or equivalent) and require a fresh cursor.
+The token is opaque and should be authenticated or unguessable; callers never construct it. Session names and window/pane indices are mutable metadata, not lifetime identity. Tmux pane IDs alone are insufficient because a server restart can reset/reuse IDs. If the server identity changes, the observer is invalidated. A command failure or missing pane creates a gap; a later success after that gap cannot prove continuity, even when the pane id is reused, so fail closed with `CHANNEL_INSTANCE_CHANGED`/`OBSERVATION_GAP` and require a fresh cursor. If `/proc` identity reads are unavailable or contradictory, fail closed rather than downgrade identity.
 
 ### Observer lifetime and resources
 
-Proposed initial limits, pending host/benchmark evidence:
+Provisional limits (feasibility results below; not advertised host guarantees until Coordinator approval):
 
 ```text
 observer lease:          5 minutes (maximum 15 minutes)
-sampling interval:       100 ms (minimum 50 ms)
+sampling interval:       250 ms (minimum 100 ms)
 history per observer:    256 activity records or 64 KiB, whichever first
 waiters per Channel:     2
 observers per Channel:   1 (shared)
 global active waiters:    32
+global sampling concurrency: 2 subprocess batches
 global observer memory:   4 MiB
 wait hard maximum:       60 s (candidate; host support NOT_VERIFIED)
 ```
 
-On limit exhaustion, return `RESOURCE_EXHAUSTED`/`WAITER_LIMIT` without mutating the Channel. On cancellation, deadline, continuity failure or lease expiry, remove the waiter and release waiter-specific resources. A shared observer may continue until its lease expires or no longer has subscribers, subject to a bounded idle-retention policy.
+The observer is created by `observe:true` and remains sampled, with zero waiters, until `valid_until`; a wait call does not extend the lease. A subsequent `observe:true` may renew only while continuity is complete, with `valid_until = min(now + lease, original_issued_at + maximum_lease)` and a newly issued cursor. A cursor whose lease expires during an active wait returns `CURSOR_EXPIRED` and does not acknowledge activity. History is a bounded sequence ring: the oldest retained sequence is a watermark; a cursor older than that watermark returns `OBSERVATION_GAP`, never a reconstructed result. On limit exhaustion, return `RESOURCE_EXHAUSTED`/`WAITER_LIMIT` without mutating the Channel. On cancellation, deadline, continuity failure or lease expiry, remove the waiter and release waiter-specific resources. Sampling is capped at the global concurrency limit and one sampler per Channel instance.
 
 ## Errors
 
@@ -316,6 +321,10 @@ WAIT_ARGUMENT_INVALID       // idle/timeout outside frozen finite bounds
 
 `timeout` is a successful wait result, not a structured error. `channel_closed` is a successful mechanical reason only when same-instance loss is proven. Backend-unavailable or ambiguous disappearance remains an explicit backend/continuity error; it must not be relabeled as closure.
 
+### Cancellation feasibility (pinned SDK)
+
+The pinned `@modelcontextprotocol/server` and `@modelcontextprotocol/client` versions are `2.0.0`. A tool callback receives the request abort signal at `ctx.mcpReq.signal`; the client sends `notifications/cancelled` for stdio/in-memory transports, and the server aborts the matching handler controller. Disconnect/transport close also aborts in-flight handlers. The implementation must attach waiter cleanup to this signal and is not permitted to degrade cancellation to timeout-only behavior. The probe evidence is recorded in `probes.md`; any transport that does not deliver the signal remains a publication blocker rather than a silent degradation.
+
 ## In Scope
 
 - freeze the wait/cursor public contract and update canonical product docs after approval;
@@ -324,7 +333,7 @@ WAIT_ARGUMENT_INVALID       // idle/timeout outside frozen finite bounds
 - update `ChannelCapability`/discovery and exact seven-tool MCP discovery evidence;
 - implement tmux snapshot-change sampling with structural identity and fail-closed continuity;
 - bound observer leases, history, waiters, sampling and server-side wait time;
-- propagate client cancellation where the MCP transport exposes it and guarantee deadline cleanup otherwise;
+- propagate client cancellation through `ctx.mcpReq.signal`; unsupported signal delivery is a blocker, not a degraded wait;
 - test old six-tool behavior plus the explicit seven-tool contract and all failure/degradation cases.
 
 ## Out of Scope
@@ -420,15 +429,17 @@ Do not lower SCs or label snapshot quiet as exact silence to avoid a blocker. A 
 
 ## Publication Dependency / Alignment Gate
 
+This is a contract-before-implementation revision. Canonical contract/design documents may be published on this draft branch, but seven-tool discovery tests, runtime wait acceptance, and real-host wait-window claims are implementation Evidence and are not prerequisites for publishing this design. The current six-tool implementation remains the baseline until a later Candidate adds the seventh tool. Probe timings below are provisional feasibility bounds, not advertised host support.
+
 Before this draft can become executable, the Coordinator must:
 
 1. decide whether `get_channel(observe=true)` is the acquisition surface or whether a separate observation tool is required;
 2. decide whether `observe` is a Channel capability and whether the selected observation model is acceptable for all supported backends;
 3. freeze cursor acknowledgement/timeout semantics and exact error names;
-4. choose finite default/max idle, timeout, lease, sampling, history and waiter limits using real host evidence;
+4. choose finite default/max idle, timeout, lease, sampling, history and waiter limits using real host evidence; distinguish provisional probe bounds from advertised support;
 5. update `docs/channel-model.md`, `docs/mcp-contract.md`, `docs/backends/tmux.md`, `docs/requirements.md`, `docs/security.md`, `README.md`, and discovery/test contracts as required;
 6. confirm no current main changes alter the Channel identity or six-tool baseline;
-7. pass Publication Gate and transition the Issue to `status:ready + owner:none` before any implementation Worker claims an Attempt.
+7. pass Publication Gate and transition the Issue to `status:ready + owner:none` before the authorized Codex executor in the `a` session claims an implementation Attempt.
 
 ## Evidence Contract
 
