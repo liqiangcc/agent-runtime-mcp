@@ -9,9 +9,9 @@ Task kind: combined
 Base commit: 835704614f3d7f306eae623adeb0febfcf13c734
 Candidate commit: n/a
 Session bootstrap: docs/tasks/38-bounded-cursor-continuity/prompt.md
-Preferred worker: web-gpt-worker
-Environment: env:web-gpt
-Handoff profile: docs/tasks/handoffs/web-gpt.md
+Preferred worker: coordinator-authorized-codex-a
+Environment: env:codex
+Handoff profile: docs/tasks/handoffs/codex.md
 Required capabilities: github-read-write, repository-code-authoring, github-actions-evidence, real-tmux-host-evidence
 Hard dependencies: Coordinator acceptance of this v0.2.1 contract amendment; canonical-main alignment before implementation
 ```
@@ -148,11 +148,29 @@ ring payload ceiling:  8 × 256 KiB = 2 MiB
 retained observer budget: 4 MiB total
 ```
 
-The 1,200-event calculation is an upper bound: a fixed 250 ms cadence cannot produce more than four sample starts per second. The 336-record (28%) count margin covers the baseline/lease-edge boundary and measured scheduler jitter; a test must record monotonic sample-start deltas and fail if the sampler ever starts faster than 250 ms. Positive completion jitter can reduce coverage or trigger the existing >1,000 ms continuity-gap rule, but cannot legitimately increase the maximum event count. The implementation must test both lease-edge placements and injected callback jitter rather than treating `setInterval` timing as exact.
+The 1,200-event calculation is the nominal window budget (300 s / 250 ms). The 336-record (28%) margin covers baseline/lease-edge placement, at most one in-flight completion at each edge, and the explicitly measured jitter envelope used by the supported-host test. The test must instrument monotonic sample-start and completion times, model both window edges and allowed callback jitter, and prove the resulting committed-event count stays below 1,536; it must not assert that every adjacent start is exactly or at least 250 ms, and it must not change the sampler to force that property. Completion jitter can reduce coverage or trigger the existing >1,000 ms continuity-gap rule; it must not be treated as extra semantic activity.
 
-The byte figure is a logical serialized-payload accounting unit, not a claim about JavaScript heap usage. A sizing probe using the production event shape measured 125,275 JSON bytes for 1,536 worst-field records (76 bytes for one record), below the 256 KiB per-observer logical byte ceiling and 1,002,200 bytes for eight serialized rings. The logical budget is 2 MiB for eight ring payloads plus at most 2 MiB for observer/token/waiter metadata, timer objects and allocator/runtime overhead, for a 4 MiB retained-state ceiling. A deterministic `--expose-gc` heap probe must measure baseline-to-peak retained heap for eight observers at the maximum count/byte limits (with existing metadata and without unrelated workload) and prove the 4 MiB ceiling; JSON size alone is insufficient. `MAX_TOKENS` is not expanded by this Task. The implementation must enforce count and bytes independently; changing only `MAX_HISTORY` is insufficient.
+The byte figure is a logical serialized-payload accounting unit, not a claim about JavaScript heap usage. The field-width probe must include the observer's 15-minute lifetime sequence/sample range (including both lease-edge in-flight records), fractional monotonic `performance.now()`-style values and the full ISO wall-clock representation. With representative upper-width fields (`seq`/`sample=3602`, fractional `at`, and an ISO-8601 wall value), 1,536 records serialize to 129,025 bytes (83 bytes for one record), below the 256 KiB per-observer logical byte ceiling; eight such serialized rings are 1,032,200 bytes. The logical budget is 2 MiB for eight ring payloads plus at most 2 MiB for observer/token/waiter metadata, timer objects and allocator/runtime overhead, for a 4 MiB retained-state ceiling. A supported-Node/V8 `--expose-gc` probe may provide measured implementation evidence for that overhead, but it is not a universal guarantee for every JavaScript runtime and must report its Node/V8 version and measurement method. JSON size alone is insufficient. `MAX_TOKENS` is not expanded by this Task. The implementation must enforce count and bytes independently; changing only `MAX_HISTORY` is insufficient.
 
 If the measured eight-observer retained-state delta cannot stay below 4 MiB with these ceilings, implementation is blocked pending Coordinator choice of a bounded per-valid-cursor aggregate. Aggregation is not a license for unbounded token memory and must retain only first/last sequence/time (and an explicitly bounded count) until token expiry.
+
+## Live regression evidence carried into acceptance
+
+The Coordinator supplied two fresh live read-only reproductions against the deployed v0.2.0 bridge. They are incident evidence for d/a behavior, not implementation changes:
+
+```text
+Run 1: cursor issued_at 2026-09-10T16:46:34.867Z,
+       valid_until 2026-09-10T16:51:34.866Z;
+       sustained activity → timeout → same-cursor OBSERVATION_GAP
+       while the lease was still valid.
+
+Run 2: cursor issued_at 2026-09-10T16:48:40.562Z,
+       valid_until 2026-09-10T16:53:25.302Z;
+       sustained activity and repeated waits for about two minutes
+       → OBSERVATION_GAP before TTL expiry.
+```
+
+The observed error was `Observation history no longer retains this cursor`. The accompanying `a` Codex/CI watch produced continuing `snapshot_change` activity; the Issue-recorded d timeline remains the primary incident evidence. These runs establish the regression target: maximum-rate sustained activity must not cause a cursor gap solely through the old history capacity while the lease is valid. Tests must still preserve explicit `OBSERVATION_GAP` for true continuity loss and `CURSOR_EXPIRED` after TTL expiry.
 
 ## Canonical / Process Sources
 
@@ -176,7 +194,7 @@ Read before implementation:
 
 ## Worker / Verification Route
 
-The default route is a separate Web GPT Worker using `@GitHub`; GitHub Actions is the verification Runner. A Worker claims exactly one Attempt only after Publication Gate and executes this frozen Contract.
+This explicitly authorized route uses `coordinator-authorized-codex-a` in `env:codex`; GitHub Actions remains the verification Runner. The executor claims exactly one Attempt only after Publication Gate and executes this frozen Contract.
 
 ## In Scope
 
@@ -209,7 +227,7 @@ The default route is a separate Web GPT Worker using `@GitHub`; GitHub Actions i
 ## Implementation Requirements
 
 1. Derive and enforce the 1,536-record / 256 KiB per-observer history ceilings; enforce count and bytes independently.
-2. Prove eight-observer retained state, including existing metadata and runtime overhead, remains below 4 MiB with a forced-GC heap measurement and no token-capacity expansion; do not substitute JSON/string size for heap evidence. If the proof fails, block for a separate Coordinator decision rather than switching designs in this Attempt.
+2. On the supported Node/V8 host, report a retained-state heap measurement (including the runtime/version and whether GC assistance was used) showing existing metadata and runtime overhead fit below 4 MiB; do not substitute JSON/string size for heap evidence or claim a universal GC baseline. If the supported-host measurement fails, block for a separate Coordinator decision rather than switching designs in this Attempt.
 3. Keep `evicted_through` boundary semantics (`c >= E` valid, `c < E` is `OBSERVATION_GAP`) and ensure valid cursors are not evicted solely by maximum-rate activity within their lease.
 4. Preserve timeout/cancellation/expiry behavior and snapshot mechanical semantics.
 5. Do not touch deployment configuration or the d endpoint.

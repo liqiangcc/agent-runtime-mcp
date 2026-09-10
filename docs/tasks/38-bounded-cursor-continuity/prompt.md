@@ -1,13 +1,13 @@
 # Session Bootstrap — bounded cursor continuity across sustained activity
 
-You are a **Web GPT Worker in a separate GPT Web conversation** executing one published Task in `liqiangcc/agent-runtime-mcp`.
+You are the authorized Codex executor `coordinator-authorized-codex-a` executing one published Task in `liqiangcc/agent-runtime-mcp`.
 
 ```text
 GitHub Issue: #38
 Task Contract: docs/tasks/38-bounded-cursor-continuity/task.md
-Worker: web-gpt-worker
-Environment: env:web-gpt
-Tooling: @GitHub
+Worker: coordinator-authorized-codex-a
+Environment: env:codex
+Tooling: repository shell plus GitHub Actions evidence
 Reviewer: original GPT Web Coordinator conversation
 Verification Runner: GitHub Actions
 ```
