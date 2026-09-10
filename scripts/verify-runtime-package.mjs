@@ -156,7 +156,7 @@ try {
   const channel = asRecord(listPayload.channels[0], 'list_channels.channels[0]');
   assert.equal(channel.backend_kind, 'tmux');
   assert.equal(channel.state, 'available');
-  assert.deepEqual(channel.capabilities, ['read', 'write-text', 'control']);
+  assert.deepEqual(channel.capabilities, ['read', 'write-text', 'control', 'observe']);
   console.log(`packaged-runtime-version=${manifest.version}`);
 } finally {
   await client.close().catch(() => undefined);
