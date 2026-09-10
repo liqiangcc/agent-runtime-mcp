@@ -64,26 +64,27 @@ export class ObservationManager {
     const idle = input.idle_ms ?? OBSERVE_DEFAULT_IDLE_MS;
     const timeout = input.timeout_ms ?? OBSERVE_DEFAULT_TIMEOUT_MS;
     if (!Number.isInteger(idle) || idle < 250 || idle > 60000 || !Number.isInteger(timeout) || timeout < 100 || timeout > 60000) throw new ChannelError('WAIT_ARGUMENT_INVALID', 'idle_ms must be 250..60000 and timeout_ms must be 100..60000');
-    const deadline = this.now() + timeout;
     if (signal?.aborted) throw new ChannelError('BACKEND_OPERATION_FAILED', 'Wait cancelled');
+    const deadline = this.now() + timeout;
     const token = this.tokens.get(input.after_cursor); if (!token) { const retired = this.retired.get(input.after_cursor); throw new ChannelError(retired ?? 'CURSOR_INVALID', retired ? 'Observation cursor is no longer valid' : 'Unknown observation cursor'); }
     const observer = this.observers.get(token.channelId);
     if (!observer || token.observer !== observer.id || token.channelId !== input.channel_id) throw new ChannelError('CURSOR_INVALID', 'Cursor is not bound to this channel');
     this.validateToken(observer, token);
-    if (this.sampler.validate) await this.runSample(() => this.sampler.validate!(input.channel_id, observer!.identity));
-    if (this.now() >= deadline) return this.result(observer, 'timeout', input, idle, timeout, token.seq, false);
     if (this.waiterCount >= MAX_WAITERS_GLOBAL || observer.waiters.size >= MAX_WAITERS_PER_CHANNEL) throw new ChannelError('WAITER_LIMIT', 'Waiter limit reached');
     this.waiterCount += 1;
     try {
       return await new Promise<WaitChannelEventResult>((resolve, reject) => {
-        let done = false; let timer: NodeJS.Timeout | undefined;
+        let done = false; let evaluating = false; let dirty = false; let admitted = false;
+        let timer: NodeJS.Timeout | undefined;
         const finish = (fn: () => void) => { if (done) return; done = true; if (timer) clearTimeout(timer); signal?.removeEventListener('abort', abort); observer.waiters.delete(wake); fn(); };
         const abort = () => finish(() => reject(new ChannelError('BACKEND_OPERATION_FAILED', 'Wait cancelled')));
-        const wake = () => { if (timer) clearTimeout(timer); void evaluate(); };
+        const wake = () => { dirty = true; if (!evaluating) void evaluate(); };
         const evaluate = async () => {
-          if (done) return;
+          if (done || evaluating) return;
+          evaluating = true; dirty = false;
           try {
             this.validateToken(observer, token);
+            if (!admitted && this.sampler.validate) { await this.runSample(() => this.sampler.validate!(input.channel_id, observer.identity)); if (done) return; this.validateToken(observer, token); if (this.now() >= deadline) return finish(() => resolve(this.result(observer, 'timeout', input, idle, timeout, token.seq, false))); admitted = true; }
             if (observer.failure) throw new ChannelError(observer.failure, 'Observation sampling failed');
             if (observer.closed) return finish(() => resolve(this.result(observer, 'channel_closed', input, idle, timeout, token.seq, false)));
             const now = this.now();
@@ -92,18 +93,20 @@ export class ObservationManager {
             if (last && observer.lastSampleAt >= last.at + idle && now < deadline) {
               const candidateSeq = last.seq;
               if (this.sampler.validate) await this.runSample(() => this.sampler.validate!(input.channel_id, observer.identity));
+              if (done) return;
               this.validateToken(observer, token);
               const afterValidateNow = this.now();
               const currentLast = observer.events.filter((e) => e.seq > token.seq).at(-1);
               if (afterValidateNow >= deadline) return finish(() => resolve(this.result(observer, 'timeout', input, idle, timeout, token.seq, currentLast !== undefined)));
-              if (!currentLast || currentLast.seq !== candidateSeq || observer.lastSampleAt < currentLast.at + idle) return void evaluate();
+              if (!currentLast || currentLast.seq !== candidateSeq || observer.lastSampleAt < currentLast.at + idle) { dirty = true; return; }
               return finish(() => resolve(this.result(observer, 'output_idle', input, idle, timeout, currentLast.seq, true, observer.events.find((e) => e.seq > token.seq), currentLast)));
             }
             if (now >= deadline) return finish(() => resolve(this.result(observer, 'timeout', input, idle, timeout, token.seq, events.length > 0, events[0], last)));
             timer = setTimeout(() => { timer = undefined; void evaluate(); }, Math.min(SAMPLE_INTERVAL_MS, Math.max(1, deadline - now)));
           } catch (error) { finish(() => reject(error)); }
+          finally { evaluating = false; if (dirty && !done) queueMicrotask(() => void evaluate()); }
         };
-        if (signal?.aborted) return finish(() => reject(new ChannelError('BACKEND_OPERATION_FAILED', 'Wait cancelled')));
+        timer = setTimeout(() => finish(() => resolve(this.result(observer, 'timeout', input, idle, timeout, token.seq, false))), Math.max(1, deadline - this.now()));
         observer.waiters.add(wake); signal?.addEventListener('abort', abort, { once: true });
         if (signal?.aborted) return finish(() => reject(new ChannelError('BACKEND_OPERATION_FAILED', 'Wait cancelled')));
         void evaluate();
@@ -123,7 +126,7 @@ export class ObservationManager {
     if (started - observer.lastSampleAt > MAX_SAMPLE_GAP_MS) { observer.failure = 'OBSERVATION_GAP'; clearInterval(observer.timer); for (const wake of observer.waiters) wake(); this.maybeDispose(observer); return; }
     try {
       const sample = await this.runSample(() => this.sampler.sample(observer.channelId)); const finished = this.now();
-      if (finished - started > MAX_SAMPLE_GAP_MS) throw new ChannelError('OBSERVATION_GAP', 'Observation sample exceeded one second');
+      if (finished - started > MAX_SAMPLE_GAP_MS || finished - observer.lastSampleAt > MAX_SAMPLE_GAP_MS) throw new ChannelError('OBSERVATION_GAP', 'Observation sample completion gap exceeded one second');
       observer.lastSampleAt = finished; observer.sampleCount += 1;
       if (sample.state === 'closed') { observer.closed = true; clearInterval(observer.timer); for (const wake of observer.waiters) wake(); return; }
       if (sample.identity !== observer.identity) throw new ChannelError('CHANNEL_INSTANCE_CHANGED', 'Channel identity changed');

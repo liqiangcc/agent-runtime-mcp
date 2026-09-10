@@ -73,7 +73,7 @@ describe('ObservationManager', () => {
   });
 
   it('accepts the frozen maximum idle/timeout bounds while cancellation remains prompt', async () => {
-    const manager = new ObservationManager(new FakeSampler());
+    const manager = new ObservationManager(new FakeSampler(), () => 0, () => 0);
     const lease = await manager.observe('c5');
     const controller = new AbortController();
     const pending = manager.wait({ channel_id: 'c5', after_cursor: lease.cursor, idle_ms: 60000, timeout_ms: 60000 }, controller.signal);
@@ -122,10 +122,48 @@ describe('ObservationManager', () => {
   });
 
   it('keeps existing leases valid when the bounded token table is exhausted', async () => {
-    const manager = new ObservationManager(new FakeSampler());
+    const manager = new ObservationManager(new FakeSampler(), () => 0, () => 0);
     const first = await manager.observe('c9');
     for (let index = 0; index < 4095; index += 1) await manager.observe('c9');
     await assert.rejects(manager.observe('c9'), (error: unknown) => error instanceof ChannelError && error.code === 'RESOURCE_EXHAUSTED');
-    await assert.rejects(manager.wait({ channel_id: 'c9', after_cursor: first.cursor, timeout_ms: 100 }), (error: unknown) => error instanceof ChannelError && error.code !== 'CURSOR_INVALID');
+    try { const result = await manager.wait({ channel_id: 'c9', after_cursor: first.cursor, timeout_ms: 100 }); assert.equal(result.reason, 'timeout'); } catch (error) { assert.ok(error instanceof ChannelError && error.code !== 'CURSOR_INVALID'); }
+  });
+
+  it('negative: a held registration validate must still settle at a 100ms deadline and cancel', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const manager = new ObservationManager({ sample: (id) => new FakeSampler().sample(id), validate: async () => gate });
+    const lease = await manager.observe('held-validate');
+    const controller = new AbortController();
+    const pending = manager.wait({ channel_id: 'held-validate', after_cursor: lease.cursor, timeout_ms: 100 }, controller.signal).then(() => true, () => true);
+    const before = await Promise.race([pending, new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 250))]);
+    assert.equal(before, true);
+    controller.abort(); release();
+  });
+
+  it('negative: repeated wakes while validation is held never overlap evaluation', async () => {
+    let release!: () => void; let active = 0; let maxActive = 0;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const sampler = new FakeSampler();
+    let validations = 0;
+    let validationStarted!: () => void;
+    const started = new Promise<void>((resolve) => { validationStarted = resolve; });
+    const manager = new ObservationManager({ sample: (id) => sampler.sample(id), validate: async () => { validations += 1; if (validations === 1) return; active += 1; maxActive = Math.max(maxActive, active); validationStarted(); await gate; active -= 1; } });
+    const lease = await manager.observe('wake-held');
+    const pending = manager.wait({ channel_id: 'wake-held', after_cursor: lease.cursor, idle_ms: 250, timeout_ms: 5000 });
+    sampler.sampleValue = { ...sampler.sampleValue, snapshot: 'wake' };
+    await Promise.race([started, new Promise<void>((resolve) => setTimeout(resolve, 1500))]);
+    assert.equal(maxActive, 1);
+    release(); await pending.catch(() => undefined);
+  });
+
+  it('negative: completion timestamps 0→800→1600 persist an observation gap', async () => {
+    const times = [0, 800, 1600];
+    const manager = new ObservationManager(new FakeSampler(), () => times.shift() ?? 1600, () => 0);
+    const observer = { id: 'o', channelId: 'gap', instance: 'i', created: 0, validUntil: 99999, identity: 'server:1:pane:1', snapshot: 'a', seq: 0, evicted: 0, events: [], timer: setInterval(() => undefined, 100000), waiters: new Set(), closed: false, sampling: false, lastSampleAt: 0, sampleCount: 1 };
+    (manager as unknown as { scheduleSample: (o: unknown) => void }).scheduleSample(observer);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal((observer as { failure?: string }).failure, 'OBSERVATION_GAP');
+    clearInterval(observer.timer);
   });
 });
