@@ -131,7 +131,7 @@ Requirements:
 
 ### Bounded event observation
 
-`wait_channel_event` reports only mechanically observed `snapshot_change` activity followed by quiet. `output_idle` requires new activity after the caller's opaque cursor; it never means that an application is complete. A timeout keeps the input cursor for continuation, and cancellation releases the waiter. Snapshot sampling can miss bytes, coalesce repeated text, or observe redraws; unchanged snapshots do not prove byte-level silence.
+`wait_channel_event` reports only mechanically observed `snapshot_change` activity followed by quiet. `output_idle` requires new activity after the caller's opaque cursor; it never means that an application is complete. A timeout keeps the input cursor for continuation, and cancellation releases the waiter. Public timestamps are UTC ISO-8601 wall time; monotonic time is internal for idle/deadline ordering. Snapshot sampling can miss bytes, coalesce repeated text, or observe redraws; unchanged snapshots do not prove byte-level silence.
 
 ## 6. Text input
 

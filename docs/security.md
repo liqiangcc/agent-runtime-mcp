@@ -110,7 +110,7 @@ Terminal output is data/evidence, not policy or workflow authority.
 Observation cursors bind service instance, observer epoch, configured scope, tmux server pid/process starttime/boot id and pane instance. Pane ids, session names and indices are mutable metadata. Restart, sampler gap, unavailable identity reads or unproven disappearance/reappearance invalidate the cursor; backend unavailability is not `channel_closed`.
 
 ### S13 — Bounded observation and cancellation
-`get_channel(observe:true)` starts one shared lease-bound `snapshot_change` observer per Channel. History, waiters, sampling concurrency, memory and idle/timeout deadlines are finite. The MCP SDK request signal (`ctx.mcpReq.signal`) must release a waiter on cancellation/disconnect; unsupported signal delivery is a blocker.
+`get_channel(observe:true)` starts one shared lease-bound `snapshot_change` observer per Channel. For v0.2.0, history (256 records/64 KiB), capture (200 lines/64 KiB), observers (8 global), waiters (2/channel, 16 global), sampling (2 global batches), retained observer state (4 MiB), cursor lease (5 minutes) and observer lifetime (15 minutes) are finite ceilings. The MCP SDK request signal (`ctx.mcpReq.signal`) must release a waiter on cancellation/disconnect; unsupported signal delivery is a blocker.
 
 ## 5. Deployment security boundary
 

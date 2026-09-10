@@ -53,7 +53,7 @@ ESCAPE
 Report mechanical backend/service health independently from Channel inventory, application readiness, Worker/Task state, deployment reachability, or recovery policy.
 
 ### UC7 — Wait for bounded observed output quiet
-An upper layer may call `get_channel(observe:true)` before `write_text` to establish a shared, lease-bound opaque observation cursor, then call `wait_channel_event` for a finite wait. The result reports only `output_idle`, `timeout`, or confirmed same-instance `channel_closed`; it never reports application completion or success. `snapshot_change` is the selected first-backend observation model, with explicit sampling limitations.
+An upper layer may call `get_channel(observe:true)` before `write_text` to establish a shared, lease-bound opaque observation cursor, then call `wait_channel_event` for a finite wait. The result reports only `output_idle`, `timeout`, or confirmed same-instance `channel_closed`; it never reports application completion or success. `snapshot_change` is the selected first-backend observation model, with explicit sampling limitations. The v0.2.0 implementation bounds are fixed at `idle_ms` default 1000 (range 250..60000), `timeout_ms` default 30000 (range 100..60000), 250 ms sampling, 5-minute cursor lease and 15-minute observer lifetime cap; these are server ceilings, not web-host guarantees.
 
 ## 3. Required MVP capabilities
 
@@ -212,4 +212,4 @@ The Channel MCP capability set is complete when an MCP client can:
 7. receive structured failure when a Channel/backend disappears;
 8. do all of the above without Worker/Task/application semantics;
 9. do all of the above without endpoint lifecycle authority;
-10. demonstrate one upper-layer use case that consumes the six MCP capabilities while keeping workflow meaning outside the product.
+10. demonstrate one upper-layer use case that consumes the six baseline capabilities plus the bounded event-wait target while keeping workflow meaning outside the product.

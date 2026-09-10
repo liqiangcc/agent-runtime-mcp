@@ -78,11 +78,13 @@ idle_ms
 timeout_ms
 ```
 
-The result contains `reason: output_idle | timeout | channel_closed`, `channel_id`, opaque `channel_instance`, monotonic-observation timestamp, `activity_observed`, optional first/last activity timestamps, `observation_model: snapshot_change`, `idle_ms`, `timeout_ms`, and exactly one continuation field: `next_cursor`.
+The result contains `reason: output_idle | timeout | channel_closed`, `channel_id`, opaque `channel_instance`, UTC ISO-8601 wall-clock `observed_at` plus optional UTC ISO-8601 first/last activity timestamps, `activity_observed`, `observation_model: snapshot_change`, `idle_ms`, `timeout_ms`, and exactly one continuation field: `next_cursor`. Monotonic timestamps are internal only for idle/deadline calculations.
 
 `output_idle` requires new snapshot activity strictly after `after_cursor` and advances `next_cursor`. `timeout` preserves `after_cursor`; it never acknowledges internally sampled activity. `channel_closed` is returned only for confirmed same-server same-instance loss. `BACKEND_UNAVAILABLE` and uncertain disappearance remain explicit failures, never closure. Cancellation returns no successful result and releases the waiter.
 
 The server uses a monotonic absolute deadline. A late backend sample completed at/after the deadline cannot beat `timeout`; a stale/overrun sample is a continuity error. Quiet is never application completion or success.
+
+For tmux, every sample revalidates configured visibility and the server-generation/pane identity immediately before and immediately after `capture-pane`; a mismatch or failed `/proc` identity read discards the capture and invalidates observation. Pane id plus server generation is the endpoint lifetime basis; session names and window/pane indices are mutable location metadata. A pane process replacement is a new Channel instance unless the backend can prove continuity.
 
 ### `read_channel`
 Read bounded recent output.
@@ -215,7 +217,7 @@ Channel output is untrusted runtime text and may contain sensitive data or adver
 - `idle_ms`/`timeout_ms` have finite server-side maxima and use a monotonic clock;
 - no operation waits for application semantic state.
 
-The initial sampling/timeout values are provisional feasibility bounds until the Coordinator accepts real host evidence. A five-minute observer lease (maximum fifteen minutes), 250 ms sampling interval (100 ms minimum), two waiters per Channel, and two global sampling subprocess batches are candidate limits; they are not an advertised guarantee for every MCP client or tunnel.
+For v0.2.0 the server limits are fixed: `idle_ms` default 1000 (range 250..60000), `timeout_ms` default 30000 (range 100..60000), 250 ms sampling with no public tuning, 8 observers globally, 2 waiters per Channel and 16 globally, 2 global sampling subprocess batches, 200 capture lines/64 KiB per sample, 256 history records/64 KiB, 4 MiB retained observer state, and a 5-minute cursor lease with a 15-minute observer lifetime cap. These are implementation ceilings to verify on the Candidate, not promises about web-host or tunnel timeouts.
 
 ## 8. Idempotency and ambiguous mutation
 
