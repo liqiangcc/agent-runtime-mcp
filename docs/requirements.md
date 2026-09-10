@@ -117,6 +117,8 @@ Key requirements:
 - timeout preserves the input cursor; cancellation releases the waiter;
 - missing facts degrade to unknown rather than being inferred from terminal prose.
 
+The proposed v0.2.1 amendment for Issue #38 sizes bounded history for the full five-minute cursor lease at the fixed 250 ms maximum cadence (1,536 records and 256 KiB logical payload per observer, with a measured eight-observer retained-state ceiling of 4 MiB). Count and byte limits are independent; serialized event bytes must not be presented as a JavaScript heap guarantee. TTL remains finite and unrenewed, and fresh observe after expiry/gap cannot acknowledge earlier activity.
+
 ## 6. tmux lifecycle boundary
 
 Tmux endpoints are prepared outside the MCP.

@@ -133,6 +133,8 @@ Requirements:
 
 `wait_channel_event` reports only mechanically observed `snapshot_change` activity followed by quiet. `output_idle` requires new activity after the caller's opaque cursor; it never means that an application is complete. A timeout keeps the input cursor for continuation, and cancellation releases the waiter. Public timestamps are UTC ISO-8601 wall time; monotonic time is internal for idle/deadline ordering. Snapshot sampling can miss bytes, coalesce repeated text, or observe redraws; unchanged snapshots do not prove byte-level silence.
 
+For the proposed v0.2.1 continuity amendment (Issue #38, pending review), the bounded history is sized for the entire five-minute cursor lease at the fixed 250 ms cadence: 1,536 records and 256 KiB of logical event payload per observer. The count margin is derived from a maximum of 1,200 changes per lease plus lease-edge and scheduler-jitter allowance; sampling completion jitter may reduce coverage or create an explicit gap but must not create a faster-than-250-ms sampling cadence. Logical payload bytes are not JavaScript heap bytes: eight observers consume at most 2 MiB of ring budget, with a separately measured 2 MiB allowance for metadata and runtime overhead under the existing 4 MiB retained-state ceiling. The cursor remains unrenewed; after TTL expiry or a true continuity gap, fresh observe starts a new baseline and cannot report past activity.
+
 ## 6. Text input
 
 Ordinary text is transported as data:
