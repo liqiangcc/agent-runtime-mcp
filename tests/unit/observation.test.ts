@@ -8,6 +8,11 @@ class FakeSampler {
   async sample(_channelId: string) { return this.sampleValue; }
 }
 
+class SlowSampler extends FakeSampler {
+  calls = 0;
+  async sample(channelId: string) { this.calls += 1; await new Promise((resolve) => setTimeout(resolve, 1100)); return super.sample(channelId); }
+}
+
 describe('ObservationManager', () => {
   it('requires post-cursor activity before output_idle and preserves timeout cursor', async () => {
     const sampler = new FakeSampler();
@@ -33,5 +38,24 @@ describe('ObservationManager', () => {
     controller.abort();
     await assert.rejects(pending, (error: unknown) => error instanceof ChannelError && error.code === 'BACKEND_OPERATION_FAILED');
     await assert.rejects(manager.wait({ channel_id: 'c2', after_cursor: 'bad', timeout_ms: 100 }), (error: unknown) => error instanceof ChannelError && error.code === 'CURSOR_INVALID');
+  });
+
+  it('serializes concurrent observe creation and fails closed on a slow sample gap', async () => {
+    const sampler = new SlowSampler();
+    const manager = new ObservationManager(sampler);
+    const [a, b] = await Promise.all([manager.observe('c3'), manager.observe('c3')]);
+    assert.equal(sampler.calls, 1);
+    assert.equal(a.channel_instance, b.channel_instance);
+    await assert.rejects(manager.wait({ channel_id: 'c3', after_cursor: a.cursor, idle_ms: 250, timeout_ms: 2000 }), (error: unknown) => error instanceof ChannelError && error.code === 'OBSERVATION_GAP');
+  });
+
+  it('reports confirmed closure and does not retain the observer after the waiter completes', async () => {
+    const sampler = new FakeSampler();
+    const manager = new ObservationManager(sampler);
+    const lease = await manager.observe('c4');
+    sampler.sampleValue = { ...sampler.sampleValue, state: 'closed' };
+    const result = await manager.wait({ channel_id: 'c4', after_cursor: lease.cursor, idle_ms: 250, timeout_ms: 1000 });
+    assert.equal(result.reason, 'channel_closed');
+    await assert.rejects(manager.wait({ channel_id: 'c4', after_cursor: lease.cursor, timeout_ms: 100 }), (error: unknown) => error instanceof ChannelError && (error.code === 'CURSOR_INVALID' || error.code === 'CURSOR_EXPIRED'));
   });
 });
