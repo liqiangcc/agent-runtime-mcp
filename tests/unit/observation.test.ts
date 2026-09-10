@@ -8,6 +8,11 @@ class FakeSampler {
   async sample(_channelId: string) { return this.sampleValue; }
 }
 
+class MutableSampler extends FakeSampler {
+  snapshots = new Map<string, string>();
+  async sample(channelId: string) { return { ...this.sampleValue, snapshot: this.snapshots.get(channelId) ?? this.sampleValue.snapshot }; }
+}
+
 class SlowSampler extends FakeSampler {
   calls = 0;
   async sample(channelId: string) { this.calls += 1; await new Promise((resolve) => setTimeout(resolve, 1100)); return super.sample(channelId); }
@@ -44,6 +49,111 @@ describe('ObservationManager', () => {
     controller.abort();
     await assert.rejects(pending, (error: unknown) => error instanceof ChannelError && error.code === 'BACKEND_OPERATION_FAILED');
     await assert.rejects(manager.wait({ channel_id: 'c2', after_cursor: 'bad', timeout_ms: 100 }), (error: unknown) => error instanceof ChannelError && error.code === 'CURSOR_INVALID');
+  });
+
+  it('continues a valid cursor beyond the former 256-change window after repeated timeouts', { timeout: 3000 }, async () => {
+    const sampler = new MutableSampler();
+    const manager = new ObservationManager(sampler);
+    const lease = await manager.observe('long-activity');
+    const observer = (manager as unknown as { observers: Map<string, { timer: NodeJS.Timeout }> }).observers.get('long-activity');
+    assert.ok(observer);
+    clearInterval(observer.timer);
+    const sample = (manager as unknown as { sample: (value: unknown) => Promise<void> }).sample.bind(manager);
+    try {
+      for (let index = 0; index < 300; index += 1) {
+        sampler.snapshots.set('long-activity', `activity-${index}`);
+        await sample(observer);
+      }
+      const firstTimeout = await manager.wait({ channel_id: 'long-activity', after_cursor: lease.cursor, idle_ms: 250, timeout_ms: 100 });
+      const secondTimeout = await manager.wait({ channel_id: 'long-activity', after_cursor: lease.cursor, idle_ms: 250, timeout_ms: 100 });
+      assert.equal(firstTimeout.reason, 'timeout');
+      assert.equal(secondTimeout.reason, 'timeout');
+      assert.equal(firstTimeout.next_cursor, lease.cursor);
+      assert.equal(secondTimeout.next_cursor, lease.cursor);
+      sampler.snapshots.set('long-activity', 'stable');
+      await sample(observer);
+      await new Promise((resolve) => setTimeout(resolve, 260));
+      await sample(observer);
+      const idle = await manager.wait({ channel_id: 'long-activity', after_cursor: lease.cursor, idle_ms: 250, timeout_ms: 1000 });
+      assert.equal(idle.reason, 'output_idle');
+      assert.equal(idle.activity_observed, true);
+      assert.notEqual(idle.next_cursor, lease.cursor);
+    } finally { clearInterval(observer.timer); }
+  });
+
+  it('retains the baseline through the full count budget and gaps only after its boundary', { timeout: 3000 }, async () => {
+    const sampler = new MutableSampler();
+    const manager = new ObservationManager(sampler);
+    const lease = await manager.observe('count-boundary');
+    const observer = (manager as unknown as { observers: Map<string, { timer: NodeJS.Timeout }> }).observers.get('count-boundary');
+    assert.ok(observer);
+    clearInterval(observer.timer);
+    const sample = (manager as unknown as { sample: (value: unknown) => Promise<void> }).sample.bind(manager);
+    try {
+      for (let index = 0; index < 1536; index += 1) {
+        sampler.snapshots.set('count-boundary', `event-${index}`);
+        await sample(observer);
+      }
+      await assert.doesNotReject(manager.wait({ channel_id: 'count-boundary', after_cursor: lease.cursor, idle_ms: 250, timeout_ms: 100 }));
+      sampler.snapshots.set('count-boundary', 'event-over-boundary');
+      await sample(observer);
+      await assert.rejects(manager.wait({ channel_id: 'count-boundary', after_cursor: lease.cursor, idle_ms: 250, timeout_ms: 100 }), (error: unknown) => error instanceof ChannelError && error.code === 'OBSERVATION_GAP');
+    } finally { clearInterval(observer.timer); }
+  });
+
+  it('enforces the logical byte ceiling independently of the record count', async () => {
+    const manager = new ObservationManager(new FakeSampler());
+    await manager.observe('byte-boundary');
+    const observer = (manager as unknown as { observers: Map<string, { events: Array<{ seq: number; at: number; wall: string; sample: number }>; evicted: number; timer: NodeJS.Timeout }> }).observers.get('byte-boundary');
+    assert.ok(observer);
+    clearInterval(observer.timer);
+    observer.events.push({ seq: 1, at: 1, wall: 'x'.repeat(300 * 1024), sample: 1 });
+    (manager as unknown as { trimHistory: (value: unknown) => void }).trimHistory(observer);
+    assert.equal(observer.events.length, 0);
+    assert.equal(observer.evicted, 1);
+  });
+
+  it('keeps the five-minute lease finite and expires the cursor without renewal', async () => {
+    let clock = 0;
+    const manager = new ObservationManager(new FakeSampler(), () => clock, () => clock);
+    const lease = await manager.observe('ttl-boundary');
+    const observer = (manager as unknown as { observers: Map<string, { timer: NodeJS.Timeout }> }).observers.get('ttl-boundary');
+    assert.ok(observer);
+    clearInterval(observer.timer);
+    clock = 300001;
+    await assert.rejects(manager.wait({ channel_id: 'ttl-boundary', after_cursor: lease.cursor, timeout_ms: 100 }), (error: unknown) => error instanceof ChannelError && error.code === 'CURSOR_EXPIRED');
+  });
+
+  it('measures the supported Node/V8 retained-state budget for eight observers', { timeout: 10000 }, async () => {
+    const gc = (globalThis as typeof globalThis & { gc?: () => void }).gc;
+    if (!gc) { assert.ok(process.versions.v8, 'run this budget evidence with NODE_OPTIONS=--expose-gc'); return; }
+    const sampler = new MutableSampler();
+    const manager = new ObservationManager(sampler);
+    const observers: Array<{ channelId: string; events: Array<unknown>; timer: NodeJS.Timeout }> = [];
+    const sample = (manager as unknown as { sample: (value: unknown) => Promise<void> }).sample.bind(manager);
+    try {
+      for (let index = 0; index < 8; index += 1) {
+        const channelId = `budget-${index}`;
+        await manager.observe(channelId);
+        const observer = (manager as unknown as { observers: Map<string, { channelId: string; events: Array<unknown>; timer: NodeJS.Timeout }> }).observers.get(channelId);
+        assert.ok(observer);
+        clearInterval(observer.timer);
+        observers.push(observer);
+      }
+      gc();
+      const baseline = process.memoryUsage().heapUsed;
+      for (const observer of observers) {
+        for (let index = 0; index < 1536; index += 1) {
+          sampler.snapshots.set(observer.channelId, `${observer.channelId}-${index}`);
+          await sample(observer);
+        }
+      }
+      gc();
+      const retainedDelta = process.memoryUsage().heapUsed - baseline;
+      const logicalBytes = observers.reduce((sum, observer) => sum + Buffer.byteLength(JSON.stringify(observer.events), 'utf8'), 0);
+      assert.ok(logicalBytes <= 2 * 1024 * 1024, `logical ring payload ${logicalBytes} exceeds 2 MiB`);
+      assert.ok(retainedDelta < 4 * 1024 * 1024, `Node ${process.version}/V8 retained delta ${retainedDelta} exceeds 4 MiB`);
+    } finally { for (const observer of observers) clearInterval(observer.timer); }
   });
 
   it('serializes concurrent observe creation and fails closed on a slow sample gap', async () => {
