@@ -7,7 +7,7 @@ import { Client } from '@modelcontextprotocol/client';
 import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 const execFileAsync = promisify(execFile);
-const EXPECTED_TOOLS = ['get_channel', 'health', 'list_channels', 'read_channel', 'send_control', 'write_text'];
+const EXPECTED_TOOLS = ['get_channel', 'health', 'list_channels', 'read_channel', 'send_control', 'wait_channel_event', 'write_text'];
 
 type PublicToolResult = {
   isError?: boolean;
@@ -126,7 +126,7 @@ test('official MCP client dogfoods the complete public Channel surface', { timeo
     const channelId = channel.channel_id as string;
     const capabilities = channel.capabilities;
     assert.ok(Array.isArray(capabilities));
-    assert.deepEqual([...capabilities].sort(), ['control', 'read', 'write-text']);
+    assert.deepEqual([...capabilities].sort(), ['control', 'observe', 'read', 'write-text']);
 
     const getPayload = requireSuccess(await callTool(client, 'get_channel', { channel_id: channelId }), 'get_channel');
     const inspected = asRecord(getPayload.channel, 'get_channel.channel');

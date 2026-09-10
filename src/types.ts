@@ -1,6 +1,6 @@
 export type BackendKind = 'tmux';
 export type ChannelState = 'available' | 'unavailable' | 'unknown';
-export type ChannelCapability = 'read' | 'write-text' | 'control';
+export type ChannelCapability = 'read' | 'write-text' | 'control' | 'observe';
 export type TerminalControl = 'ENTER' | 'INTERRUPT' | 'ESCAPE';
 
 export interface TmuxChannelMetadata {
@@ -59,4 +59,34 @@ export interface BackendHealth {
   backend_kind: BackendKind;
   available: boolean;
   detail?: string;
+}
+
+export type ObservationModel = 'snapshot_change';
+export type WaitReason = 'output_idle' | 'timeout' | 'channel_closed';
+export interface ObservationLease {
+  cursor: string;
+  channel_instance: string;
+  model: ObservationModel;
+  issued_at: string;
+  valid_until: string;
+  continuity: 'complete';
+}
+export interface WaitChannelEventInput {
+  channel_id: string;
+  after_cursor: string;
+  idle_ms?: number;
+  timeout_ms?: number;
+}
+export interface WaitChannelEventResult {
+  reason: WaitReason;
+  channel_id: string;
+  channel_instance: string;
+  observed_at: string;
+  next_cursor: string;
+  activity_observed: boolean;
+  first_activity_at?: string;
+  last_activity_at?: string;
+  observation_model: ObservationModel;
+  idle_ms: number;
+  timeout_ms: number;
 }

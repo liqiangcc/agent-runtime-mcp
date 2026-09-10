@@ -7,7 +7,16 @@ export type ChannelErrorCode =
   | 'CAPABILITY_UNSUPPORTED'
   | 'PERMISSION_DENIED'
   | 'TIMEOUT'
-  | 'AUTHENTICATION_REQUIRED';
+  | 'AUTHENTICATION_REQUIRED'
+  | 'OBSERVATION_UNSUPPORTED'
+  | 'CURSOR_INVALID'
+  | 'CURSOR_EXPIRED'
+  | 'OBSERVATION_GAP'
+  | 'CHANNEL_INSTANCE_CHANGED'
+  | 'WAITER_LIMIT'
+  | 'RESOURCE_EXHAUSTED'
+  | 'WAIT_ARGUMENT_INVALID';
+
 
 export class ChannelError extends Error {
   readonly code: ChannelErrorCode;

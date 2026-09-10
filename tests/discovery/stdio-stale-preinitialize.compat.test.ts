@@ -7,7 +7,7 @@ import { getDefaultEnvironment } from '@modelcontextprotocol/client/stdio';
 
 const RESPONSE_TIMEOUT_MS = 5000;
 const EXIT_TIMEOUT_MS = 5000;
-const EXPECTED_TOOLS = ['get_channel', 'health', 'list_channels', 'read_channel', 'send_control', 'write_text'];
+const EXPECTED_TOOLS = ['get_channel', 'health', 'list_channels', 'read_channel', 'send_control', 'wait_channel_event', 'write_text'];
 
 type JsonRpcMessage = Record<string, unknown>;
 
@@ -124,7 +124,7 @@ test('stale pre-initialize tools/list preserves the real stdio child for same-co
     const initializeResult = asRecord(initializeResponse.result, 'initialize.result');
     const serverInfo = asRecord(initializeResult.serverInfo, 'initialize.result.serverInfo');
     assert.equal(serverInfo.name, 'agent-runtime-mcp');
-    assert.equal(serverInfo.version, '0.1.0');
+    assert.equal(serverInfo.version, '0.2.0');
     assert.equal(typeof initializeResult.protocolVersion, 'string');
     await assertAlive('after same-connection initialize');
 

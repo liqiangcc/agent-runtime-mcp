@@ -102,12 +102,29 @@ describe('real tmux Channel backend', () => {
     const channels = await backend.listChannels();
 
     assert.equal(channels.length, 1);
-    assert.deepEqual(channels[0].capabilities, ['read', 'write-text', 'control']);
+    assert.deepEqual(channels[0].capabilities, ['read', 'write-text', 'control', 'observe']);
     const read = await backend.readChannel(channels[0].channel_id, { lines: 12, bytes: 4096 });
     assert.ok(read.line_count <= 12);
     assert.ok(read.byte_count <= 4096);
     assert.equal(read.truncated, true);
     assert.match(read.text, /(30|世界)/);
+  });
+
+  it('provides real bounded observe -> write -> wait -> read evidence', async () => {
+    const backend = new TmuxBackend({ socketName, allowedSessions: [readSession] });
+    const channelId = backend.channelIdForPane(await paneId(readSession));
+    const observed = await backend.observeChannel(channelId);
+    const started = Date.now();
+    await backend.writeText(channelId, "printf 'wait-evidence\\n'", { submit: true });
+    const result = await backend.waitChannelEvent({ channel_id: channelId, after_cursor: observed.observation.cursor, idle_ms: 250, timeout_ms: 5000 });
+    const elapsed = Date.now() - started;
+    assert.equal(result.reason, 'output_idle');
+    assert.equal(result.activity_observed, true);
+    assert.equal(result.channel_instance, observed.observation.channel_instance);
+    assert.ok(elapsed >= 250 && elapsed < 5000);
+    const read = await backend.readChannel(channelId, { lines: 20, bytes: 4096 });
+    assert.match(read.text, /wait-evidence/);
+    console.log('TDX_WAIT_EVIDENCE', JSON.stringify({ reason: result.reason, elapsed_ms: elapsed, model: result.observation_model, continuation_preserved: result.next_cursor !== observed.observation.cursor }));
   });
 
   it('reports backend healthy while the configured allowlist exposes zero Channels', async () => {

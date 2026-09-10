@@ -7,7 +7,7 @@ import { Client } from '@modelcontextprotocol/client';
 import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 const execFileAsync = promisify(execFile);
-const EXPECTED_TOOLS = ['get_channel', 'health', 'list_channels', 'read_channel', 'send_control', 'write_text'];
+const EXPECTED_TOOLS = ['get_channel', 'health', 'list_channels', 'read_channel', 'send_control', 'wait_channel_event', 'write_text'];
 
 type PublicToolResult = {
   isError?: boolean;
@@ -90,7 +90,7 @@ test('official stdio client discovers only the allowed externally prepared tmux 
     const channel = asRecord(channels[0], 'list_channels.channels[0]');
     assert.equal(channel.backend_kind, 'tmux');
     assert.equal(channel.state, 'available');
-    assert.deepEqual(channel.capabilities, ['read', 'write-text', 'control']);
+    assert.deepEqual(channel.capabilities, ['read', 'write-text', 'control', 'observe']);
     assert.match(String(channel.channel_id), /^tmux:[a-f0-9]{12}:\d+$/);
 
     const backendMetadata = asRecord(channel.backend_metadata, 'channel.backend_metadata');
@@ -104,6 +104,24 @@ test('official stdio client discovers only the allowed externally prepared tmux 
     const serialized = JSON.stringify(channel);
     assert.equal(serialized.includes(socketName), false);
     assert.equal(serialized.includes(hiddenSession), false);
+
+    const observed = requireSuccess(
+      await client.callTool({ name: 'get_channel', arguments: { channel_id: String(channel.channel_id), observe: true } }),
+      'get_channel observe',
+    );
+    const observation = asRecord(observed.observation, 'observation');
+    await client.callTool({ name: 'write_text', arguments: { channel_id: String(channel.channel_id), text: "printf 'stdio-wait\\n'", submit: true } });
+    const waitStarted = Date.now();
+    const waited = requireSuccess(
+      await client.callTool({ name: 'wait_channel_event', arguments: { channel_id: String(channel.channel_id), after_cursor: observation.cursor, idle_ms: 250, timeout_ms: 5000 } }),
+      'wait_channel_event',
+    );
+    assert.equal(waited.reason, 'output_idle');
+    assert.equal(waited.activity_observed, true);
+    assert.ok(Date.now() - waitStarted >= 250);
+    const afterRead = requireSuccess(await client.callTool({ name: 'read_channel', arguments: { channel_id: String(channel.channel_id), lines: 20, bytes: 4096 } }), 'read after wait');
+    assert.equal(asRecord(afterRead.read, 'read').channel_id, String(channel.channel_id));
+    console.log('STDIO_WAIT_EVIDENCE', JSON.stringify({ reason: waited.reason, elapsed_ms: Date.now() - waitStarted, next_cursor: typeof waited.next_cursor === 'string' }));
   } finally {
     await client.close().catch(() => undefined);
     await tmux(socketName, 'kill-server').catch(() => undefined);
