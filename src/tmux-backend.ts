@@ -156,7 +156,7 @@ export class TmuxBackend implements ChannelBackend {
     this.config = resolveConfig(config);
     this.runner = runner;
     this.scopeFingerprint = createHash('sha256').update(this.scopeKey()).digest('hex').slice(0, 12);
-    this.observations = new ObservationManager({ sample: (channelId) => this.sampleObservation(channelId) });
+    this.observations = new ObservationManager({ sample: (channelId) => this.sampleObservation(channelId), validate: (channelId, identity) => this.validateObservation(channelId, identity) });
   }
 
   async listChannels(): Promise<Channel[]> {
@@ -364,6 +364,15 @@ export class TmuxBackend implements ChannelBackend {
       throw new ChannelError('CHANNEL_INSTANCE_CHANGED', 'Channel identity changed during observation');
     }
     return { identity: `${before.identity}:${beforeProc}`, snapshot: createHash('sha256').update(Buffer.from(capture, 'utf8').subarray(0, 64 * 1024)).digest('hex'), state: 'present' };
+  }
+
+  private async validateObservation(channelId: string, expectedIdentity: string): Promise<void> {
+    if (process.platform !== 'linux') throw new ChannelError('OBSERVATION_UNSUPPORTED', 'Snapshot observation requires Linux /proc');
+    const paneId = this.parseChannelId(channelId);
+    const identity = await this.queryIdentity(paneId);
+    if (!this.isSessionAllowed(identity.sessionName)) throw new ChannelError('PERMISSION_DENIED', 'Channel moved outside configured scope');
+    const generation = await procIdentity(identity.serverPid);
+    if (`${identity.identity}:${generation}` !== expectedIdentity) throw new ChannelError('CHANNEL_INSTANCE_CHANGED', 'Channel identity changed');
   }
 
   private async queryIdentity(paneId: string): Promise<Identity> {

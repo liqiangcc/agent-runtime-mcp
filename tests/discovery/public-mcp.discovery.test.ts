@@ -130,17 +130,19 @@ test('official stdio client discovers only the allowed externally prepared tmux 
     const freshObservation = asRecord(freshObserved.observation, 'fresh observation');
     const cancel = new AbortController();
     const cancelStarted = Date.now();
-    const cancelled = client.callTool({ name: 'wait_channel_event', arguments: { channel_id: String(channel.channel_id), after_cursor: freshObservation.cursor, idle_ms: 250, timeout_ms: 5000 } }, { signal: cancel.signal });
+    const cancelled = client.callTool({ name: 'wait_channel_event', arguments: { channel_id: String(channel.channel_id), after_cursor: freshObservation.cursor, idle_ms: 250, timeout_ms: 60000 } }, { signal: cancel.signal });
     let settledBeforeTrigger = false;
     void cancelled.then(() => { settledBeforeTrigger = true; }, () => { settledBeforeTrigger = true; });
     await new Promise((resolve) => setTimeout(resolve, 100));
     assert.equal(settledBeforeTrigger, false);
     setTimeout(() => cancel.abort(), 100);
     let cancelledResult: unknown;
-    try { cancelledResult = await cancelled; } catch { cancelledResult = undefined; }
+    let cancellationRejected = false;
+    try { cancelledResult = await cancelled; } catch { cancelledResult = undefined; cancellationRejected = true; }
     const cancelElapsed = Date.now() - cancelStarted;
     assert.ok(cancelElapsed < 2000);
-    assert.equal((cancelledResult as { reason?: string } | undefined)?.reason, undefined);
+    assert.equal(cancellationRejected, true);
+    assert.equal((cancelledResult as { structuredContent?: { reason?: string } } | undefined)?.structuredContent?.reason, undefined);
     const admissionObserved = requireSuccess(await client.callTool({ name: 'get_channel', arguments: { channel_id: String(channel.channel_id), observe: true } }), 'admission observe');
     const admissionCursor = String(asRecord(admissionObserved.observation, 'admission observation').cursor);
     const admissions = await Promise.all([
@@ -148,7 +150,7 @@ test('official stdio client discovers only the allowed externally prepared tmux 
       client.callTool({ name: 'wait_channel_event', arguments: { channel_id: String(channel.channel_id), after_cursor: admissionCursor, idle_ms: 250, timeout_ms: 100 } }),
     ]);
     assert.equal(admissions.every((entry) => entry.isError !== true && (entry.structuredContent as { reason?: string })?.reason === 'timeout'), true);
-    console.log('STDIO_CANCEL_EVIDENCE', JSON.stringify({ trigger_delay_ms: 200, cleanup_elapsed_ms: cancelElapsed - 200, released_by_re_admission: true, response_error: (cancelledResult as { isError?: boolean } | undefined)?.isError === true }));
+    console.log('STDIO_CANCEL_EVIDENCE', JSON.stringify({ timeout_ms: 60000, trigger_delay_ms: 200, cleanup_elapsed_ms: cancelElapsed - 200, released_by_re_admission: true, response_error: (cancelledResult as { isError?: boolean } | undefined)?.isError === true }));
 
     const disconnectStarted = Date.now();
     const disconnectObserved = requireSuccess(await client.callTool({ name: 'get_channel', arguments: { channel_id: String(channel.channel_id), observe: true } }), 'disconnect observe');

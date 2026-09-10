@@ -13,6 +13,12 @@ class SlowSampler extends FakeSampler {
   async sample(channelId: string) { this.calls += 1; await new Promise((resolve) => setTimeout(resolve, 1100)); return super.sample(channelId); }
 }
 
+class ConcurrencySampler extends FakeSampler {
+  active = 0;
+  maxActive = 0;
+  async sample(channelId: string) { this.active += 1; this.maxActive = Math.max(this.maxActive, this.active); await new Promise((resolve) => setTimeout(resolve, 20)); this.active -= 1; return super.sample(channelId); }
+}
+
 describe('ObservationManager', () => {
   it('requires post-cursor activity before output_idle and preserves timeout cursor', async () => {
     const sampler = new FakeSampler();
@@ -49,6 +55,13 @@ describe('ObservationManager', () => {
     await assert.rejects(manager.wait({ channel_id: 'c3', after_cursor: a.cursor, idle_ms: 250, timeout_ms: 2000 }), (error: unknown) => error instanceof ChannelError && error.code === 'OBSERVATION_GAP');
   });
 
+  it('enforces the global two-sample batch bound across distinct observer creation', async () => {
+    const sampler = new ConcurrencySampler();
+    const manager = new ObservationManager(sampler);
+    await Promise.all(Array.from({ length: 8 }, (_, index) => manager.observe(`batch-${index}`)));
+    assert.ok(sampler.maxActive <= 2);
+  });
+
   it('reports confirmed closure and does not retain the observer after the waiter completes', async () => {
     const sampler = new FakeSampler();
     const manager = new ObservationManager(sampler);
@@ -77,5 +90,19 @@ describe('ObservationManager', () => {
     const result = await manager.wait({ channel_id: 'c6', after_cursor: lease.cursor, idle_ms: 250, timeout_ms: 1000 });
     assert.equal(result.reason, 'channel_closed');
     assert.throws(() => assert.notEqual(result.reason, 'channel_closed'));
+  });
+
+  it('revalidates scope at completion and rejects a pane moved out of visibility', async () => {
+    const sampler = new FakeSampler();
+    let allowed = true;
+    const manager = new ObservationManager({
+      sample: (channelId) => sampler.sample(channelId),
+      validate: async () => { if (!allowed) throw new ChannelError('PERMISSION_DENIED', 'scope changed'); },
+    });
+    const lease = await manager.observe('c7');
+    sampler.sampleValue = { ...sampler.sampleValue, snapshot: 'scope-change' };
+    const pending = manager.wait({ channel_id: 'c7', after_cursor: lease.cursor, idle_ms: 250, timeout_ms: 1000 });
+    setTimeout(() => { allowed = false; }, 300);
+    await assert.rejects(pending, (error: unknown) => error instanceof ChannelError && error.code === 'PERMISSION_DENIED');
   });
 });
