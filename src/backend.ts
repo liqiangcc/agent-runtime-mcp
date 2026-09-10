@@ -16,4 +16,6 @@ export interface ChannelBackend {
   writeText(channelId: string, text: string, options: WriteTextOptions): Promise<WriteTextResult>;
   sendControl(channelId: string, control: TerminalControl): Promise<SendControlResult>;
   health(): Promise<BackendHealth>;
+  observeChannel?(channelId: string): Promise<{ channel: Channel; observation: import('./types.js').ObservationLease }>;
+  waitChannelEvent?(input: import('./types.js').WaitChannelEventInput, signal?: AbortSignal): Promise<import('./types.js').WaitChannelEventResult>;
 }

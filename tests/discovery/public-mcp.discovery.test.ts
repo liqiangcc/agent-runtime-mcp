@@ -7,7 +7,7 @@ import { Client } from '@modelcontextprotocol/client';
 import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 const execFileAsync = promisify(execFile);
-const EXPECTED_TOOLS = ['get_channel', 'health', 'list_channels', 'read_channel', 'send_control', 'write_text'];
+const EXPECTED_TOOLS = ['get_channel', 'health', 'list_channels', 'read_channel', 'send_control', 'wait_channel_event', 'write_text'];
 
 type PublicToolResult = {
   isError?: boolean;
@@ -90,7 +90,7 @@ test('official stdio client discovers only the allowed externally prepared tmux 
     const channel = asRecord(channels[0], 'list_channels.channels[0]');
     assert.equal(channel.backend_kind, 'tmux');
     assert.equal(channel.state, 'available');
-    assert.deepEqual(channel.capabilities, ['read', 'write-text', 'control']);
+    assert.deepEqual(channel.capabilities, ['read', 'write-text', 'control', 'observe']);
     assert.match(String(channel.channel_id), /^tmux:[a-f0-9]{12}:\d+$/);
 
     const backendMetadata = asRecord(channel.backend_metadata, 'channel.backend_metadata');
@@ -104,6 +104,67 @@ test('official stdio client discovers only the allowed externally prepared tmux 
     const serialized = JSON.stringify(channel);
     assert.equal(serialized.includes(socketName), false);
     assert.equal(serialized.includes(hiddenSession), false);
+
+    const observed = requireSuccess(
+      await client.callTool({ name: 'get_channel', arguments: { channel_id: String(channel.channel_id), observe: true } }),
+      'get_channel observe',
+    );
+    const observation = asRecord(observed.observation, 'observation');
+    await client.callTool({ name: 'write_text', arguments: { channel_id: String(channel.channel_id), text: "printf 'stdio-wait\\n'", submit: true } });
+    const waitStarted = Date.now();
+    const waited = requireSuccess(
+      await client.callTool({ name: 'wait_channel_event', arguments: { channel_id: String(channel.channel_id), after_cursor: observation.cursor, idle_ms: 250, timeout_ms: 5000 } }),
+      'wait_channel_event',
+    );
+    assert.equal(waited.reason, 'output_idle');
+    assert.equal(waited.activity_observed, true);
+    assert.ok(Date.now() - waitStarted >= 250);
+    const afterRead = requireSuccess(await client.callTool({ name: 'read_channel', arguments: { channel_id: String(channel.channel_id), lines: 20, bytes: 4096 } }), 'read after wait');
+    assert.equal(asRecord(afterRead.read, 'read').channel_id, String(channel.channel_id));
+    console.log('STDIO_WAIT_EVIDENCE', JSON.stringify({ reason: waited.reason, elapsed_ms: Date.now() - waitStarted, next_cursor: typeof waited.next_cursor === 'string' }));
+
+    const freshObserved = requireSuccess(
+      await client.callTool({ name: 'get_channel', arguments: { channel_id: String(channel.channel_id), observe: true } }),
+      'fresh get_channel observe',
+    );
+    const freshObservation = asRecord(freshObserved.observation, 'fresh observation');
+    const cancel = new AbortController();
+    const cancelStarted = Date.now();
+    const cancelled = client.callTool({ name: 'wait_channel_event', arguments: { channel_id: String(channel.channel_id), after_cursor: freshObservation.cursor, idle_ms: 250, timeout_ms: 60000 } }, { signal: cancel.signal });
+    let settledBeforeTrigger = false;
+    void cancelled.then(() => { settledBeforeTrigger = true; }, () => { settledBeforeTrigger = true; });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(settledBeforeTrigger, false);
+    setTimeout(() => cancel.abort(), 100);
+    let cancelledResult: unknown;
+    let cancellationRejected = false;
+    try { cancelledResult = await cancelled; } catch { cancelledResult = undefined; cancellationRejected = true; }
+    const cancelElapsed = Date.now() - cancelStarted;
+    assert.ok(cancelElapsed < 2000);
+    assert.equal(cancellationRejected, true);
+    assert.equal((cancelledResult as { structuredContent?: { reason?: string } } | undefined)?.structuredContent?.reason, undefined);
+    const admissionObserved = requireSuccess(await client.callTool({ name: 'get_channel', arguments: { channel_id: String(channel.channel_id), observe: true } }), 'admission observe');
+    const admissionCursor = String(asRecord(admissionObserved.observation, 'admission observation').cursor);
+    const admissions = await Promise.all([
+      client.callTool({ name: 'wait_channel_event', arguments: { channel_id: String(channel.channel_id), after_cursor: admissionCursor, idle_ms: 250, timeout_ms: 100 } }),
+      client.callTool({ name: 'wait_channel_event', arguments: { channel_id: String(channel.channel_id), after_cursor: admissionCursor, idle_ms: 250, timeout_ms: 100 } }),
+    ]);
+    assert.equal(admissions.every((entry) => entry.isError !== true && (entry.structuredContent as { reason?: string })?.reason === 'timeout'), true);
+    console.log('STDIO_CANCEL_EVIDENCE', JSON.stringify({ timeout_ms: 60000, trigger_delay_ms: 200, cleanup_elapsed_ms: cancelElapsed - 200, released_by_re_admission: true, response_error: (cancelledResult as { isError?: boolean } | undefined)?.isError === true }));
+
+    const disconnectStarted = Date.now();
+    const disconnectObserved = requireSuccess(await client.callTool({ name: 'get_channel', arguments: { channel_id: String(channel.channel_id), observe: true } }), 'disconnect observe');
+    const disconnectCursor = String(asRecord(disconnectObserved.observation, 'disconnect observation').cursor);
+    const disconnected = client.callTool({ name: 'wait_channel_event', arguments: { channel_id: String(channel.channel_id), after_cursor: disconnectCursor, idle_ms: 250, timeout_ms: 1000 } });
+    let disconnectSettledBeforeClose = false;
+    void disconnected.then(() => { disconnectSettledBeforeClose = true; }, () => { disconnectSettledBeforeClose = true; });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(disconnectSettledBeforeClose, false);
+    setTimeout(() => { void client.close(); }, 100);
+    await disconnected.catch(() => undefined);
+    const disconnectElapsed = Date.now() - disconnectStarted;
+    assert.ok(disconnectElapsed < 3000);
+    console.log('STDIO_DISCONNECT_EVIDENCE', JSON.stringify({ trigger_delay_ms: 200, completion_elapsed_ms: disconnectElapsed - 200, pending_before_close: true, transport_closed: true, server_cleanup: 'not_claimed_without_admission_probe' }));
   } finally {
     await client.close().catch(() => undefined);
     await tmux(socketName, 'kill-server').catch(() => undefined);

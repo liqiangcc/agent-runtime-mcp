@@ -62,7 +62,7 @@ describe('TmuxBackend', () => {
     assert.equal(channels.length, 1);
     assert.equal(channels[0].backend_kind, 'tmux');
     assert.equal(channels[0].state, 'available');
-    assert.deepEqual(channels[0].capabilities, ['read', 'write-text', 'control']);
+    assert.deepEqual(channels[0].capabilities, ['read', 'write-text', 'control', 'observe']);
     assert.equal(channels[0].title, 'Visible pane');
     assert.equal(channels[0].cwd, '/work/visible');
     assert.deepEqual(channels[0].backend_metadata, {

@@ -8,7 +8,7 @@ import { Client } from '@modelcontextprotocol/client';
 import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 const execFileAsync = promisify(execFile);
-const EXPECTED_TOOLS = ['get_channel', 'health', 'list_channels', 'read_channel', 'send_control', 'write_text'];
+const EXPECTED_TOOLS = ['get_channel', 'health', 'list_channels', 'read_channel', 'send_control', 'wait_channel_event', 'write_text'];
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, '..');
 const sourceManifest = JSON.parse(await readFile(join(repoRoot, 'package.json'), 'utf8'));
@@ -156,7 +156,7 @@ try {
   const channel = asRecord(listPayload.channels[0], 'list_channels.channels[0]');
   assert.equal(channel.backend_kind, 'tmux');
   assert.equal(channel.state, 'available');
-  assert.deepEqual(channel.capabilities, ['read', 'write-text', 'control']);
+  assert.deepEqual(channel.capabilities, ['read', 'write-text', 'control', 'observe']);
   console.log(`packaged-runtime-version=${manifest.version}`);
 } finally {
   await client.close().catch(() => undefined);

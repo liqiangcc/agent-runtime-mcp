@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import type { ChannelBackend } from './backend.js';
 import { ChannelError } from './errors.js';
 import { validateOrdinaryText, validateTerminalControl } from './input.js';
@@ -13,6 +14,7 @@ import type {
   WriteTextOptions,
   WriteTextResult,
 } from './types.js';
+import { ObservationManager, type ObservationLifecycle, type ObservationSample } from './observation.js';
 
 const PANE_FORMAT = [
   '#{pane_id}',
@@ -129,16 +131,32 @@ interface TmuxPane {
   title?: string;
   cwd?: string;
 }
+interface Identity { identity: string; panePid: string; serverPid: string; sessionName: string }
+
+async function procIdentity(pid: string): Promise<string> {
+  try {
+    const [stat, boot] = await Promise.all([readFile(`/proc/${pid}/stat`, 'utf8'), readFile('/proc/sys/kernel/random/boot_id', 'utf8')]);
+    const close = stat.lastIndexOf(')');
+    const fields = stat.slice(close + 2).trim().split(/\s+/);
+    const starttime = fields[19];
+    if (!starttime || !boot.trim()) throw new Error('missing proc identity');
+    return `${boot.trim()}:${starttime}`;
+  } catch {
+    throw new ChannelError('BACKEND_UNAVAILABLE', 'Unable to verify Linux process identity');
+  }
+}
 
 export class TmuxBackend implements ChannelBackend {
   private readonly config: ResolvedTmuxBackendConfig;
   private readonly runner: CommandRunner;
   private readonly scopeFingerprint: string;
+  private readonly observations: ObservationManager;
 
-  constructor(config: TmuxBackendConfig = {}, runner: CommandRunner = new NodeCommandRunner()) {
+  constructor(config: TmuxBackendConfig = {}, runner: CommandRunner = new NodeCommandRunner(), lifecycle?: ObservationLifecycle) {
     this.config = resolveConfig(config);
     this.runner = runner;
     this.scopeFingerprint = createHash('sha256').update(this.scopeKey()).digest('hex').slice(0, 12);
+    this.observations = new ObservationManager({ sample: (channelId) => this.sampleObservation(channelId), validate: (channelId, identity) => this.validateObservation(channelId, identity) }, undefined, undefined, lifecycle);
   }
 
   async listChannels(): Promise<Channel[]> {
@@ -156,6 +174,16 @@ export class TmuxBackend implements ChannelBackend {
       });
     }
     return this.toChannel(pane);
+  }
+
+  async observeChannel(channelId: string) {
+    const channel = await this.getChannel(channelId);
+    const observation = await this.observations.observe(channelId);
+    return { channel: { ...channel, capabilities: [...channel.capabilities, ...(channel.capabilities.includes('observe') ? [] : ['observe' as const])] }, observation };
+  }
+
+  async waitChannelEvent(input: import('./types.js').WaitChannelEventInput, signal?: AbortSignal) {
+    return this.observations.wait(input, signal);
   }
 
   async readChannel(channelId: string, options: ReadChannelOptions = {}): Promise<ChannelRead> {
@@ -281,7 +309,7 @@ export class TmuxBackend implements ChannelBackend {
       backend_kind: 'tmux',
       backend_locator: channelId,
       state: 'available',
-      capabilities: ['read', 'write-text', 'control'],
+      capabilities: ['read', 'write-text', 'control', ...(process.platform === 'linux' ? ['observe' as const] : [])],
       ...(pane.title ? { title: pane.title } : {}),
       ...(pane.cwd ? { cwd: pane.cwd } : {}),
       backend_metadata: {
@@ -311,6 +339,54 @@ export class TmuxBackend implements ChannelBackend {
     await this.runTmux(['send-keys', '-t', paneId, key], `send-control-${control.toLowerCase()}`, 64 * 1024, {
       terminalMutation: true,
     });
+  }
+
+  private async sampleObservation(channelId: string): Promise<ObservationSample> {
+    if (process.platform !== 'linux') throw new ChannelError('OBSERVATION_UNSUPPORTED', 'Snapshot observation requires Linux /proc');
+    const paneId = this.parseChannelId(channelId);
+    let before: Identity;
+    try {
+      before = await this.queryIdentity(paneId);
+    } catch (error) {
+      if (!(error instanceof ChannelError) || error.code !== 'CHANNEL_NOT_FOUND') throw error;
+      const generationBefore = await this.queryServerGeneration();
+      const inventory = await this.listVisiblePanes();
+      const generationAfter = await this.queryServerGeneration();
+      if (generationBefore === generationAfter && !inventory.some((pane) => pane.paneId === paneId)) return { identity: 'closed', snapshot: '', state: 'closed' };
+      throw new ChannelError('BACKEND_UNAVAILABLE', 'Pane identity could not be established');
+    }
+    if (!this.isSessionAllowed(before.sessionName)) throw new ChannelError('PERMISSION_DENIED', 'Channel is outside configured scope');
+    const beforeProc = await procIdentity(before.serverPid);
+    const capture = await this.runTmux(['capture-pane', '-p', '-t', paneId, '-S', '-200'], 'observe-capture', 64 * 1024);
+    const after = await this.queryIdentity(paneId);
+    const afterProc = await procIdentity(after.serverPid);
+    if (before.identity !== after.identity || beforeProc !== afterProc || !this.isSessionAllowed(after.sessionName)) {
+      throw new ChannelError('CHANNEL_INSTANCE_CHANGED', 'Channel identity changed during observation');
+    }
+    return { identity: `${before.identity}:${beforeProc}`, snapshot: createHash('sha256').update(Buffer.from(capture, 'utf8').subarray(0, 64 * 1024)).digest('hex'), state: 'present' };
+  }
+
+  private async validateObservation(channelId: string, expectedIdentity: string): Promise<void> {
+    if (process.platform !== 'linux') throw new ChannelError('OBSERVATION_UNSUPPORTED', 'Snapshot observation requires Linux /proc');
+    const paneId = this.parseChannelId(channelId);
+    const identity = await this.queryIdentity(paneId);
+    if (!this.isSessionAllowed(identity.sessionName)) throw new ChannelError('PERMISSION_DENIED', 'Channel moved outside configured scope');
+    const generation = await procIdentity(identity.serverPid);
+    if (`${identity.identity}:${generation}` !== expectedIdentity) throw new ChannelError('CHANNEL_INSTANCE_CHANGED', 'Channel identity changed');
+  }
+
+  private async queryIdentity(paneId: string): Promise<Identity> {
+    const out = await this.runTmux(['display-message', '-p', '-t', paneId, '#{pane_id}\t#{pane_pid}\t#{pid}\t#{session_name}\t#{window_id}'], 'observe-identity', 16 * 1024);
+    const [id, panePid, serverPid, sessionName, windowId] = out.trim().split('\t');
+    if (!id || !/^%\d+$/.test(id) || !/^\d+$/.test(panePid) || !/^\d+$/.test(serverPid) || !sessionName || !windowId) throw new ChannelError('BACKEND_OPERATION_FAILED', 'Tmux returned malformed observation identity');
+    return { identity: `${id}:${panePid}:${windowId}`, panePid, serverPid, sessionName };
+  }
+
+  private async queryServerGeneration(): Promise<string> {
+    const out = await this.runTmux(['display-message', '-p', '#{pid}'], 'observe-server-generation', 4096);
+    const pid = out.trim();
+    if (!/^\d+$/.test(pid)) throw new ChannelError('BACKEND_UNAVAILABLE', 'Tmux server generation unavailable');
+    return `${pid}:${await procIdentity(pid)}`;
   }
 
   private async cleanupBuffer(bufferName: string): Promise<void> {

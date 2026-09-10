@@ -7,7 +7,7 @@ agent-runtime-mcp-v<version>.tar.gz
 agent-runtime-mcp-v<version>.tar.gz.sha256
 ```
 
-For release `v0.1.1`, `<version>` is `0.1.1`. Future runtime bundles use the version declared by `package.json`; the packaging path is not pinned to a specific historical release.
+The current v0.2.0 runtime bundle uses `<version>` `0.2.0`. Future runtime bundles use the version declared by `package.json`; the historical v0.1.1 release note remains preserved separately.
 
 The bundle is a runnable deployment artifact for the accepted Channel MCP. It is a generic MCP communication layer for already-existing interactive terminal Channels, with tmux as the first backend.
 
