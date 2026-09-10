@@ -112,6 +112,8 @@ Observation cursors bind service instance, observer epoch, configured scope, tmu
 ### S13 — Bounded observation and cancellation
 `get_channel(observe:true)` starts one shared lease-bound `snapshot_change` observer per Channel. For v0.2.0, history (256 records/64 KiB), capture (200 lines/64 KiB), observers (8 global), waiters (2/channel, 16 global), sampling (2 global batches), retained observer state (4 MiB), cursor lease (5 minutes) and observer lifetime (15 minutes) are finite ceilings. The MCP SDK request signal (`ctx.mcpReq.signal`) must release a waiter on cancellation/disconnect; unsupported signal delivery is a blocker.
 
+Issue #38's proposed v0.2.1 amendment (pending review) derives history from the unchanged five-minute lease and nominal 250 ms cadence: 1,536 records and 256 KiB logical event payload per observer, with explicit lease-edge/in-flight and measured jitter margin. Eight ring payloads are bounded to 2 MiB; a supported-Node/V8 runtime measurement (with version and method) must report whether metadata and allocator/runtime overhead fit the remaining 2 MiB of the 4 MiB retained-state budget. This is implementation evidence for the supported environment, not a universal GC guarantee. Logical serialized bytes are not a heap-size claim. Cursor TTL remains unrenewed; expiry and true gaps stay explicit, and fresh observe cannot recover past activity.
+
 ## 5. Deployment security boundary
 
 If an operator exposes this MCP over a network or shared environment, that deployment must provide suitable authentication, authorization and transport protection.
