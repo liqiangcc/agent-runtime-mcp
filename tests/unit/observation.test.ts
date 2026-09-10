@@ -145,6 +145,18 @@ describe('ObservationManager', () => {
     } finally { release(); await pending.catch(() => undefined); }
   });
 
+  it('held registration validation times out independently before its gate is released', { timeout: 2000 }, async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const manager = new ObservationManager({ sample: (id) => new FakeSampler().sample(id), validate: async () => gate });
+    const lease = await manager.observe('held-timeout');
+    const pending = manager.wait({ channel_id: 'held-timeout', after_cursor: lease.cursor, timeout_ms: 100 });
+    try {
+      const result = await pending;
+      assert.equal(result.reason, 'timeout');
+    } finally { release(); await pending.catch(() => undefined); }
+  });
+
   it('negative: repeated wakes while validation is held never overlap evaluation', { timeout: 3000 }, async () => {
     let release!: () => void; let active = 0; let maxActive = 0;
     const gate = new Promise<void>((resolve) => { release = resolve; });
@@ -164,6 +176,8 @@ describe('ObservationManager', () => {
       sampler.sampleValue = { ...sampler.sampleValue, snapshot: 'wake-3' };
       await new Promise((resolve) => setTimeout(resolve, 300));
       assert.equal(maxActive, 1);
+      const timers = (manager as unknown as { pendingWaitTimers: Set<unknown> }).pendingWaitTimers;
+      assert.ok(timers.size <= 2, `one deadline plus one poll timer maximum, got ${timers.size}`);
     } finally { release(); await pending.catch(() => undefined); }
   });
 
@@ -175,5 +189,115 @@ describe('ObservationManager', () => {
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal((observer as { failure?: string }).failure, 'OBSERVATION_GAP');
     clearInterval(observer.timer);
+  });
+
+  it('deadline while completion validation is held returns timeout with activity preserved', { timeout: 2000 }, async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let validations = 0;
+    const sampler = new FakeSampler();
+    const manager = new ObservationManager({
+      sample: (id) => sampler.sample(id),
+      validate: async () => { validations += 1; if (validations > 1) await gate; },
+    });
+    const lease = await manager.observe('deadline-held');
+    sampler.sampleValue = { ...sampler.sampleValue, snapshot: 'activity' };
+    const pending = manager.wait({ channel_id: 'deadline-held', after_cursor: lease.cursor, idle_ms: 250, timeout_ms: 300 });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      release();
+      const result = await pending;
+      assert.equal(result.reason, 'timeout');
+      assert.equal(result.activity_observed, true);
+    } finally { release(); await pending.catch(() => undefined); }
+  });
+
+  it('rechecks failure after completion validation before returning idle', { timeout: 2000 }, async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let validations = 0;
+    const sampler = new FakeSampler();
+    const manager = new ObservationManager({
+      sample: (id) => sampler.sample(id),
+      validate: async () => { validations += 1; if (validations > 1) await gate; },
+    });
+    const lease = await manager.observe('completion-failure');
+    sampler.sampleValue = { ...sampler.sampleValue, snapshot: 'activity' };
+    const pending = manager.wait({ channel_id: 'completion-failure', after_cursor: lease.cursor, idle_ms: 250, timeout_ms: 1000 });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      const observer = (manager as unknown as { observers: Map<string, { failure?: string }> }).observers.get('completion-failure');
+      assert.ok(observer);
+      observer.failure = 'BACKEND_UNAVAILABLE';
+      release();
+      await assert.rejects(pending, (error: unknown) => error instanceof ChannelError && error.code === 'BACKEND_UNAVAILABLE');
+    } finally { release(); await pending.catch(() => undefined); }
+  });
+
+  it('rechecks closure after completion validation before returning idle', { timeout: 2000 }, async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let validations = 0;
+    const sampler = new FakeSampler();
+    const manager = new ObservationManager({ sample: (id) => sampler.sample(id), validate: async () => { validations += 1; if (validations > 1) await gate; } });
+    const lease = await manager.observe('completion-closed');
+    sampler.sampleValue = { ...sampler.sampleValue, snapshot: 'activity' };
+    const pending = manager.wait({ channel_id: 'completion-closed', after_cursor: lease.cursor, idle_ms: 250, timeout_ms: 1000 });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      const observer = (manager as unknown as { observers: Map<string, { closed: boolean }> }).observers.get('completion-closed');
+      assert.ok(observer);
+      observer.closed = true;
+      release();
+      const result = await pending;
+      assert.equal(result.reason, 'channel_closed');
+    } finally { release(); await pending.catch(() => undefined); }
+  });
+
+  it('removes cancelled validation work queued behind the two-sample bound', { timeout: 3000 }, async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let active = 0;
+    let calls = 0;
+    let admitted!: () => void;
+    const admittedBarrier = new Promise<void>((resolve) => { admitted = resolve; });
+    const sampler = new FakeSampler();
+    const manager = new ObservationManager({
+      sample: (id) => sampler.sample(id),
+      validate: async () => { calls += 1; active += 1; if (active === 2) admitted(); await gate; active -= 1; },
+    });
+    const a = await manager.observe('queue-a');
+    const b = await manager.observe('queue-b');
+    const c = await manager.observe('queue-c');
+    const c1 = new AbortController(); const c2 = new AbortController();
+    const p1 = manager.wait({ channel_id: 'queue-a', after_cursor: a.cursor, timeout_ms: 5000 }, c1.signal);
+    const p2 = manager.wait({ channel_id: 'queue-b', after_cursor: b.cursor, timeout_ms: 5000 }, c2.signal);
+    await new Promise<void>((resolve, reject) => { const timer = setTimeout(() => reject(new Error('two validations not admitted')), 1000); admittedBarrier.then(() => { clearTimeout(timer); resolve(); }); });
+    const controller = new AbortController();
+    const p3 = manager.wait({ channel_id: 'queue-c', after_cursor: c.cursor, timeout_ms: 5000 }, controller.signal);
+    controller.abort();
+    await assert.rejects(p3, (error: unknown) => error instanceof ChannelError && error.code === 'BACKEND_OPERATION_FAILED');
+    release();
+    c1.abort(); c2.abort();
+    await Promise.all([p1.catch(() => undefined), p2.catch(() => undefined)]);
+    assert.equal(calls, 2);
+  });
+
+  it('clears all request timers after early completion', async () => {
+    const sampler = new FakeSampler();
+    const manager = new ObservationManager(sampler);
+    const lease = await manager.observe('timer-cleanup');
+    const controller = new AbortController();
+    const pending = manager.wait({ channel_id: 'timer-cleanup', after_cursor: lease.cursor, timeout_ms: 1000 }, controller.signal);
+    controller.abort();
+    await assert.rejects(pending, ChannelError);
+    const timers = (manager as unknown as { pendingWaitTimers?: Set<unknown> }).pendingWaitTimers;
+    assert.ok(timers, 'test harness requires tracked request timers');
+    assert.equal(timers?.size, 0);
+
+    sampler.sampleValue = { ...sampler.sampleValue, snapshot: 'timer-activity' };
+    const idle = await manager.wait({ channel_id: 'timer-cleanup', after_cursor: lease.cursor, idle_ms: 250, timeout_ms: 1500 });
+    assert.equal(idle.reason, 'output_idle');
+    assert.equal(timers?.size, 0);
   });
 });
