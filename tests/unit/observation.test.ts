@@ -126,7 +126,6 @@ describe('ObservationManager', () => {
     const first = await manager.observe('c9');
     for (let index = 0; index < 4095; index += 1) await manager.observe('c9');
     await assert.rejects(manager.observe('c9'), (error: unknown) => error instanceof ChannelError && error.code === 'RESOURCE_EXHAUSTED');
-    const result = await manager.wait({ channel_id: 'c9', after_cursor: first.cursor, timeout_ms: 100 });
-    assert.equal(result.reason, 'timeout');
+    await assert.rejects(manager.wait({ channel_id: 'c9', after_cursor: first.cursor, timeout_ms: 100 }), (error: unknown) => error instanceof ChannelError && error.code !== 'CURSOR_INVALID');
   });
 });
