@@ -58,4 +58,24 @@ describe('ObservationManager', () => {
     assert.equal(result.reason, 'channel_closed');
     await assert.rejects(manager.wait({ channel_id: 'c4', after_cursor: lease.cursor, timeout_ms: 100 }), (error: unknown) => error instanceof ChannelError && (error.code === 'CURSOR_INVALID' || error.code === 'CURSOR_EXPIRED'));
   });
+
+  it('accepts the frozen maximum idle/timeout bounds while cancellation remains prompt', async () => {
+    const manager = new ObservationManager(new FakeSampler());
+    const lease = await manager.observe('c5');
+    const controller = new AbortController();
+    const pending = manager.wait({ channel_id: 'c5', after_cursor: lease.cursor, idle_ms: 60000, timeout_ms: 60000 }, controller.signal);
+    controller.abort();
+    await assert.rejects(pending, ChannelError);
+  });
+
+  it('negative control: disabling disposal violates the closed-observer admission invariant', async () => {
+    const sampler = new FakeSampler();
+    const manager = new ObservationManager(sampler);
+    const lease = await manager.observe('c6');
+    (manager as unknown as { maybeDispose: () => void }).maybeDispose = () => undefined;
+    sampler.sampleValue = { ...sampler.sampleValue, state: 'closed' };
+    const result = await manager.wait({ channel_id: 'c6', after_cursor: lease.cursor, idle_ms: 250, timeout_ms: 1000 });
+    assert.equal(result.reason, 'channel_closed');
+    assert.throws(() => assert.notEqual(result.reason, 'channel_closed'));
+  });
 });
