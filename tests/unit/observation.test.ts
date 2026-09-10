@@ -124,6 +124,31 @@ describe('ObservationManager', () => {
     await assert.rejects(manager.wait({ channel_id: 'ttl-boundary', after_cursor: lease.cursor, timeout_ms: 100 }), (error: unknown) => error instanceof ChannelError && error.code === 'CURSOR_EXPIRED');
   });
 
+  it('keeps a cursor usable across the full five-minute lease before expiry', { timeout: 3000 }, async () => {
+    let clock = 0;
+    const sampler = new MutableSampler();
+    const manager = new ObservationManager(sampler, () => clock, () => clock);
+    const lease = await manager.observe('ttl-history');
+    const observer = (manager as unknown as { observers: Map<string, { timer: NodeJS.Timeout }> }).observers.get('ttl-history');
+    assert.ok(observer);
+    clearInterval(observer.timer);
+    const sample = (manager as unknown as { sample: (value: unknown) => Promise<void> }).sample.bind(manager);
+    try {
+      for (let index = 0; index < 1199; index += 1) {
+        clock = (index + 1) * 250;
+        sampler.snapshots.set('ttl-history', `lease-event-${index}`);
+        await sample(observer);
+      }
+      clock = 299999;
+      const result = await manager.wait({ channel_id: 'ttl-history', after_cursor: lease.cursor, idle_ms: 250, timeout_ms: 100 });
+      assert.equal(result.reason, 'timeout');
+      assert.equal(result.next_cursor, lease.cursor);
+      assert.equal(result.activity_observed, true);
+      clock = 300001;
+      await assert.rejects(manager.wait({ channel_id: 'ttl-history', after_cursor: lease.cursor, timeout_ms: 100 }), (error: unknown) => error instanceof ChannelError && error.code === 'CURSOR_EXPIRED');
+    } finally { clearInterval(observer.timer); }
+  });
+
   it('measures the supported Node/V8 retained-state budget for eight observers', { timeout: 10000 }, async () => {
     const gc = (globalThis as typeof globalThis & { gc?: () => void }).gc;
     if (!gc) { assert.ok(process.versions.v8, 'run this budget evidence with NODE_OPTIONS=--expose-gc'); return; }
