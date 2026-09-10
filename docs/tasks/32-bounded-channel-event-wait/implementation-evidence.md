@@ -1,6 +1,8 @@
-# Attempt 6 implementation evidence
+# Attempt 7 implementation evidence
 
-The implementation is bound to the Candidate SHA reported in the Issue execution report and PR for Attempt 6.
+The implementation is bound to the Candidate SHA reported in the Issue execution report and PR for Attempt 7.
+
+Current package metadata and lockfile declare v0.2.0, matching the frozen feature target. The historical v0.1.1 release note is preserved; no tag or formal release is created by this Attempt.
 
 Implemented surface:
 
