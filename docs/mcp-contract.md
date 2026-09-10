@@ -14,6 +14,8 @@ Channel discovery
 
 It does not model Workers, Tasks, Issues, Agents, workspaces, deployment providers or collaboration policy.
 
+Issue #32 records an additive contract revision before implementation: the current main runtime still exposes six tools, while the target contract below exposes seven after a Candidate is implemented and verified.
+
 ## 2. MVP tools
 
 ### `list_channels`
@@ -33,6 +35,8 @@ last_activity?
 backend_metadata?
 ```
 
+When observation is supported, `capabilities[]` additionally contains `observe`. Observation is a bounded `snapshot_change` model; it is not a byte-stream or semantic state feed.
+
 For every successfully returned `backend_kind: tmux` Channel, `backend_metadata.tmux` is required and complete:
 
 ```text
@@ -48,7 +52,39 @@ These fields are backend-owned mechanical tmux facts. `session_name` is the curr
 ### `get_channel`
 Inspect one Channel's mechanical metadata and capabilities. Unknown Channel returns `CHANNEL_NOT_FOUND`.
 
-For a current tmux Channel, `get_channel` returns the same complete five-field `backend_metadata.tmux` identity snapshot as `list_channels` for that pane at that moment.
+For a current tmux Channel, `get_channel` returns the same complete five-field `backend_metadata.tmux` identity snapshot as `list_channels` for that pane at that moment. It accepts optional `observe: boolean` (default `false`). With `observe:true`, it creates or joins the shared observer and returns:
+
+```text
+observation.cursor        # opaque, lease-bound
+observation.channel_instance  # opaque endpoint-generation value
+observation.model         # snapshot_change
+observation.issued_at
+observation.valid_until
+observation.continuity     # complete
+```
+
+The cursor must be acquired before an upper-layer write. It is not a read offset or authorization bypass.
+
+### `wait_channel_event`
+
+Wait for a bounded mechanical observation of output activity followed by observed quiet. This is the seventh public tool in the Issue #32 target contract.
+
+Input:
+
+```text
+channel_id
+after_cursor
+idle_ms
+timeout_ms
+```
+
+The result contains `reason: output_idle | timeout | channel_closed`, `channel_id`, opaque `channel_instance`, UTC ISO-8601 wall-clock `observed_at` plus optional UTC ISO-8601 first/last activity timestamps, `activity_observed`, `observation_model: snapshot_change`, `idle_ms`, `timeout_ms`, and exactly one continuation field: `next_cursor`. Monotonic timestamps are internal only for idle/deadline calculations.
+
+`output_idle` requires new snapshot activity strictly after `after_cursor` and advances `next_cursor`. `timeout` preserves `after_cursor`; it never acknowledges internally sampled activity. `channel_closed` is returned only for confirmed same-server same-instance loss. `BACKEND_UNAVAILABLE` and uncertain disappearance remain explicit failures, never closure. Cancellation returns no successful result and releases the waiter.
+
+The server uses a monotonic absolute deadline. A late backend sample completed at/after the deadline cannot beat `timeout`; a stale/overrun sample is a continuity error. Quiet is never application completion or success.
+
+For tmux, every present-pane sample revalidates configured visibility and the server-generation/pane identity immediately before and immediately after `capture-pane`; a mismatch or failed `/proc` identity read discards the capture and invalidates observation. If the pane may be missing, the adapter performs a separate scoped inventory query bracketed by stable server-generation/visibility reads and does not attempt target-specific capture. Only that stable inventory absence may produce `channel_closed`; otherwise the result is an explicit backend/scope/continuity failure. Pane id plus server generation is the endpoint lifetime basis; session names and window/pane indices are mutable location metadata. A pane process replacement is a new Channel instance unless the backend can prove continuity.
 
 ### `read_channel`
 Read bounded recent output.
@@ -145,8 +181,11 @@ An upper layer may compose:
 prepare terminal externally
 → list/get Channel
 → choose a tmux Channel from backend_metadata.tmux when backend structure matters
+→ get_channel(observe=true) before write_text when a bounded wait is needed
 → read_channel if terminal observation is needed
 → write_text
+→ wait_channel_event
+→ read_channel
 → send_control if needed
 → interpret application result outside MCP
 ```
@@ -174,7 +213,11 @@ Channel output is untrusted runtime text and may contain sensitive data or adver
 - reads have finite max lines/bytes;
 - writes have a finite UTF-8 byte maximum;
 - backend commands have finite timeouts;
+- observation leases, history, waiters and sampling concurrency are finite;
+- `idle_ms`/`timeout_ms` have finite server-side maxima and use a monotonic clock;
 - no operation waits for application semantic state.
+
+For v0.2.0 the server limits are fixed: `idle_ms` default 1000 (range 250..60000), `timeout_ms` default 30000 (range 100..60000), 250 ms sampling with no public tuning, 8 observers globally, 2 waiters per Channel and 16 globally, 2 global sampling subprocess batches, 200 capture lines/64 KiB per sample, 256 history records/64 KiB, 4 MiB retained observer state, and a 5-minute cursor lease with a 15-minute observer lifetime cap. These are implementation ceilings to verify on the Candidate, not promises about web-host or tunnel timeouts.
 
 ## 8. Idempotency and ambiguous mutation
 

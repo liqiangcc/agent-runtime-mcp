@@ -51,7 +51,7 @@ upper layer
 = endpoint lifecycle + application/workflow meaning + retry/recovery/control
 
 Channel MCP
-= six generic MCP communication capabilities
+= six baseline capabilities; Issue #32 adds a seventh bounded observation capability after publication
 
 TmuxBackend
 = backend-specific terminal mechanics
@@ -245,7 +245,7 @@ upper layer
 + final success authority
 
 Channel MCP
-= six generic mechanical terminal communication capabilities
+= six accepted baseline capabilities; Issue #32 targets one additive bounded observation capability
 
 TmuxBackend
 = tmux-specific mechanics
@@ -255,6 +255,17 @@ deployment
 ```
 
 Dogfooding required no Task/Worker/application/deployment semantics and added no seventh product Tool.
+
+## Phase 4 — Bounded Channel event wait (Issue #32)
+
+Issue #32 is a design revision pending Coordinator Publication Gate. Its target surface is additive:
+
+```text
+get_channel(observe=true)
+wait_channel_event
+```
+
+The observer uses bounded `snapshot_change` samples, opaque `channel_instance`/cursor generations, timeout continuation with only `next_cursor`, explicit cancellation cleanup and fail-closed tmux restart/reuse handling. Seven-tool discovery tests, wait→read runtime evidence and host-supported wait bounds belong to the later implementation Candidate; they are not prerequisites for publishing this canonical design.
 
 ## 9. MVP outcome
 

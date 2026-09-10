@@ -159,4 +159,4 @@ If application sessions should be the only discoverable Channels, deployment may
 
 Failure remains explicit: if `ensure` cannot create the endpoint, it exits non-zero; `status` remains unavailable/degraded and the MCP continues to report mechanical unavailability. There is no hidden fallback that mutates tmux from product code.
 
-GitHub Actions job `tmux-endpoint-keeper-recovery` supplies executable Linux/tmux evidence for this procedure, including unavailable → healthy recovery, worker-session removal while the keeper remains, endpoint loss, second recovery, and confirmation that the public MCP tool surface stays exactly six tools.
+GitHub Actions job `tmux-endpoint-keeper-recovery` supplies executable Linux/tmux evidence for this procedure, including unavailable → healthy recovery, worker-session removal while the keeper remains, endpoint loss and second recovery. Its historical six-tool assertion describes the current baseline; Issue #32's additive seventh wait tool requires a separate implementation/discovery evidence update.

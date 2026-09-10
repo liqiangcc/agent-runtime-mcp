@@ -34,7 +34,10 @@ read_channel
 write_text
 send_control
 health
+wait_channel_event
 ```
+
+The seven-tool list is the Issue #32 target contract published ahead of implementation. Until its Candidate is integrated, `main` remains the six-tool runtime baseline. `get_channel(observe:true)` establishes the opaque cursor required by `wait_channel_event`; `snapshot_change` quiet is mechanical evidence, never completion.
 
 The product does not define Worker/Task semantics, endpoint lifecycle, workflow control or deployment infrastructure.
 

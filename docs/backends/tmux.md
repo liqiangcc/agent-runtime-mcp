@@ -47,7 +47,7 @@ The backend must not query or control tmux servers outside configured scope.
 
 ## 4. Channel identity
 
-Use tmux pane identity plus configured server/socket namespace for the opaque Channel locator/addressing identity.
+Use tmux pane identity plus configured server/socket namespace for the opaque Channel locator/addressing identity. For bounded event observation, pane id alone is insufficient: a sampler must also bind the configured socket path to the tmux server pid (`#{pid}`), Linux `/proc/<pid>/stat` process starttime and `/proc/sys/kernel/random/boot_id`.
 
 Every successfully discovered tmux Channel also publishes the backend-owned mechanical snapshot:
 
@@ -70,6 +70,10 @@ Rules:
 
 A pane destroyed and recreated may become a different Channel. Persistent logical Agent/Worker/application identity is an upper-layer concern.
 
+### Observation identity read order
+
+For each present-pane snapshot, execute one structured `display-message` query for server/pane fields, parse and validate the row, read the server process starttime and boot id, and revalidate configured visibility immediately before `capture-pane`. After capture, repeat the identity/visibility query and discard the capture if any field or authorization scope changed. If the pane may be missing, use a separate scoped inventory query bracketed by stable server-generation/visibility reads and do not attempt target-specific capture; only stable inventory absence can prove `channel_closed`. Session names and window/pane indices are mutable location metadata only. A server restart changes the server-generation tuple even when tmux reuses `%pane_id`; a failed query or missing `/proc` identity is an observation gap. If a pane disappears and later reappears after a gap, continuity is unprovable and the observer fails closed with an instance/gap error rather than rebinding. A pane process replacement is a new Channel instance unless continuity is explicitly proven.
+
 All read/write/control operations continue to resolve the opaque `channel_id` through the same configured scope/visibility path. Publishing structured tmux identity does not add a session selector to mutation Tools and does not change the `channel_id` format.
 
 ## 5. Read
@@ -82,6 +86,10 @@ Requirements:
 - Unicode preserved where tmux/process encoding permits;
 - no persistent full-history logging by default;
 - contents never interpreted as Task/Agent/application state or host tmux structural identity.
+
+## 5.1 Bounded snapshot observation
+
+The `snapshot_change` observer samples at a fixed 250 ms interval with a 200-line/64 KiB capture bound plus the structural identity tuple above. A digest change is activity; no change is not proof that no bytes were emitted. Repeated identical output, high-rate output between samples and ANSI redraws are documented limitations. Sampling uses one shared observer per Channel instance, a finite lease/history, and at most two global subprocess batches. Backend unavailable is reported as `BACKEND_UNAVAILABLE`; only the confirmed same-server path—identity query succeeds, the authorized pane is absent, and the server generation remains stable—may produce `channel_closed`. Any unavailable/ambiguous server or failed before/after identity check is an explicit continuity/backend error.
 
 ## 6. Ordinary text write
 

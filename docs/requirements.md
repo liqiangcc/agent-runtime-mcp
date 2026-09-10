@@ -13,6 +13,7 @@ discover Channel
 → write bounded ordinary text
 → send a small explicit control set
 → inspect backend/service health
+→ establish a bounded observation cursor and wait for mechanically observed output quiet
 ```
 
 The first backend is tmux.
@@ -51,6 +52,9 @@ ESCAPE
 ### UC6 — Check backend/service health
 Report mechanical backend/service health independently from Channel inventory, application readiness, Worker/Task state, deployment reachability, or recovery policy.
 
+### UC7 — Wait for bounded observed output quiet
+An upper layer may call `get_channel(observe:true)` before `write_text` to establish a shared, lease-bound opaque observation cursor, then call `wait_channel_event` for a finite wait. The result reports only `output_idle`, `timeout`, or confirmed same-instance `channel_closed`; it never reports application completion or success. `snapshot_change` is the selected first-backend observation model, with explicit sampling limitations. The v0.2.0 implementation bounds are fixed at `idle_ms` default 1000 (range 250..60000), `timeout_ms` default 30000 (range 100..60000), 250 ms sampling, 5-minute cursor lease and 15-minute observer lifetime cap; these are server ceilings, not web-host guarantees.
+
 ## 3. Required MVP capabilities
 
 ```text
@@ -60,6 +64,7 @@ bounded-read
 text-write
 control-input
 backend-health
+bounded-event-wait
 ```
 
 Canonical public tools:
@@ -71,7 +76,10 @@ read_channel
 write_text
 send_control
 health
+wait_channel_event
 ```
+
+Issue #32 design publication is additive and precedes implementation. Until its Candidate is integrated, the current main implementation remains the six-tool baseline.
 
 ## 4. Explicit product boundary
 
@@ -104,6 +112,9 @@ Key requirements:
 - Channel state is mechanical (`available | unavailable | unknown`);
 - no semantic `idle`, `working`, `done`, `blocked`, or review state;
 - input/output are bounded;
+- `output_idle` is a post-cursor snapshot observation, never completion;
+- cursors bind service/observer/Channel generations and fail closed on expiry or gaps;
+- timeout preserves the input cursor; cancellation releases the waiter;
 - missing facts degrade to unknown rather than being inferred from terminal prose.
 
 ## 6. tmux lifecycle boundary
@@ -201,4 +212,4 @@ The Channel MCP capability set is complete when an MCP client can:
 7. receive structured failure when a Channel/backend disappears;
 8. do all of the above without Worker/Task/application semantics;
 9. do all of the above without endpoint lifecycle authority;
-10. demonstrate one upper-layer use case that consumes the six MCP capabilities while keeping workflow meaning outside the product.
+10. demonstrate one upper-layer use case that consumes the six baseline capabilities plus the bounded event-wait target while keeping workflow meaning outside the product.

@@ -50,6 +50,8 @@ Task ↔ terminal mapping
 
 ## 4. Public MVP surface
 
+Current `main` runtime (pre-Issue #32 implementation):
+
 ```text
 list_channels
 get_channel
@@ -58,6 +60,13 @@ write_text
 send_control
 health
 ```
+
+Issue #32 target for v0.2.0 is additive: `get_channel(observe=true)` plus
+`wait_channel_event`, making the verified public surface seven tools after
+implementation. This design publication does not change the current runtime.
+
+Public observation timestamps use UTC ISO-8601 wall time; monotonic clocks are
+internal only for idle and deadline ordering.
 
 ## 5. Repository roles
 
