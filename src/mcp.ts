@@ -5,6 +5,7 @@ import { toStructuredError } from './errors.js';
 import { getChannel, health, listChannels, readChannel, sendControl, waitChannelEvent, writeText } from './handlers.js';
 import { TERMINAL_CONTROLS } from './input.js';
 import { HARD_MAX_READ_BYTES, HARD_MAX_READ_LINES } from './tmux-backend.js';
+import { createPhaseDiagnostics, type DiagnosticMethod, type PhaseDiagnostics, type ReadShape } from './phase-diagnostics.js';
 
 export const MVP_001_TOOL_NAMES = ['list_channels', 'get_channel', 'read_channel'] as const;
 export const MVP_002_TOOL_NAMES = [...MVP_001_TOOL_NAMES, 'write_text', 'send_control'] as const;
@@ -22,7 +23,7 @@ export const HEALTH_TOOL_ANNOTATIONS = {
   idempotentHint: true,
 } as const;
 
-export function createMcpServer(backend: ChannelBackend): McpServer {
+export function createMcpServer(backend: ChannelBackend, diagnostics: PhaseDiagnostics = createPhaseDiagnostics()): McpServer {
   const server = new McpServer({ name: 'agent-runtime-mcp', version: '0.2.1' });
 
   server.registerTool(
@@ -31,7 +32,7 @@ export function createMcpServer(backend: ChannelBackend): McpServer {
       description: 'List existing terminal channels visible in the configured backend scope.',
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    async () => runTool(() => listChannels(backend)),
+    async (ctx) => invokeTool(diagnostics, 'list_channels', ctx, () => runTool(() => listChannels(backend))),
   );
 
   server.registerTool(
@@ -44,7 +45,7 @@ export function createMcpServer(backend: ChannelBackend): McpServer {
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    async ({ channel_id, observe }) => runTool(() => getChannel(backend, channel_id, observe)),
+    async ({ channel_id, observe }, ctx) => invokeTool(diagnostics, 'get_channel', ctx, () => runTool(() => getChannel(backend, channel_id, observe))),
   );
 
   server.registerTool(
@@ -58,12 +59,19 @@ export function createMcpServer(backend: ChannelBackend): McpServer {
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    async ({ channel_id, lines, bytes }) =>
-      runTool(() =>
-        readChannel(backend, channel_id, {
-          ...(lines !== undefined ? { lines } : {}),
-          ...(bytes !== undefined ? { bytes } : {}),
-        }),
+    async ({ channel_id, lines, bytes }, ctx) =>
+      invokeTool(
+        diagnostics,
+        'read_channel',
+        ctx,
+        () =>
+          runTool(() =>
+            readChannel(backend, channel_id, {
+              ...(lines !== undefined ? { lines } : {}),
+              ...(bytes !== undefined ? { bytes } : {}),
+            }),
+          ),
+        { ...(lines !== undefined ? { requested_lines: lines } : {}), ...(bytes !== undefined ? { requested_bytes: bytes } : {}) },
       ),
   );
 
@@ -79,7 +87,7 @@ export function createMcpServer(backend: ChannelBackend): McpServer {
       }),
       annotations: MUTATION_TOOL_ANNOTATIONS,
     },
-    async ({ channel_id, text, submit }) => runTool(() => writeText(backend, channel_id, text, submit)),
+    async ({ channel_id, text, submit }, ctx) => invokeTool(diagnostics, 'write_text', ctx, () => runTool(() => writeText(backend, channel_id, text, submit))),
   );
 
   server.registerTool(
@@ -92,7 +100,7 @@ export function createMcpServer(backend: ChannelBackend): McpServer {
       }),
       annotations: MUTATION_TOOL_ANNOTATIONS,
     },
-    async ({ channel_id, control }) => runTool(() => sendControl(backend, channel_id, control)),
+    async ({ channel_id, control }, ctx) => invokeTool(diagnostics, 'send_control', ctx, () => runTool(() => sendControl(backend, channel_id, control))),
   );
 
   server.registerTool(
@@ -101,7 +109,7 @@ export function createMcpServer(backend: ChannelBackend): McpServer {
       description: 'Report mechanical backend/service health independently of Channel inventory or application state.',
       annotations: HEALTH_TOOL_ANNOTATIONS,
     },
-    async () => runTool(() => health(backend)),
+    async (ctx) => invokeTool(diagnostics, 'health', ctx, () => runTool(() => health(backend))),
   );
 
   server.registerTool(
@@ -117,7 +125,19 @@ export function createMcpServer(backend: ChannelBackend): McpServer {
       annotations: HEALTH_TOOL_ANNOTATIONS,
     },
     async ({ channel_id, after_cursor, idle_ms, timeout_ms }, ctx) =>
-      runTool(() => waitChannelEvent(backend, { channel_id, after_cursor, ...(idle_ms !== undefined ? { idle_ms } : {}), ...(timeout_ms !== undefined ? { timeout_ms } : {}) }, ctx.mcpReq.signal)),
+      invokeTool(
+        diagnostics,
+        'wait_channel_event',
+        ctx,
+        () =>
+          runTool(() =>
+            waitChannelEvent(
+              backend,
+              { channel_id, after_cursor, ...(idle_ms !== undefined ? { idle_ms } : {}), ...(timeout_ms !== undefined ? { timeout_ms } : {}) },
+              ctx.mcpReq.signal,
+            ),
+          ),
+      ),
   );
 
   return server;
@@ -138,4 +158,52 @@ async function runTool(action: () => Promise<object>) {
       structuredContent: payload as unknown as Record<string, unknown>,
     };
   }
+}
+
+type ToolResult = Awaited<ReturnType<typeof runTool>>;
+
+async function invokeTool(
+  diagnostics: PhaseDiagnostics,
+  method: DiagnosticMethod,
+  ctx: { mcpReq: { id: unknown } },
+  action: () => Promise<ToolResult>,
+  readRequest?: ReadShape,
+): Promise<ToolResult> {
+  const span = diagnostics.start(method, ctx.mcpReq.id);
+  const hasBackendPhase = method === 'read_channel';
+  try {
+    if (hasBackendPhase) span.backendStart(readRequest);
+    const result = await action();
+    const outcome = result.isError === true ? 'error' : 'success';
+    const code = resultErrorCode(result);
+    if (hasBackendPhase) span.backendEnd(outcome, resultReadShape(result, readRequest), code);
+    span.methodEnd(outcome, code);
+    return result;
+  } catch (error) {
+    if (hasBackendPhase) span.backendEnd('error', readRequest, 'INTERNAL_ERROR');
+    span.methodEnd('error', 'INTERNAL_ERROR');
+    throw error;
+  }
+}
+
+function resultErrorCode(result: ToolResult): string | undefined {
+  const payload = result.structuredContent;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined;
+  const error = (payload as Record<string, unknown>).error;
+  if (!error || typeof error !== 'object' || Array.isArray(error)) return undefined;
+  const code = (error as Record<string, unknown>).code;
+  return typeof code === 'string' ? code : undefined;
+}
+
+function resultReadShape(result: ToolResult, requested?: ReadShape): ReadShape {
+  const payload = result.structuredContent;
+  const read = payload && typeof payload === 'object' && !Array.isArray(payload) ? (payload as Record<string, unknown>).read : undefined;
+  if (!read || typeof read !== 'object' || Array.isArray(read)) return requested ?? {};
+  const value = read as Record<string, unknown>;
+  return {
+    ...requested,
+    ...(Number.isSafeInteger(value.line_count) ? { returned_line_count: value.line_count as number } : {}),
+    ...(Number.isSafeInteger(value.byte_count) ? { returned_byte_count: value.byte_count as number } : {}),
+    ...(typeof value.truncated === 'boolean' ? { truncated: value.truncated } : {}),
+  };
 }
