@@ -103,7 +103,7 @@ jobs:
       - name: Clean-room production install
         run: npm ci --omit=dev
         working-directory: ${{ env.PACKAGE_ROOT }}
-      - name: Verify packaged stdio runtime and exact six Tools
+      - name: Verify packaged stdio runtime and exact seven Tools
         run: node scripts/verify-runtime-package.mjs "${PACKAGE_ROOT}"
       - name: Verify packaged keeper recovery
         run: node scripts/verify-tmux-endpoint-keeper.mjs "${PACKAGE_ROOT}"

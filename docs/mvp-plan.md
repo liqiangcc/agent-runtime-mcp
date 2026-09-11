@@ -258,7 +258,7 @@ Dogfooding required no Task/Worker/application/deployment semantics and added no
 
 ## Phase 4 — Bounded Channel event wait (Issue #32)
 
-Issue #32 is a design revision pending Coordinator Publication Gate. Its target surface is additive:
+Issue #32 is an accepted and integrated additive capability. Its surface is:
 
 ```text
 get_channel(observe=true)

@@ -23,7 +23,7 @@ export const HEALTH_TOOL_ANNOTATIONS = {
 } as const;
 
 export function createMcpServer(backend: ChannelBackend): McpServer {
-  const server = new McpServer({ name: 'agent-runtime-mcp', version: '0.2.0' });
+  const server = new McpServer({ name: 'agent-runtime-mcp', version: '0.2.1' });
 
   server.registerTool(
     'list_channels',
