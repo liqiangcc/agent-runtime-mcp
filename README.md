@@ -15,7 +15,7 @@ send_control
 health
 ```
 
-Issue #32 defines the additive target contract: `get_channel(observe=true)` plus the seventh `wait_channel_event` tool. That target is documented here before implementation; the current runtime remains six-tool until its Candidate is integrated and verified.
+Issue #32's additive contract is integrated: `get_channel(observe=true)` plus the seventh `wait_channel_event` tool are part of the current verified runtime.
 
 The product owns the **MCP capabilities and Channel semantics** behind those tools.
 

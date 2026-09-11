@@ -124,7 +124,7 @@ test('stale pre-initialize tools/list preserves the real stdio child for same-co
     const initializeResult = asRecord(initializeResponse.result, 'initialize.result');
     const serverInfo = asRecord(initializeResult.serverInfo, 'initialize.result.serverInfo');
     assert.equal(serverInfo.name, 'agent-runtime-mcp');
-    assert.equal(serverInfo.version, '0.2.0');
+    assert.equal(serverInfo.version, '0.2.1');
     assert.equal(typeof initializeResult.protocolVersion, 'string');
     await assertAlive('after same-connection initialize');
 
