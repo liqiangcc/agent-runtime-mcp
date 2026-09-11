@@ -151,10 +151,18 @@ describe('ObservationManager', () => {
 
   it('measures the supported Node/V8 retained-state budget for eight observers', { timeout: 10000 }, async () => {
     const gc = (globalThis as typeof globalThis & { gc?: () => void }).gc;
-    if (!gc) { assert.ok(process.versions.v8, 'run this budget evidence with NODE_OPTIONS=--expose-gc'); return; }
+    if (!gc) {
+      if (process.env.CI === 'true' || process.env.REQUIRE_OBSERVATION_GC === '1') assert.fail('retained-state evidence requires NODE_OPTIONS=--expose-gc');
+      console.log('OBSERVATION_MEMORY_EVIDENCE_SKIPPED', JSON.stringify({ reason: 'NODE_OPTIONS=--expose-gc is required for heap evidence' }));
+      return;
+    }
+    let clock = 987654.321;
+    const wall = Date.parse('2026-09-10T16:46:34.867Z');
     const sampler = new MutableSampler();
-    const manager = new ObservationManager(sampler);
-    const observers: Array<{ channelId: string; events: Array<unknown>; timer: NodeJS.Timeout }> = [];
+    gc(); gc();
+    const baseline = process.memoryUsage().heapUsed;
+    const manager = new ObservationManager(sampler, () => clock, () => wall);
+    const observers: Array<{ channelId: string; events: Array<{ seq: number; at: number; wall: string; sample: number }>; timer: NodeJS.Timeout; seq: number; sampleCount: number; failure?: string }> = [];
     const sample = (manager as unknown as { sample: (value: unknown) => Promise<void> }).sample.bind(manager);
     try {
       for (let index = 0; index < 8; index += 1) {
@@ -163,19 +171,54 @@ describe('ObservationManager', () => {
         const observer = (manager as unknown as { observers: Map<string, { channelId: string; events: Array<unknown>; timer: NodeJS.Timeout }> }).observers.get(channelId);
         assert.ok(observer);
         clearInterval(observer.timer);
-        observers.push(observer);
+        observers.push(observer as typeof observers[number]);
       }
-      gc();
-      const baseline = process.memoryUsage().heapUsed;
-      for (const observer of observers) {
-        for (let index = 0; index < 1536; index += 1) {
+      gc(); gc();
+      const metadataHeap = process.memoryUsage().heapUsed;
+      for (let index = 0; index < 1536; index += 1) {
+        for (const observer of observers) {
           sampler.snapshots.set(observer.channelId, `${observer.channelId}-${index}`);
+          clock += 0.25;
           await sample(observer);
         }
       }
-      gc();
-      const retainedDelta = process.memoryUsage().heapUsed - baseline;
+      for (const observer of observers) {
+        assert.equal(observer.events.length, 1536);
+        assert.equal(observer.seq, 1536);
+        assert.equal(observer.sampleCount, 1537);
+        assert.equal(observer.failure, undefined);
+      }
+      gc(); gc();
+      const retainedHeap = process.memoryUsage().heapUsed;
+      const metadataDelta = metadataHeap - baseline;
+      const eventDelta = retainedHeap - metadataHeap;
+      const retainedDelta = retainedHeap - baseline;
       const logicalBytes = observers.reduce((sum, observer) => sum + Buffer.byteLength(JSON.stringify(observer.events), 'utf8'), 0);
+      const maxFieldWidths = observers.flatMap((observer) => observer.events).reduce(
+        (widths, event) => ({
+          seq: Math.max(widths.seq, String(event.seq).length),
+          at: Math.max(widths.at, String(event.at).length),
+          wall: Math.max(widths.wall, event.wall.length),
+          sample: Math.max(widths.sample, String(event.sample).length),
+        }),
+        { seq: 0, at: 0, wall: 0, sample: 0 },
+      );
+      console.log('OBSERVATION_MEMORY_EVIDENCE', JSON.stringify({
+        runtime: process.version,
+        v8: process.versions.v8,
+        gc: '--expose-gc',
+        baseline_includes: 'empty process before manager/observer/token creation',
+        metadata_heap_delta: metadataDelta,
+        event_heap_delta: eventDelta,
+        observers: observers.length,
+        records_per_observer: observers.map((observer) => observer.events.length),
+        sequences_per_observer: observers.map((observer) => observer.seq),
+        samples_per_observer: observers.map((observer) => observer.sampleCount),
+        failures: observers.map((observer) => observer.failure ?? null),
+        max_field_widths: maxFieldWidths,
+        logical_bytes: logicalBytes,
+        heap_delta_total: retainedDelta,
+      }));
       assert.ok(logicalBytes <= 2 * 1024 * 1024, `logical ring payload ${logicalBytes} exceeds 2 MiB`);
       assert.ok(retainedDelta < 4 * 1024 * 1024, `Node ${process.version}/V8 retained delta ${retainedDelta} exceeds 4 MiB`);
     } finally { for (const observer of observers) clearInterval(observer.timer); }
