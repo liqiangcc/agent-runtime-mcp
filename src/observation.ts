@@ -23,8 +23,8 @@ const MAX_WAITERS_PER_CHANNEL = 2;
 const MAX_WAITERS_GLOBAL = 16;
 const LEASE_MS = 5 * 60_000;
 const LIFETIME_MS = 15 * 60_000;
-const MAX_HISTORY = 256;
-const MAX_HISTORY_BYTES = 64 * 1024;
+const MAX_HISTORY = 1536;
+const MAX_HISTORY_BYTES = 256 * 1024;
 const MAX_SAMPLE_GAP_MS = 1000;
 const MAX_TOKENS = 4096;
 const MAX_SAMPLE_QUEUE = MAX_WAITERS_GLOBAL * 2;
@@ -174,13 +174,14 @@ export class ObservationManager {
       if (sample.snapshot !== observer.snapshot) {
         observer.snapshot = sample.snapshot; const at = finished;
         observer.events.push({ seq: ++observer.seq, at, wall: new Date(this.wall()).toISOString(), sample: observer.sampleCount });
-        while (observer.events.length > MAX_HISTORY || JSON.stringify(observer.events).length > MAX_HISTORY_BYTES) observer.evicted = observer.events.shift()!.seq;
+        this.trimHistory(observer);
       }
       for (const wake of observer.waiters) wake();
     } catch (error) { observer.failure = error instanceof ChannelError ? error.code : 'BACKEND_UNAVAILABLE'; clearInterval(observer.timer); for (const wake of observer.waiters) wake(); }
   }
   private expire(observer: Observer): void { observer.failure = 'CURSOR_EXPIRED'; clearInterval(observer.timer); for (const wake of observer.waiters) wake(); this.maybeDispose(observer); }
   private maybeDispose(observer: Observer): void { if (observer.waiters.size > 0 || (observer.validUntil > this.now() && !observer.failure && !observer.closed)) return; clearInterval(observer.timer); if (this.observers.get(observer.channelId) !== observer) return; this.observers.delete(observer.channelId); const code: ChannelErrorCode = observer.failure ?? (observer.closed ? 'CHANNEL_INSTANCE_CHANGED' : 'CURSOR_INVALID'); for (const [cursor, token] of this.tokens) if (token.observer === observer.id) { this.tokens.delete(cursor); this.retired.set(cursor, code); } while (this.retired.size > 256) this.retired.delete(this.retired.keys().next().value as string); }
+  private trimHistory(observer: Observer): void { while (observer.events.length > MAX_HISTORY || Buffer.byteLength(JSON.stringify(observer.events), 'utf8') > MAX_HISTORY_BYTES) observer.evicted = observer.events.shift()!.seq; }
   private validateToken(observer: Observer, token: Token): void { const now = this.now(); if (token.exp < now || observer.validUntil < now || observer.failure === 'CURSOR_EXPIRED') throw new ChannelError('CURSOR_EXPIRED', 'Observation cursor expired'); if (token.instance !== observer.instance) throw new ChannelError('CHANNEL_INSTANCE_CHANGED', 'Channel instance changed'); if (token.seq < observer.evicted) throw new ChannelError('OBSERVATION_GAP', 'Observation history no longer retains this cursor'); }
   private issue(observer: Observer, seq: number): ObservationLease { const exp = Math.min(this.now() + LEASE_MS, observer.created + LIFETIME_MS); for (const [cursor, token] of this.tokens) if (token.exp < this.now()) this.tokens.delete(cursor); if (this.tokens.size >= MAX_TOKENS) throw new ChannelError('RESOURCE_EXHAUSTED', 'Observation cursor limit reached; existing leases remain valid'); const token = randomBytes(24).toString('base64url'); this.tokens.set(token, { observer: observer.id, channelId: observer.channelId, instance: observer.instance, seq, exp }); return { cursor: token, channel_instance: observer.instance, model: 'snapshot_change', issued_at: new Date(this.wall()).toISOString(), valid_until: new Date(this.wall() + (exp - this.now())).toISOString(), continuity: 'complete' }; }
   private async runSample<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
