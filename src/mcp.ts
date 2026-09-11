@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import type { ChannelBackend } from './backend.js';
-import { toStructuredError } from './errors.js';
+import { ChannelError, toStructuredError } from './errors.js';
 import { getChannel, health, listChannels, readChannel, sendControl, waitChannelEvent, writeText } from './handlers.js';
 import { TERMINAL_CONTROLS } from './input.js';
 import { HARD_MAX_READ_BYTES, HARD_MAX_READ_LINES } from './tmux-backend.js';
@@ -32,7 +32,7 @@ export function createMcpServer(backend: ChannelBackend, diagnostics: PhaseDiagn
       description: 'List existing terminal channels visible in the configured backend scope.',
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    async (ctx) => invokeTool(diagnostics, 'list_channels', ctx, () => runTool(() => listChannels(backend))),
+    async (ctx) => invokeTool(diagnostics, 'list_channels', ctx, () => listChannels(backend)),
   );
 
   server.registerTool(
@@ -45,7 +45,7 @@ export function createMcpServer(backend: ChannelBackend, diagnostics: PhaseDiagn
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    async ({ channel_id, observe }, ctx) => invokeTool(diagnostics, 'get_channel', ctx, () => runTool(() => getChannel(backend, channel_id, observe))),
+    async ({ channel_id, observe }, ctx) => invokeTool(diagnostics, 'get_channel', ctx, () => getChannel(backend, channel_id, observe)),
   );
 
   server.registerTool(
@@ -65,12 +65,10 @@ export function createMcpServer(backend: ChannelBackend, diagnostics: PhaseDiagn
         'read_channel',
         ctx,
         () =>
-          runTool(() =>
-            readChannel(backend, channel_id, {
-              ...(lines !== undefined ? { lines } : {}),
-              ...(bytes !== undefined ? { bytes } : {}),
-            }),
-          ),
+          readChannel(backend, channel_id, {
+            ...(lines !== undefined ? { lines } : {}),
+            ...(bytes !== undefined ? { bytes } : {}),
+          }),
         { ...(lines !== undefined ? { requested_lines: lines } : {}), ...(bytes !== undefined ? { requested_bytes: bytes } : {}) },
       ),
   );
@@ -87,7 +85,7 @@ export function createMcpServer(backend: ChannelBackend, diagnostics: PhaseDiagn
       }),
       annotations: MUTATION_TOOL_ANNOTATIONS,
     },
-    async ({ channel_id, text, submit }, ctx) => invokeTool(diagnostics, 'write_text', ctx, () => runTool(() => writeText(backend, channel_id, text, submit))),
+    async ({ channel_id, text, submit }, ctx) => invokeTool(diagnostics, 'write_text', ctx, () => writeText(backend, channel_id, text, submit)),
   );
 
   server.registerTool(
@@ -100,7 +98,7 @@ export function createMcpServer(backend: ChannelBackend, diagnostics: PhaseDiagn
       }),
       annotations: MUTATION_TOOL_ANNOTATIONS,
     },
-    async ({ channel_id, control }, ctx) => invokeTool(diagnostics, 'send_control', ctx, () => runTool(() => sendControl(backend, channel_id, control))),
+    async ({ channel_id, control }, ctx) => invokeTool(diagnostics, 'send_control', ctx, () => sendControl(backend, channel_id, control)),
   );
 
   server.registerTool(
@@ -109,7 +107,7 @@ export function createMcpServer(backend: ChannelBackend, diagnostics: PhaseDiagn
       description: 'Report mechanical backend/service health independently of Channel inventory or application state.',
       annotations: HEALTH_TOOL_ANNOTATIONS,
     },
-    async (ctx) => invokeTool(diagnostics, 'health', ctx, () => runTool(() => health(backend))),
+    async (ctx) => invokeTool(diagnostics, 'health', ctx, () => health(backend)),
   );
 
   server.registerTool(
@@ -130,12 +128,10 @@ export function createMcpServer(backend: ChannelBackend, diagnostics: PhaseDiagn
         'wait_channel_event',
         ctx,
         () =>
-          runTool(() =>
-            waitChannelEvent(
-              backend,
-              { channel_id, after_cursor, ...(idle_ms !== undefined ? { idle_ms } : {}), ...(timeout_ms !== undefined ? { timeout_ms } : {}) },
-              ctx.mcpReq.signal,
-            ),
+          waitChannelEvent(
+            backend,
+            { channel_id, after_cursor, ...(idle_ms !== undefined ? { idle_ms } : {}), ...(timeout_ms !== undefined ? { timeout_ms } : {}) },
+            ctx.mcpReq.signal,
           ),
       ),
   );
@@ -143,19 +139,44 @@ export function createMcpServer(backend: ChannelBackend, diagnostics: PhaseDiagn
   return server;
 }
 
-async function runTool(action: () => Promise<object>) {
+type ToolSettlement =
+  | { outcome: 'success'; payload: object }
+  | { outcome: 'error'; error: unknown };
+
+async function runTool(action: () => Promise<object>, onSettled?: (settlement: ToolSettlement) => void) {
+  let payload: object;
   try {
-    const payload = await action();
+    payload = await action();
+  } catch (error) {
+    try {
+      onSettled?.({ outcome: 'error', error });
+    } catch {
+      // Diagnostics must never alter Tool behavior.
+    }
+    const errorPayload = toStructuredError(error);
+    return {
+      isError: true,
+      content: [{ type: 'text' as const, text: JSON.stringify(errorPayload) }],
+      structuredContent: errorPayload as unknown as Record<string, unknown>,
+    };
+  }
+
+  try {
+    onSettled?.({ outcome: 'success', payload });
+  } catch {
+    // Diagnostics must never alter Tool behavior.
+  }
+  try {
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(payload) }],
       structuredContent: payload as Record<string, unknown>,
     };
   } catch (error) {
-    const payload = toStructuredError(error);
+    const errorPayload = toStructuredError(error);
     return {
       isError: true,
-      content: [{ type: 'text' as const, text: JSON.stringify(payload) }],
-      structuredContent: payload as unknown as Record<string, unknown>,
+      content: [{ type: 'text' as const, text: JSON.stringify(errorPayload) }],
+      structuredContent: errorPayload as unknown as Record<string, unknown>,
     };
   }
 }
@@ -166,17 +187,22 @@ async function invokeTool(
   diagnostics: PhaseDiagnostics,
   method: DiagnosticMethod,
   ctx: { mcpReq: { id: unknown } },
-  action: () => Promise<ToolResult>,
+  action: () => Promise<object>,
   readRequest?: ReadShape,
 ): Promise<ToolResult> {
   const span = diagnostics.start(method, ctx.mcpReq.id);
   const hasBackendPhase = method === 'read_channel';
   try {
     if (hasBackendPhase) span.backendStart(readRequest);
-    const result = await action();
+    const result = await runTool(action, hasBackendPhase ? (settlement) => {
+      if (settlement.outcome === 'success') {
+        span.backendEnd('success', payloadReadShape(settlement.payload, readRequest));
+      } else {
+        span.backendEnd('error', readRequest, settlement.error instanceof ChannelError ? settlement.error.code : 'INTERNAL_ERROR');
+      }
+    } : undefined);
     const outcome = result.isError === true ? 'error' : 'success';
     const code = resultErrorCode(result);
-    if (hasBackendPhase) span.backendEnd(outcome, resultReadShape(result, readRequest), code);
     span.methodEnd(outcome, code);
     return result;
   } catch (error) {
@@ -195,8 +221,7 @@ function resultErrorCode(result: ToolResult): string | undefined {
   return typeof code === 'string' ? code : undefined;
 }
 
-function resultReadShape(result: ToolResult, requested?: ReadShape): ReadShape {
-  const payload = result.structuredContent;
+function payloadReadShape(payload: object, requested?: ReadShape): ReadShape {
   const read = payload && typeof payload === 'object' && !Array.isArray(payload) ? (payload as Record<string, unknown>).read : undefined;
   if (!read || typeof read !== 'object' || Array.isArray(read)) return requested ?? {};
   const value = read as Record<string, unknown>;
