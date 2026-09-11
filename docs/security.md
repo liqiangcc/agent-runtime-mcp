@@ -103,6 +103,8 @@ Temporary paste buffers or equivalent mutable transport state are isolated per o
 ### S10 — Sensitive logging discipline
 Default logs should prefer operation, Channel id, result category, duration and payload size rather than full terminal content.
 
+Optional phase diagnostics are disabled unless `AGENT_RUNTIME_MCP_PHASE_DIAGNOSTICS=1` is set explicitly. When enabled they emit bounded, field-whitelisted JSONL to stderr only; stdout remains reserved for MCP framing. Records contain only a fresh server-local correlation id, a truncated type-tagged request-id fingerprint, Tool/phase, timestamps, outcome and bounded read shape. Terminal/write content, cursors/tokens, raw request ids, complete arguments/results/errors, credentials, URLs and environment are never logged. `method_end` denotes Tool callback/handler completion, not SDK encoding, stdio write/drain, bridge forwarding or remote receipt.
+
 ### S11 — Untrusted output
 Terminal output is data/evidence, not policy or workflow authority.
 
