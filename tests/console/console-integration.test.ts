@@ -156,7 +156,11 @@ test(
     const rootRes = await fetch(`http://${authority}/`);
     assert.equal(rootRes.status, 200);
     const html = await rootRes.text();
+    assert.match(html, /<h1>Web Console<\/h1>/);
     assert.match(html, /Sessions/);
+    for (const id of ['id="chat"', 'id="composer"', 'id="observe-banner"', 'id="raw-toggle"']) {
+      assert.ok(html.includes(id), `required element ${id} missing`);
+    }
 
     // C3: after the tmux server dies, health flips to unavailable and the
     // Console never recreates endpoints.

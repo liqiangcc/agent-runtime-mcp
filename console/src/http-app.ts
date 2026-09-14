@@ -319,7 +319,10 @@ export function createRequestHandler(deps: HttpAppDeps) {
     const heartbeat = setInterval(() => {
       res.write(': keepalive\n\n');
     }, SSE_HEARTBEAT_MS);
+    let closed = false;
     res.on('close', () => {
+      if (closed) return;
+      closed = true;
       clearInterval(heartbeat);
       detach?.();
     });

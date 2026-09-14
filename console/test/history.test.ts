@@ -287,9 +287,11 @@ test('C5: last viewer leaving stops the loop within one wait timeout', async (t)
 
   const waitsBefore = mcp.calls.filter((c) => c.tool === 'wait_channel_event').length;
   detach();
+  // The in-flight wait settles within its bounded wait; the count must not
+  // increase — no new wait may start after the last viewer detached.
   await waitFor(() => hub.status(CHANNEL).state === 'idle', 1_000);
   const settled = mcp.calls.filter((c) => c.tool === 'wait_channel_event').length;
-  assert.ok(settled <= waitsBefore + 1, 'no new waits after the last viewer left');
+  assert.equal(settled, waitsBefore, 'wait-call count must not increase after the last viewer left');
 });
 
 test('control sends record but do not close the output block', async (t) => {

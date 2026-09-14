@@ -266,7 +266,13 @@ test('the session list page is served and traversal is impossible', async (t) =>
   assert.equal(root.status, 200);
   assert.match(root.headers.get('content-type') ?? '', /text\/html/);
   const html = await root.text();
+  // Stable Chat-first invariants: the page brand, the Sessions sidebar, and
+  // the element IDs the bundled app.js wires (conversation + composer + SSE).
+  assert.match(html, /<h1>Web Console<\/h1>/);
   assert.match(html, /Sessions/);
+  for (const id of ['id="chat"', 'id="composer"', 'id="observe-banner"', 'id="raw-toggle"']) {
+    assert.ok(html.includes(id), `required element ${id} missing`);
+  }
 
   const traversal = await fetch(`http://127.0.0.1:${ctx.port}/%2e%2e/%2e%2e/package.json`);
   assert.equal(traversal.status, 404);
