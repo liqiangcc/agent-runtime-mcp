@@ -100,7 +100,7 @@ boundary preservation        → console-specific CI guard + runtime-bundle excl
 - CI: new job(s) for `console/` typecheck + unit tests + one integration test that prepares a disposable tmux server (test harness only), builds the repo, starts the Console with `token` auth, and asserts: unauthenticated 401/403, authenticated list matches `tmux list-panes` count within the allowlist, health banner true, then after `tmux kill-server` health false and no session recreation.
 - Console-specific static guard: reject `new-session|kill-session|attach-session|pipe-pane|send-keys|shell:\s*true` anywhere under `console/` (later Tasks will carve explicit adapter-module exceptions).
 - Assertion that `npm run package:runtime` output contains no `console/` path.
-- `docs/web-console-requirements.md` §11 satisfied; a short `console/README.md` covering configuration and the security posture.
+- `docs/web-console-requirements.md` §12 satisfied; a short `console/README.md` covering configuration and the security posture.
 
 ## Out of Scope
 
