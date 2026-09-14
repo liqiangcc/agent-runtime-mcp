@@ -150,6 +150,13 @@ test('diffTail dedupes overlapping tails and never invents a gap', () => {
     appended: Array.from({ length: 20 }, (_, i) => `l${i + 51}`).join('\n'),
     overlapped: 21,
   });
+  // Scroll + last line rewritten in place: prev-minus-last-line anchors.
+  assert.deepEqual(diffTail('a\nb\npro', 'b\npro2\nd'), { appended: 'pro2\nd', overlapped: 1 });
+  // Repeated identical lines: alignment must not skip real lines by
+  // anchoring a later interior occurrence.
+  assert.deepEqual(diffTail('x\ny', 'x\ny\nx\ny\nz'), { appended: 'x\ny\nz', overlapped: 2 });
+  assert.deepEqual(diffTail('x\ny\nx\ny', 'x\ny\nx\ny\nz'), { appended: 'z', overlapped: 4 });
+  assert.deepEqual(diffTail('x\ny\nx\ny', 'y\nx\ny\nz\nw'), { appended: 'z\nw', overlapped: 3 });
   // Terminal screens carry trailing blanks below the cursor; new output
   // inserts before them — blanks must not anchor or be re-appended.
   assert.deepEqual(diffTail('p\nout1\n\n\n', 'p\nout1\nout2\n\n'), { appended: 'out2', overlapped: 2 });
@@ -478,6 +485,45 @@ test('C8: SSE history stream rejects mismatched Origin/Host; authority checks un
   assert.equal(sse.status, 200);
   await waitFor(() => sse.chunks.join('').includes('event: snapshot'));
   sse.close();
+});
+
+test('SSE viewer stays attached while the response is open and detaches exactly once', async (t) => {
+  const mcp = new ScriptedMcp();
+  const bus = new ConsoleEventBus();
+  const detachEvents: string[] = [];
+  const hub = new HistoryHub({
+    mcp,
+    events: bus,
+    logger: (event) => {
+      if (event === 'observe_viewer_detached') detachEvents.push(event);
+    },
+    options: { idleMs: 5, timeoutMs: 50, pollMs: 20, tailLines: 200, tailBytes: 64 * 1024 },
+  });
+  const ctx = await startSseServer(mcp, hub);
+  t.after(() => ctx.server.close());
+  t.after(() => hub.close());
+  mcp.readQueue.push({ text: 'hi' });
+
+  const sse = await openSse(ctx, `/api/channels/${CHANNEL}/events`);
+  assert.equal(sse.status, 200);
+  await waitFor(() => hub.status(CHANNEL).state === 'live');
+
+  // A GET request body completes instantly; the viewer must remain attached
+  // for as long as the SSE response/socket stays open — never on request end.
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(hub.status(CHANNEL).viewers, 1, 'viewer must remain attached while the SSE response is open');
+  assert.equal(hub.status(CHANNEL).state, 'live');
+  assert.equal(detachEvents.length, 0);
+
+  sse.close();
+  await waitFor(() => hub.status(CHANNEL).viewers === 0, 1_000);
+  await waitFor(() => hub.status(CHANNEL).state === 'idle', 1_000);
+  assert.equal(detachEvents.length, 1, 'exactly one detach on response close');
+
+  sse.close();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(detachEvents.length, 1, 'cleanup is idempotent — no second detach');
+  assert.equal(hub.status(CHANNEL).viewers, 0);
 });
 
 test('history snapshot + raw transcript endpoints serve the same ring', async (t) => {

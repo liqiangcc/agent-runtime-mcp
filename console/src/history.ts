@@ -191,13 +191,20 @@ export class HistoryRing {
  * Line-wise tail dedupe: returns the lines of `next` that are new relative to
  * `prev`. A bounded tail read is a moving window over the pane, and a
  * terminal screen carries trailing blank lines below the cursor — new output
- * inserts at the cursor, before those blanks. Trailing blanks are therefore
- * stripped first, then the anchor is the longest contiguous suffix run of
- * `prev` still present in `next` (it may sit mid-window after scrolling),
- * and everything after that run is appended. When the last content line was
- * rewritten in place the anchor is retried without it. Overlap dedupe is
- * always preferred over a gap (attach ordering invariant); when no anchor
- * exists the whole tail is appended rather than dropping output.
+ * inserts at the cursor, before those blanks — so trailing blanks are
+ * stripped first. Alignment is constrained to mechanically plausible pane
+ * evolution; the strongest of three candidates wins:
+ *
+ *   1. same-position common prefix (append-only, or a mutable current line),
+ *   2. prev's longest suffix == next's prefix (bounded tail scrolling),
+ *   3. same as (2) on prev minus its last line (scroll + last line rewritten
+ *      in place).
+ *
+ * Interior occurrences are never searched — anchoring mid-window on repeated
+ * output could silently skip real lines. Overlap dedupe is always preferred
+ * over a gap (attach ordering invariant); when no candidate aligns, the
+ * whole tail is appended — uncertainty surfaces text rather than dropping
+ * output or claiming a byte log.
  */
 export function diffTail(prev: string, next: string): { appended: string; overlapped: number } {
   if (next === '') return { appended: '', overlapped: 0 };
@@ -210,25 +217,31 @@ export function diffTail(prev: string, next: string): { appended: string; overla
   if (nextLines.length === 0) return { appended: '', overlapped: 1 };
   if (prevLines.length === 0) return { appended: nextLines.join('\n'), overlapped: 0 };
 
-  const match = (anchor: string[]): { appended: string; overlapped: number } | null => {
-    const maxK = Math.min(anchor.length, nextLines.length);
-    for (let k = maxK; k >= 1; k -= 1) {
-      const suffix = anchor.slice(anchor.length - k);
-      outer: for (let p = nextLines.length - k; p >= 0; p -= 1) {
-        for (let i = 0; i < k; i += 1) {
-          if (nextLines[p + i] !== suffix[i]) continue outer;
+  let k1 = 0;
+  while (k1 < prevLines.length && k1 < nextLines.length && prevLines[k1] === nextLines[k1]) k1 += 1;
+
+  const suffixPrefix = (a: string[], b: string[]): number => {
+    const maxK = Math.min(a.length, b.length);
+    let best = 0;
+    for (let k = 1; k <= maxK; k += 1) {
+      let ok = true;
+      for (let i = 0; i < k; i += 1) {
+        if (a[a.length - k + i] !== b[i]) {
+          ok = false;
+          break;
         }
-        return { appended: nextLines.slice(p + k).join('\n'), overlapped: k };
       }
+      if (ok) best = k;
     }
-    return null;
+    return best;
   };
 
-  const found =
-    match(prevLines) ??
-    // The volatile last content line may have been rewritten in place.
-    (prevLines.length > 1 ? match(prevLines.slice(0, -1)) : null);
-  return found ?? { appended: nextLines.join('\n'), overlapped: 0 };
+  const overlapped = Math.max(
+    k1,
+    suffixPrefix(prevLines, nextLines),
+    prevLines.length > 1 ? suffixPrefix(prevLines.slice(0, -1), nextLines) : 0,
+  );
+  return { appended: nextLines.slice(overlapped).join('\n'), overlapped };
 }
 
 /**
