@@ -1,6 +1,6 @@
 # Task 66 — Web Console end-to-end dogfood and operator deployment guide
 
-> **Draft.** Non-claimable until Issues #61, #63 and #62 are accepted (primary closed loop); #64 and #65 are included only if the Coordinator has accepted them — they are not on the default acceptance path. This is a verification Task; defects found are split into product/Console fix Tasks rather than repaired here (precedent: Issue #12 → #17).
+> **Aligned for publication.** Issues #61, #63 and #62 have Final Acceptance. Coordinator decision for this run: #64 Terminal View and #65 lifecycle are **NOT RUN / non-blocking**; they remain optional follow-up slices. This is a verification Task; defects found are split into product/Console fix Tasks rather than repaired here (precedent: Issue #12 → #17).
 
 ## Metadata
 
@@ -9,21 +9,33 @@ GitHub Issue: #66
 Task ID: 66-web-console-e2e-dogfood
 Task kind: verification + documentation
 Parent: Issue #60 (Web Console Goal)
-Base commit: to be recorded at publication
+Base commit: b022df3ef3fb673cc1800a3f9dc69bd8918356d2
 Candidate commit: n/a
 Session bootstrap: docs/tasks/66-web-console-e2e-dogfood/prompt.md
 Preferred worker: coordinator-authorized-devin
 Environment: env:devin
 Handoff profile: docs/tasks/handoffs/devin.md
 Required capabilities: github-read-write, repository-code-authoring, github-actions-evidence, local-node-tmux-execution, headless-browser-testing
-Hard dependencies: Final Acceptance of #61, #63, #62 (primary loop); #64 and #65 optional per Coordinator decision
+Hard dependencies: Final Acceptance of #61, #63, #62 (satisfied); #64 and #65 explicitly NOT RUN / non-blocking for this publication
 ```
 
 Requirement authority: `docs/web-console-requirements.md` §2, §6–§8.
 
+## Coordinator publication decisions
+
+```text
+Canonical base: b022df3ef3fb673cc1800a3f9dc69bd8918356d2 (#62 merged)
+Primary acceptance path: WC-UC1–UC3 only
+#64 Terminal View: NOT RUN in this Task; optional follow-up and non-blocking
+#65 Session lifecycle: NOT RUN in this Task; optional follow-up and non-blocking
+Headless browser: Playwright + Chromium
+Browser dependency scope: E2E/CI only; must not enter the Console runtime or runtime deployment bundle
+Defect policy: verification failures are SPLIT into a new fix Task; do not patch product/Console behavior inside #66
+```
+
 ## Goal
 
-Prove, through one headless-browser end-to-end flow in GitHub Actions against a real disposable
+Prove, through one **Playwright + Chromium** headless-browser end-to-end flow in GitHub Actions against a real disposable
 tmux server, that the Console MVP satisfies the **primary closed loop** (open browser → pick agent → conversation-style history → send message → new output block; WC-UC1–UC3) and, only if accepted, WC-UC4/WC-UC5 as secondary paths while the MCP
 product surface, bounds and boundary remain unchanged; and deliver an operator deployment guide
 (Tailscale address bind, tailnet ACL guidance, no Console-side auth) as documentation only.
@@ -42,10 +54,10 @@ Main flow:
   4. no-parsing check: output containing prompt-like/role-like strings stays a single output block
   5. Stop (INTERRUPT) with confirmation during a sleep → next output block shows the prompt returned (as output, not status)
   6. Raw transcript toggle shows the same content unshaped; position kept when scrolled up during a burst
-  7. (secondary, only if #64 accepted) Advanced → Terminal types a key sequence → effect visible; closing leaves no tmux client
-  8. (secondary, only if #65 accepted) lifecycle create/kill via allowlisted profile
+  7. Terminal secondary path: NOT RUN by Coordinator decision (#64 remains optional follow-up)
+  8. Lifecycle secondary path: NOT RUN by Coordinator decision (#65 remains optional follow-up)
   9. kill-server → health=false, no recreation, UI shows unavailable
-Success outcome: steps 1–6 and 9 pass (primary acceptance); secondary steps pass if included; seven-tool discovery unchanged; boundary guards pass
+Success outcome: steps 1–6 and 9 pass (primary acceptance); steps 7–8 are recorded NOT RUN and are non-blocking; seven-tool discovery unchanged; boundary guards pass
 Failure outcome: any step fails → defect recorded and SPLIT into a fix Task; this Task is not the place to fix product code
 Authoritative evidence: exact-SHA Actions run of the e2e job + artifacts (screenshots, logs without payloads)
 ```
@@ -60,19 +72,19 @@ evidence | acceptance                     → Actions success is evidence; Coord
 
 ## In Scope
 
-- e2e test harness (headless browser) + CI job with artifacts;
+- Playwright + Chromium e2e test harness + dedicated CI job with artifacts; browser tooling is test-only and excluded from the runtime deployment bundle;
 - `docs/web-console-deployment.md`: binding to the host's Tailscale address, tailnet ACL examples for restricting who may reach the port, systemd/user-service example, protected sessions, explicit statement that the Console has no user authentication and what is intentionally NOT provided;
 - README cross-link from `docs/web-console-requirements.md`;
 - boundary re-verification: seven tools, `static-boundary`, console guard, runtime bundle exclusion.
 
 ## Out of Scope
 
-- fixing defects found (SPLIT); Future items (Chat View, agent type, annotations, mobile-first redesign); public hosting.
+- fixing defects found (SPLIT); Terminal View (#64), session lifecycle (#65), agent-specific parsing/identity, annotations, mobile-first redesign; public hosting.
 
 ## Claims / Verification
 
 ```text
-C1: primary-loop steps 1–6 and 9 PASS in Actions on the exact Candidate SHA; secondary steps 7/8 PASS if included, otherwise recorded as NOT RUN with the Coordinator's decision.
+C1: primary-loop steps 1–6 and 9 PASS in Actions on the exact Candidate SHA; secondary steps 7/8 are recorded NOT RUN by Coordinator decision and are non-blocking.
 C2: after kill-server the Console shows unavailable and tmux list-sessions proves no recreation.
 C3: test:discovery still reports exactly seven tools; static-boundary and console guard pass; bundle excludes console/.
 C4: deployment guide reviewed against docs/web-console-requirements.md §8 and docs/deployment.md; no secrets or hostnames persisted.
@@ -98,7 +110,7 @@ BLOCK if an upstream slice is not accepted or the CI runner cannot run a headles
 
 ## Publication Dependency / Alignment Gate
 
-Coordinator re-reads accepted #61, #63, #62 (and #64/#65 decisions), fixes the exact step list and the headless browser tooling choice, then runs the Publication Gate.
+Coordinator re-read accepted #61/#63/#62 and fixed the decisions above: base `b022df3e…`, #64/#65 NOT RUN, Playwright + Chromium. Publication Gate may proceed after this alignment change lands on `main`.
 
 ## Evidence Contract
 

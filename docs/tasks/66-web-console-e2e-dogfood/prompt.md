@@ -16,7 +16,7 @@ Environment: env:devin
 Handoff profile: docs/tasks/handoffs/devin.md
 Reviewer: Coordinator
 Verification Runner: GitHub Actions (exact Candidate SHA)
-Upstream dependencies: #61, #63, #62 Final Acceptance (primary loop); #64/#65 per Coordinator decision
+Upstream dependencies: #61, #63, #62 Final Acceptance (satisfied); #64/#65 NOT RUN / non-blocking for this Task
 ```
 
 ## Start Protocol
@@ -31,8 +31,10 @@ Upstream dependencies: #61, #63, #62 Final Acceptance (primary loop); #64/#65 pe
 ## Key constraints
 
 - Never modify `src/`, the seven-tool MCP surface, or existing CI guards.
-- Chat-first positioning applies (`docs/web-console-requirements.md §2`): the conversation view is the default; Terminal View is an advanced debugging/recovery entry and not the acceptance path.
+- Chat-first positioning applies (`docs/web-console-requirements.md §2`): the conversation view is the default. Coordinator decision: #64 Terminal View and #65 lifecycle are NOT RUN / non-blocking for #66.
+- Headless browser tooling is Playwright + Chromium and is test/CI-only; it must not enter the Console runtime or runtime deployment bundle.
 - Console-specific guards, the Tailscale bind guard (no Console-side authentication) and no-payload logging from #61 remain in force.
+- This is verification + documentation only: if the E2E reproduces a product defect, SPLIT it into a new fix Task and stop; do not silently patch product behavior inside #66.
 
 ## Completion
 
