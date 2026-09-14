@@ -3,11 +3,13 @@ import { stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, join } from 'node:path';
 import { isIP } from 'node:net';
+import type { ConsoleEventBus } from './events.js';
 import type { Logger } from './logger.js';
-import { McpToolError, McpUnavailableError, type ConsoleMcp } from './mcp-client.js';
+import { McpToolError, McpUnavailableError, type ConsoleMcp, type TerminalControl } from './mcp-client.js';
 
 export interface HttpAppDeps {
   mcp: ConsoleMcp;
+  events: ConsoleEventBus;
   expectedHost: string;
   publicDir: string;
   logger: Logger;
@@ -19,6 +21,9 @@ const CONTENT_TYPES: Record<string, string> = {
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
 };
+const CONTROLS: ReadonlySet<string> = new Set(['ENTER', 'INTERRUPT', 'ESCAPE']);
+const MAX_BODY_BYTES = 2 * 1024 * 1024;
+const MUTATION_ROUTE = /^\/api\/channels\/([^/]+)\/(text|control)$/;
 
 export function expectedAuthority(bind: string, port: number): string {
   return isIP(bind) === 6 ? `[${bind}]:${port}` : `${bind}:${port}`;
@@ -117,7 +122,138 @@ async function serveStatic(
   return 200;
 }
 
+async function readJsonBody(
+  req: IncomingMessage,
+): Promise<{ ok: true; value: unknown } | { ok: false; status: number; message: string }> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  let tooLarge = false;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > MAX_BODY_BYTES) {
+      tooLarge = true;
+      continue;
+    }
+    if (!tooLarge) {
+      chunks.push(chunk as Buffer);
+    }
+  }
+  if (tooLarge) {
+    return { ok: false, status: 413, message: 'request body too large' };
+  }
+  try {
+    return { ok: true, value: JSON.parse(Buffer.concat(chunks).toString('utf8')) };
+  } catch {
+    return { ok: false, status: 400, message: 'request body must be valid JSON' };
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isAmbiguousTimeout(error: unknown): boolean {
+  return error instanceof McpToolError && error.code === 'TIMEOUT';
+}
+
 export function createRequestHandler(deps: HttpAppDeps) {
+  async function handleMutation(
+    req: IncomingMessage,
+    res: ServerResponse,
+    kind: 'text' | 'control',
+    channelId: string,
+  ): Promise<number> {
+    const body = await readJsonBody(req);
+    if (!body.ok) {
+      sendError(res, body.status, 'INVALID_ARGUMENT', body.message);
+      return body.status;
+    }
+    const value = body.value;
+    if (!isRecord(value)) {
+      sendError(res, 400, 'INVALID_ARGUMENT', 'request body must be a JSON object');
+      return 400;
+    }
+
+    if (kind === 'text') {
+      const { text } = value;
+      if (typeof text !== 'string') {
+        sendError(res, 400, 'INVALID_ARGUMENT', 'body must contain "text": string');
+        return 400;
+      }
+      if ('submit' in value && typeof value.submit !== 'boolean') {
+        sendError(res, 400, 'INVALID_ARGUMENT', '"submit" must be a boolean');
+        return 400;
+      }
+      const submit = value.submit === undefined ? true : (value.submit as boolean);
+      const bytes = Buffer.byteLength(text, 'utf8');
+      try {
+        const result = await deps.mcp.writeText(channelId, text, submit);
+        deps.events.emit({
+          type: 'user-turn',
+          channel_id: channelId,
+          text,
+          submit,
+          sent_at: new Date().toISOString(),
+          transport_result: 'delivered',
+        });
+        deps.logger('mutation', { route: 'text', channel_id: channelId, result: 'delivered', bytes });
+        sendJson(res, 200, { transport_result: 'delivered', result });
+        return 200;
+      } catch (error) {
+        if (isAmbiguousTimeout(error)) {
+          deps.events.emit({
+            type: 'user-turn',
+            channel_id: channelId,
+            text,
+            submit,
+            sent_at: new Date().toISOString(),
+            transport_result: 'ambiguous',
+          });
+          deps.logger('mutation', { route: 'text', channel_id: channelId, result: 'ambiguous', bytes });
+          sendError(res, 504, 'TIMEOUT', 'ambiguous: the text may have been delivered');
+          return 504;
+        }
+        deps.logger('mutation', { route: 'text', channel_id: channelId, result: 'rejected', bytes });
+        throw error;
+      }
+    }
+
+    const { control } = value;
+    if (typeof control !== 'string' || !CONTROLS.has(control)) {
+      sendError(res, 400, 'INVALID_ARGUMENT', 'control must be one of ENTER|INTERRUPT|ESCAPE');
+      return 400;
+    }
+    const terminalControl = control as TerminalControl;
+    try {
+      const result = await deps.mcp.sendControl(channelId, terminalControl);
+      deps.events.emit({
+        type: 'control',
+        channel_id: channelId,
+        control: terminalControl,
+        sent_at: new Date().toISOString(),
+        transport_result: 'delivered',
+      });
+      deps.logger('mutation', { route: 'control', channel_id: channelId, control, result: 'delivered' });
+      sendJson(res, 200, { transport_result: 'delivered', result });
+      return 200;
+    } catch (error) {
+      if (isAmbiguousTimeout(error)) {
+        deps.events.emit({
+          type: 'control',
+          channel_id: channelId,
+          control: terminalControl,
+          sent_at: new Date().toISOString(),
+          transport_result: 'ambiguous',
+        });
+        deps.logger('mutation', { route: 'control', channel_id: channelId, control, result: 'ambiguous' });
+        sendError(res, 504, 'TIMEOUT', 'ambiguous: the control may have been delivered');
+        return 504;
+      }
+      deps.logger('mutation', { route: 'control', channel_id: channelId, control, result: 'rejected' });
+      throw error;
+    }
+  }
+
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const started = Date.now();
     const method = req.method ?? 'GET';
@@ -130,9 +266,23 @@ export function createRequestHandler(deps: HttpAppDeps) {
         sendError(res, status, 'FORBIDDEN', authority.reason);
         return;
       }
+
+      const mutationMatch = method === 'POST' ? MUTATION_ROUTE.exec(path) : null;
+      if (mutationMatch) {
+        let channelId: string;
+        try {
+          channelId = decodeURIComponent(mutationMatch[1]);
+        } catch {
+          status = 400;
+          sendError(res, status, 'INVALID_ARGUMENT', 'invalid channel id encoding');
+          return;
+        }
+        status = await handleMutation(req, res, mutationMatch[2] as 'text' | 'control', channelId);
+        return;
+      }
       if (method !== 'GET' && method !== 'HEAD') {
         status = 405;
-        sendError(res, status, 'METHOD_NOT_ALLOWED', 'only GET is supported');
+        sendError(res, status, 'METHOD_NOT_ALLOWED', 'unsupported method');
         return;
       }
 

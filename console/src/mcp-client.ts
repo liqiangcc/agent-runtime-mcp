@@ -1,4 +1,4 @@
-import { Client } from '@modelcontextprotocol/client';
+import { Client, SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
 import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import type { Logger } from './logger.js';
 
@@ -152,6 +152,9 @@ export class StdioMcpClient implements ConsoleMcp {
     try {
       result = await client.callTool({ name, arguments: args }, { timeout: timeoutMs });
     } catch (error) {
+      if (error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout) {
+        throw new McpToolError('TIMEOUT', `${name} request timed out after ${timeoutMs}ms`);
+      }
       if (!this.client) {
         throw new McpUnavailableError(`agent-runtime-mcp connection lost during ${name}`);
       }

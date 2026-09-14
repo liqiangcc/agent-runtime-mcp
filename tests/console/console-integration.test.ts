@@ -4,6 +4,8 @@ import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
+import { Client } from '@modelcontextprotocol/client';
+import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 const execFileAsync = promisify(execFile);
 const repoRoot = process.cwd();
@@ -171,5 +173,119 @@ test(
     await new Promise((resolve) => setTimeout(resolve, 500));
     assert.equal(await sessionExists(socketName, allowedSession), false, 'console must not recreate the endpoint');
     assert.ok(console_child.exitCode === null, 'console process must stay alive');
+  },
+);
+
+test(
+  'console text and control routes drive a real tmux pane (submit, no-submit, INTERRUPT)',
+  { timeout: 90_000 },
+  async (t) => {
+    const socketName = `console-io-${process.pid}-${Date.now()}`;
+    const sessionName = `conit-io-${process.pid}`;
+    const port = 45_000 + (process.pid % 15_000);
+    const authority = `127.0.0.1:${port}`;
+    const consoleEnv: NodeJS.ProcessEnv = {
+      CONSOLE_BIND: '127.0.0.1',
+      CONSOLE_PORT: String(port),
+      CONSOLE_MCP_ENTRY: mcpEntry,
+      TMUX_SOCKET_NAME: socketName,
+      TMUX_ALLOWED_SESSIONS: sessionName,
+    };
+
+    // The harness (not the Console) prepares a real interactive pane with echo
+    // off, so read_channel assertions show command output only.
+    await tmux(socketName, 'new-session', '-d', '-s', sessionName);
+    await tmux(socketName, 'send-keys', '-t', sessionName, '-l', 'exec bash --noprofile --norc');
+    await tmux(socketName, 'send-keys', '-t', sessionName, 'Enter');
+    await waitFor(
+      async () => (await tmux(socketName, 'list-panes', '-t', sessionName, '-F', '#{pane_current_command}')).trim() === 'bash',
+    );
+    await tmux(socketName, 'send-keys', '-t', sessionName, '-l', 'stty -echo');
+    await tmux(socketName, 'send-keys', '-t', sessionName, 'Enter');
+
+    const { child: consoleChild, stderr: consoleStderr } = spawnConsole(consoleEnv);
+    t.after(() => {
+      consoleChild.kill('SIGTERM');
+    });
+    t.after(async () => {
+      await tmux(socketName, 'kill-server').catch(() => undefined);
+    });
+
+    // A second, direct MCP client supplies read_channel read-back evidence.
+    const mcp = new Client({ name: 'console-it-readback', version: '0.1.0' });
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [mcpEntry],
+      cwd: repoRoot,
+      env: { ...getDefaultEnvironment(), TMUX_SOCKET_NAME: socketName, TMUX_ALLOWED_SESSIONS: sessionName },
+    });
+    await mcp.connect(transport);
+    t.after(() => mcp.close().catch(() => undefined));
+
+    async function readText(): Promise<string> {
+      const result = await mcp.callTool({ name: 'read_channel', arguments: { channel_id: channelId, lines: 50, bytes: 8192 } });
+      const payload = result.structuredContent as { read?: { text?: string } };
+      return payload?.read?.text ?? '';
+    }
+
+    async function waitForMarker(marker: string, present = true, timeoutMs = 10_000): Promise<void> {
+      await waitFor(async () => (await readText()).includes(marker) === present, timeoutMs);
+    }
+
+    await waitFor(async () => {
+      try {
+        const res = await fetch(`http://${authority}/api/channels`);
+        if (!res.ok) return false;
+        const body = await res.json();
+        return Array.isArray(body.channels) && body.channels.length === 1;
+      } catch {
+        return false;
+      }
+    });
+    assert.ok(consoleChild.exitCode === null, `console exited early: ${consoleStderr()}`);
+
+    const listBody = await (await fetch(`http://${authority}/api/channels`)).json();
+    const channelId = listBody.channels[0].channel_id as string;
+
+    async function post(route: string, body: unknown): Promise<{ status: number; body: { transport_result?: string; error?: { code?: string } } }> {
+      const res = await fetch(`http://${authority}/api/channels/${encodeURIComponent(channelId)}/${route}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return { status: res.status, body: await res.json().catch(() => ({})) };
+    }
+
+    // C4a: submit=true delivers text plus one Enter; read_channel shows output.
+    const sent = await post('text', { text: "printf 'C63_SUBMIT_OK\\n'", submit: true });
+    assert.equal(sent.status, 200);
+    assert.equal(sent.body.transport_result, 'delivered');
+    await waitForMarker('C63_SUBMIT_OK');
+
+    // C4b: submit=false leaves the input unexecuted (no extra newline); the
+    // explicit ENTER control then runs the pending line.
+    const noSubmit = await post('text', { text: "printf 'C63_NOSUBMIT_OK\\n'", submit: false });
+    assert.equal(noSubmit.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    assert.ok(!(await readText()).includes('C63_NOSUBMIT_OK'), 'submit=false must not execute the line');
+
+    const enter = await post('control', { control: 'ENTER' });
+    assert.equal(enter.status, 200);
+    await waitForMarker('C63_NOSUBMIT_OK');
+
+    // C5: INTERRUPT returns a sleeping pane to the prompt.
+    const sleep = await post('text', { text: 'sleep 30', submit: true });
+    assert.equal(sleep.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const interrupt = await post('control', { control: 'INTERRUPT' });
+    assert.equal(interrupt.status, 200);
+    const after = await post('text', { text: "printf 'C63_AFTER_INTERRUPT_OK\\n'", submit: true });
+    assert.equal(after.status, 200);
+    await waitForMarker('C63_AFTER_INTERRUPT_OK');
+
+    // C5b (UI evidence): the served composer requires confirmation for INTERRUPT.
+    const appJs = await (await fetch(`http://${authority}/app.js`)).text();
+    assert.match(appJs, /confirm\(/);
+    assert.match(appJs, /INTERRUPT/);
   },
 );

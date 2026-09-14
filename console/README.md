@@ -6,7 +6,8 @@ coupling to the product is the public MCP contract (`docs/mcp-contract.md`):
 the Console spawns `node <repo>/dist/src/server.js` over stdio and calls the
 public tools through the official `@modelcontextprotocol/client`.
 
-Current slice (Task #61, WC-UC1): session list + backend health banner.
+Current slice (Tasks #61 + #63): session list + backend health banner, plus a
+chat composer that sends `write_text` / `send_control` through the same adapter.
 
 ```text
 browser ──HTTP──▶ Console server ──stdio MCP──▶ agent-runtime-mcp ──▶ existing tmux panes
@@ -16,8 +17,9 @@ browser ──HTTP──▶ Console server ──stdio MCP──▶ agent-runtim
 
 - **The Tailscale tailnet is the access boundary.** The Console implements no
   user authentication, roles, or authorization — everyone who can reach it has
-  full Console capability. Tailnet membership and Tailscale ACLs decide who
-  that is (deployment-layer concern, `docs/deployment.md §5`).
+  full read **and write/control** capability over every listed Channel. Tailnet
+  membership and Tailscale ACLs decide who that is (deployment-layer concern,
+  `docs/deployment.md §5`).
 - **The bind guard is the only Console-side network control.** Startup refuses
   any `CONSOLE_BIND` that is not (a) a loopback address or (b) a Tailscale
   address (`100.64.0.0/10` or `fd7a:115c:a1e0::/48`) **currently assigned to a
@@ -76,6 +78,40 @@ address instead.
   process is down.
 - `GET /api/channels` → MCP `list_channels` result.
 - `GET /api/channels/:id` → MCP `get_channel` result; `404 CHANNEL_NOT_FOUND`.
+- `POST /api/channels/:id/text` → `{text: string, submit?: boolean (default true)}`
+  forwarded verbatim to MCP `write_text`. Responses:
+  `200 {transport_result:'delivered', result}`; `504 TIMEOUT` = **ambiguous —
+  the text may have been delivered**; other errors map the MCP code.
+- `POST /api/channels/:id/control` → `{control}` where `control` is exactly one
+  of `ENTER|INTERRUPT|ESCAPE` (the same closed enum as the MCP; anything else is
+  rejected `400 INVALID_ARGUMENT` before the adapter is called).
+
+Both mutation routes run the same Origin/Host authority check before touching
+the adapter: `Host` must equal the bound `address:port` and a present `Origin`
+must match it — **anyone who can reach the Console on the tailnet can write and
+send controls**; that is the documented trust model, there is no per-user
+authorization.
+
+### Ambiguity rule
+
+`write_text` and `send_control` are non-idempotent. A `TIMEOUT` response means
+the send may already have been delivered: the Console returns `504` with
+`transport_result:'ambiguous'` and **never retries automatically** — the human
+decides whether to retry.
+
+### User-turn / control events
+
+Each delivered or ambiguous send emits exactly one in-process event on the
+`ConsoleEventBus` (`console/src/events.ts`); rejected sends emit none. These
+events are the conversation-history feed consumed by #62:
+
+```text
+user-turn: {type:'user-turn', channel_id, text, submit, sent_at, transport_result}
+control:   {type:'control',   channel_id, control, sent_at, transport_result}
+transport_result ∈ 'delivered' | 'ambiguous'
+```
+
+The bus is process-local only — no WebSocket/SSE transport exists in this slice.
 
 ## Development
 
