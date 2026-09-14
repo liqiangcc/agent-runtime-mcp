@@ -140,6 +140,23 @@ test('diffTail dedupes overlapping tails and never invents a gap', () => {
   assert.deepEqual(diffTail('gone', 'fresh'), { appended: 'fresh', overlapped: 0 });
   // Repeated identical lines still dedupe deterministically.
   assert.deepEqual(diffTail('same\nsame', 'same\nsame\nnew'), { appended: 'new', overlapped: 2 });
+  // (a) Mutable current/last line: the prompt line is rewritten in place —
+  // the stable prefix anchors and only the rewritten line is appended.
+  assert.deepEqual(diffTail('out\npro', 'out\nprompt> x'), { appended: 'prompt> x', overlapped: 1 });
+  // (b) Bounded tail scrolling: prev's suffix run is next's prefix.
+  const prev50 = Array.from({ length: 50 }, (_, i) => `l${i + 1}`).join('\n');
+  const next50 = Array.from({ length: 41 }, (_, i) => `l${i + 30}`).join('\n');
+  assert.deepEqual(diffTail(prev50, next50), {
+    appended: Array.from({ length: 20 }, (_, i) => `l${i + 51}`).join('\n'),
+    overlapped: 21,
+  });
+  // Terminal screens carry trailing blanks below the cursor; new output
+  // inserts before them — blanks must not anchor or be re-appended.
+  assert.deepEqual(diffTail('p\nout1\n\n\n', 'p\nout1\nout2\n\n'), { appended: 'out2', overlapped: 2 });
+  assert.deepEqual(diffTail('p\nout1\n\n\n', 'p\nout1\n\n\n'), { appended: '', overlapped: 1 });
+  // Uncertainty surfaces more text, never a claimed gap: a wholly rewritten
+  // pane appends the full new tail.
+  assert.deepEqual(diffTail('a\nb\nc', 'x\ny\nz'), { appended: 'x\ny\nz', overlapped: 0 });
 });
 
 test('C4: prompt-like and role-like strings stay plain output — no turn split', () => {
