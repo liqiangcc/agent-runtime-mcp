@@ -1,4 +1,4 @@
-# Session Bootstrap — Issue #61 Web Console skeleton, auth gate, MCP client adapter and session list
+# Session Bootstrap — Issue #61 Web Console skeleton, Tailscale bind guard, MCP client adapter and session list
 
 You are the **coordinator-authorized Devin executor** for `liqiangcc/agent-runtime-mcp` Issue #61.
 
@@ -31,7 +31,7 @@ Verification Runner: GitHub Actions (exact Candidate SHA)
 
 - Do not modify `src/`, the seven-tool surface, or existing CI guards.
 - No tmux command may be executed from `console/` in this Task (the test harness may prepare tmux).
-- Loopback-by-default bind; auth mode validation at startup; never log tokens or terminal payloads.
+- No application-level authentication (Tailscale tailnet is the access boundary); bind guard allows only loopback or a Tailscale address; never log terminal payloads.
 
 ## Completion
 

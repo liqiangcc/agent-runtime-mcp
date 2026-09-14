@@ -31,7 +31,7 @@ Upstream dependencies: #61 Final Acceptance
 ## Key constraints
 
 - Never modify `src/`, the seven-tool MCP surface, or existing CI guards.
-- Console-specific guards, roles, loopback-default bind and no-payload logging from #61 remain in force.
+- Console-specific guards, the Tailscale bind guard (no Console-side authentication) and no-payload logging from #61 remain in force.
 
 ## Completion
 

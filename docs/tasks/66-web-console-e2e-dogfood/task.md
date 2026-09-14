@@ -26,7 +26,7 @@ Requirement authority: `docs/web-console-requirements.md` §6–§8.
 Prove, through one headless-browser end-to-end flow in GitHub Actions against a real disposable
 tmux server, that the Console MVP satisfies WC-UC1–WC-UC4 (and WC-UC5 if included) while the MCP
 product surface, bounds and boundary remain unchanged; and deliver an operator deployment guide
-(reverse proxy + auth + loopback bind + roles) as documentation only.
+(Tailscale address bind, tailnet ACL guidance, no Console-side auth) as documentation only.
 
 ## Primary Use Case
 
@@ -35,7 +35,7 @@ Actor: Coordinator / operator
 Trigger: MVP slices accepted individually; need one combined proof and a deployment recipe
 Main flow:
   1. harness prepares tmux socket with an allowed and a disallowed session, starts agent-runtime-mcp via the Console
-  2. headless browser: login (token) → list shows only the allowed session and health=true
+  2. headless browser opens the Console (loopback in CI) → list shows only the allowed session and health=true
   3. browse view follows a scripted output burst; position kept when scrolled up
   4. write text with submit → visible in browse; INTERRUPT with confirmation → prompt returns
   5. terminal view types a key sequence → effect visible; closing view leaves no tmux client
@@ -57,7 +57,7 @@ evidence | acceptance                     → Actions success is evidence; Coord
 ## In Scope
 
 - e2e test harness (headless browser) + CI job with artifacts;
-- `docs/web-console-deployment.md`: reverse proxy with auth identity header, TLS at the proxy, loopback bind, role mapping examples, systemd/user-service example, protected sessions, what is intentionally NOT provided;
+- `docs/web-console-deployment.md`: binding to the host's Tailscale address, tailnet ACL examples for restricting who may reach the port, systemd/user-service example, protected sessions, explicit statement that the Console has no user authentication and what is intentionally NOT provided;
 - README cross-link from `docs/web-console-requirements.md`;
 - boundary re-verification: seven tools, `static-boundary`, console guard, runtime bundle exclusion.
 
@@ -77,7 +77,7 @@ C4: deployment guide reviewed against docs/web-console-requirements.md §8 and d
 ## Security Review
 
 ```text
-Security-sensitive: yes (documents the human ingress posture; verifies role separation end to end)
+Security-sensitive: yes (documents the tailnet-only ingress posture; verifies the bind guard end to end)
 Remote ingress affected: documentation only
 ```
 
