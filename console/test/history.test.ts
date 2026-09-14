@@ -276,6 +276,71 @@ test('wait timeout with activity_observed refreshes the tail without closing the
   assert.equal(settled.text, 'line1\nline2', 'a later output_idle dedupes and pauses');
 });
 
+test('re-observe uses output/dedupe semantics even when no earlier_output survives in the ring', async (t) => {
+  const mcp = new ScriptedMcp();
+  const bus = new ConsoleEventBus();
+  const hub = makeHub(mcp, bus);
+  t.after(() => hub.close());
+
+  // First attach reads an empty tail: no earlier_output entry is ever created.
+  mcp.readQueue.push({ text: '' });
+  const detach1 = hub.addViewer(CHANNEL, () => undefined);
+  await waitFor(() => hub.status(CHANNEL).state === 'live');
+  detach1();
+  await waitFor(() => hub.status(CHANNEL).state === 'idle', 1_000);
+  assert.equal(
+    hub.snapshot(CHANNEL).ring.entries.filter((e) => e.kind === 'earlier_output').length,
+    0,
+    'empty initial tail produces no earlier_output',
+  );
+
+  // Re-observe must dedupe into an output block, not mint a second earlier block.
+  mcp.readQueue.push({ text: 'output while detached' });
+  const detach2 = hub.addViewer(CHANNEL, () => undefined);
+  t.after(detach2);
+  await waitFor(() => hub.status(CHANNEL).state === 'live');
+  const entries = hub.snapshot(CHANNEL).ring.entries;
+  assert.equal(entries.filter((e) => e.kind === 'earlier_output').length, 0, 're-observe must not mint earlier_output');
+  const block = entries.find((e) => e.kind === 'output_block');
+  assert.ok(block && block.kind === 'output_block' && block.text.includes('output while detached'));
+});
+
+test('re-observe after ring eviction still uses output/dedupe semantics', async (t) => {
+  const mcp = new ScriptedMcp();
+  const bus = new ConsoleEventBus();
+  const hub = new HistoryHub({
+    mcp,
+    events: bus,
+    options: { idleMs: 5, timeoutMs: 50, pollMs: 20, tailLines: 200, tailBytes: 64 * 1024, ring: { maxLines: 3, maxBytes: 64 * 1024 } },
+  });
+  t.after(() => hub.close());
+
+  mcp.readQueue.push({ text: 'old one\nold two\nold three' });
+  const detach1 = hub.addViewer(CHANNEL, () => undefined);
+  await waitFor(() => hub.status(CHANNEL).state === 'live');
+  detach1();
+  await waitFor(() => hub.status(CHANNEL).state === 'idle', 1_000);
+
+  // Overflow the tiny ring so the earlier_output entry is evicted.
+  bus.emit({ type: 'user-turn', channel_id: CHANNEL, text: 'line-a\nline-b', submit: true, sent_at: 't', transport_result: 'delivered' });
+  bus.emit({ type: 'user-turn', channel_id: CHANNEL, text: 'line-c\nline-d', submit: true, sent_at: 't', transport_result: 'delivered' });
+  assert.equal(
+    hub.snapshot(CHANNEL).ring.entries.filter((e) => e.kind === 'earlier_output').length,
+    0,
+    'earlier_output must have been evicted by the ring ceiling',
+  );
+
+  mcp.readQueue.push({ text: 'old one\nold two\nold three\nnew after reobserve' });
+  const detach2 = hub.addViewer(CHANNEL, () => undefined);
+  t.after(detach2);
+  await waitFor(() => hub.status(CHANNEL).state === 'live');
+  const entries = hub.snapshot(CHANNEL).ring.entries;
+  assert.equal(entries.filter((e) => e.kind === 'earlier_output').length, 0, 're-observe must not mint earlier_output');
+  const block = entries.find((e) => e.kind === 'output_block');
+  assert.ok(block && block.kind === 'output_block');
+  assert.equal(block.text, 'new after reobserve', 're-observe dedupes against the last read');
+});
+
 test('C5: last viewer leaving stops the loop within one wait timeout', async (t) => {
   const mcp = new ScriptedMcp();
   const bus = new ConsoleEventBus();

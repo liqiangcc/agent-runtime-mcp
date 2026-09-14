@@ -63,6 +63,7 @@ interface ChannelState {
   detail?: string;
   cursor: string | null;
   lastRead: string;
+  attachedOnce: boolean;
   currentBlockId: number | null;
   viewers: Set<HistoryListener>;
   loopActive: boolean;
@@ -142,6 +143,7 @@ export class HistoryHub {
       state: 'idle',
       cursor: null,
       lastRead: '',
+      attachedOnce: false,
       currentBlockId: null,
       viewers: new Set(),
       loopActive: false,
@@ -404,10 +406,11 @@ export class HistoryHub {
         throw new McpToolError('OBSERVATION_UNSUPPORTED', 'get_channel(observe:true) returned no observation cursor');
       }
       cs.cursor = cursor;
-      // earlier_output is produced once, at the first attach; a re-observe
-      // dedupes the tail against the last read and appends an output block.
-      const firstAttach = !cs.ring.snapshot().entries.some((e) => e.kind === 'earlier_output');
-      const initial = await this.pull(cs, firstAttach ? 'earlier' : 'output');
+      // earlier_output is produced once, at the first attach; re-observes
+      // dedupe the tail against the last read. The flag is lifecycle state —
+      // the ring may hold an empty initial tail or evict the entry.
+      const initial = await this.pull(cs, cs.attachedOnce ? 'output' : 'earlier');
+      cs.attachedOnce = true;
       this.setState(cs, 'live');
       this.broadcast(cs, initial.appended, initial.updated);
 
