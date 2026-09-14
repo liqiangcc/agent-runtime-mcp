@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { ConsoleEventBus, type ConsoleEvent } from '../src/events.js';
 import { createRequestHandler, expectedAuthority } from '../src/http-app.js';
+import { HistoryHub } from '../src/observer.js';
 import { createLogger } from '../src/logger.js';
 import { McpToolError, type ConsoleMcp, type TerminalControl, type ToolPayload } from '../src/mcp-client.js';
 
@@ -60,8 +61,9 @@ async function startServer(mcp: ConsoleMcp): Promise<Ctx> {
   bus.subscribe((event) => events.push(event));
   const logger = createLogger((line) => logs.push(line));
   const ctx: Ctx = { server: null as unknown as Server, port: 0, authority: '', logs, events };
+  const history = new HistoryHub({ mcp, events: bus });
   const server = createServer((req, res) => {
-    void createRequestHandler({ mcp, events: bus, expectedHost: ctx.authority, publicDir, logger })(req, res);
+    void createRequestHandler({ mcp, events: bus, history, expectedHost: ctx.authority, publicDir, logger })(req, res);
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();

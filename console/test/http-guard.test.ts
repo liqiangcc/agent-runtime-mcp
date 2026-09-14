@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { ConsoleEventBus } from '../src/events.js';
 import { checkRequestAuthority, createRequestHandler, expectedAuthority, rejectUpgrade } from '../src/http-app.js';
+import { HistoryHub } from '../src/observer.js';
 import { createLogger } from '../src/logger.js';
 import { McpToolError, McpUnavailableError, type ConsoleMcp, type ToolPayload } from '../src/mcp-client.js';
 
@@ -55,7 +56,9 @@ async function startServer(mcp: ConsoleMcp): Promise<TestContext> {
   const logger = createLogger((line) => logs.push(line));
   const ctx: TestContext = { server: null as unknown as Server, port: 0, authority: '', logs };
   const server = createServer((req, res) => {
-    void createRequestHandler({ mcp, events: new ConsoleEventBus(), expectedHost: ctx.authority, publicDir, logger })(req, res);
+    const events = new ConsoleEventBus();
+    const history = new HistoryHub({ mcp, events });
+    void createRequestHandler({ mcp, events, history, expectedHost: ctx.authority, publicDir, logger })(req, res);
   });
   server.on('upgrade', (req, socket) => rejectUpgrade(req, socket, ctx.authority, logger));
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -263,7 +266,13 @@ test('the session list page is served and traversal is impossible', async (t) =>
   assert.equal(root.status, 200);
   assert.match(root.headers.get('content-type') ?? '', /text\/html/);
   const html = await root.text();
-  assert.match(html, /Channels/);
+  // Stable Chat-first invariants: the page brand, the Sessions sidebar, and
+  // the element IDs the bundled app.js wires (conversation + composer + SSE).
+  assert.match(html, /<h1>Web Console<\/h1>/);
+  assert.match(html, /Sessions/);
+  for (const id of ['id="chat"', 'id="composer"', 'id="observe-banner"', 'id="raw-toggle"']) {
+    assert.ok(html.includes(id), `required element ${id} missing`);
+  }
 
   const traversal = await fetch(`http://127.0.0.1:${ctx.port}/%2e%2e/%2e%2e/package.json`);
   assert.equal(traversal.status, 404);

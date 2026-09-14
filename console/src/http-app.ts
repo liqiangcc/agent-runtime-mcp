@@ -4,12 +4,14 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, join } from 'node:path';
 import { isIP } from 'node:net';
 import type { ConsoleEventBus } from './events.js';
+import type { HistoryHub, HubUpdate } from './observer.js';
 import type { Logger } from './logger.js';
 import { McpToolError, McpUnavailableError, type ConsoleMcp, type TerminalControl } from './mcp-client.js';
 
 export interface HttpAppDeps {
   mcp: ConsoleMcp;
   events: ConsoleEventBus;
+  history: HistoryHub;
   expectedHost: string;
   publicDir: string;
   logger: Logger;
@@ -24,6 +26,8 @@ const CONTENT_TYPES: Record<string, string> = {
 const CONTROLS: ReadonlySet<string> = new Set(['ENTER', 'INTERRUPT', 'ESCAPE']);
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const MUTATION_ROUTE = /^\/api\/channels\/([^/]+)\/(text|control)$/;
+const HISTORY_ROUTE = /^\/api\/channels\/([^/]+)\/(history|events)$/;
+const SSE_HEARTBEAT_MS = 15_000;
 
 export function expectedAuthority(bind: string, port: number): string {
   return isIP(bind) === 6 ? `[${bind}]:${port}` : `${bind}:${port}`;
@@ -90,6 +94,9 @@ function mapError(error: unknown): { status: number; code: string; message: stri
         return { status: 400, code: error.code, message: error.message };
       case 'TIMEOUT':
         return { status: 504, code: error.code, message: error.message };
+      case 'WAITER_LIMIT':
+      case 'RESOURCE_EXHAUSTED':
+        return { status: 429, code: error.code, message: error.message };
       default:
         return { status: 502, code: error.code, message: error.message };
     }
@@ -254,6 +261,75 @@ export function createRequestHandler(deps: HttpAppDeps) {
     }
   }
 
+  function handleHistory(req: IncomingMessage, res: ServerResponse, channelId: string): number {
+    let format: string | null = null;
+    try {
+      format = new URL(req.url ?? '/', 'http://console.internal').searchParams.get('format');
+    } catch {
+      format = null;
+    }
+    if (format === 'raw') {
+      const body = deps.history.rawTranscript(channelId);
+      res.writeHead(200, {
+        'content-type': 'text/plain; charset=utf-8',
+        'content-length': Buffer.byteLength(body),
+        'cache-control': 'no-store',
+      });
+      res.end(body);
+      return 200;
+    }
+    sendJson(res, 200, deps.history.snapshot(channelId));
+    return 200;
+  }
+
+  /**
+   * Read-only SSE push of ring updates. This is a plain HTTP/1.1 GET — no
+   * WebSocket upgrade — and runs after the same Origin/Host authority check
+   * as every other route. The connection stays open until the client leaves;
+   * the last viewer detaching stops the Channel's observe loop.
+   */
+  function handleEvents(req: IncomingMessage, res: ServerResponse, channelId: string): number {
+    const pending: string[] = [];
+    let headersSent = false;
+    const listener = (update: HubUpdate): void => {
+      const frame = `event: ${update.type}\ndata: ${JSON.stringify(update)}\n\n`;
+      if (headersSent) {
+        res.write(frame);
+      } else {
+        pending.push(frame);
+      }
+    };
+    let detach: (() => void) | undefined;
+    try {
+      detach = deps.history.addViewer(channelId, listener);
+    } catch (error) {
+      const mapped = mapError(error);
+      sendError(res, mapped.status, mapped.code, mapped.message);
+      return mapped.status;
+    }
+    res.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-store',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+    });
+    headersSent = true;
+    res.write('retry: 3000\n\n');
+    for (const frame of pending) res.write(frame);
+    const heartbeat = setInterval(() => {
+      res.write(': keepalive\n\n');
+    }, SSE_HEARTBEAT_MS);
+    let closed = false;
+    res.on('close', () => {
+      if (closed) return;
+      closed = true;
+      clearInterval(heartbeat);
+      detach?.();
+    });
+    deps.logger('sse_open', { channel_id: channelId });
+    return 200;
+  }
+
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const started = Date.now();
     const method = req.method ?? 'GET';
@@ -296,6 +372,25 @@ export function createRequestHandler(deps: HttpAppDeps) {
         sendJson(res, status, await deps.mcp.listChannels());
         return;
       }
+
+      const historyMatch = HISTORY_ROUTE.exec(path);
+      if (historyMatch) {
+        let channelId: string;
+        try {
+          channelId = decodeURIComponent(historyMatch[1]);
+        } catch {
+          status = 400;
+          sendError(res, status, 'INVALID_ARGUMENT', 'invalid channel id encoding');
+          return;
+        }
+        if (historyMatch[2] === 'events') {
+          status = handleEvents(req, res, channelId);
+        } else {
+          status = handleHistory(req, res, channelId);
+        }
+        return;
+      }
+
       if (path.startsWith('/api/channels/')) {
         let channelId: string;
         try {
