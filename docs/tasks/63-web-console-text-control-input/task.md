@@ -1,6 +1,6 @@
 # Task 63 — Web Console: send a message and explicit control (chat composer + mutation routes)
 
-> **Draft.** Non-claimable until Issue #61 is accepted and the Alignment Gate below is re-read by the Coordinator. In the Chat-first ordering (`docs/web-console-requirements.md §6`) this is MVP-2 and precedes #62 Chat History, which consumes the user-turn event defined here.
+> **Publication-aligned.** Issue #61 is accepted. This contract has been re-read against the accepted #61 implementation on main (`426d90322a7d2130078965ca302ea8c4078865e0`). In the Chat-first ordering (`docs/web-console-requirements.md §6`) this is MVP-2 and precedes #62 Chat History, which consumes the user-turn event defined here.
 
 ## Metadata
 
@@ -9,7 +9,7 @@ GitHub Issue: #63
 Task ID: 63-web-console-text-control-input
 Task kind: implementation + verification
 Parent: Issue #60 (Web Console Goal)
-Base commit: to be recorded at publication (must contain accepted #61 Candidate)
+Base commit: 426d90322a7d2130078965ca302ea8c4078865e0 (contains accepted #61)
 Candidate commit: n/a
 Session bootstrap: docs/tasks/63-web-console-text-control-input/prompt.md
 Preferred worker: coordinator-authorized-devin
@@ -60,7 +60,7 @@ mutation result | application meaning → "delivered" is transport only
 console/api/write     = Origin/Host check + one write_text call
 console/api/control   = Origin/Host check + one send_control call with the closed enum
 console/ui/composer   = chat-style message entry (Enter sends), no-submit option, Stop/Enter/Escape actions, confirmation, result display
-console/events        = user-turn / control event emitted per send (consumed by #62; this Task only defines and emits it)
+console/events        = in-process user-turn / control event bus emitted per send; #62 owns browser push/history transport
 ```
 
 ## Logic / Control Separation
@@ -80,7 +80,7 @@ Never inferred: whether the agent "accepted" the input.
 - `Origin`/`Host` verification on both mutation routes;
 - API routes `POST /api/channels/:id/text` and `POST /api/channels/:id/control`;
 - chat composer UI (bottom of the session page, ChatGPT-like): Enter sends with submit=true, Shift+Enter newline, explicit "send without Enter" option, size hint (1 MiB hard bound is the MCP's), Stop/Enter/Escape actions, INTERRUPT confirmation, result banner; no command-line styling;
-- user-turn / control event definition and emission (in-process event + WS broadcast) for #62;
+- user-turn / control event definition and emission through a small in-process event bus for #62; no WS/SSE endpoint is added in this Task — #62 owns browser push/history transport;
 - logging: operation, channel_id, result category, byte size — never the text;
 - tests: cross-origin denial, enum rejection of anything but the three values, write→read-back on real tmux, timeout mapping (mocked adapter).
 
@@ -129,7 +129,17 @@ BLOCK if the #61 bind guard/Origin helpers cannot be reused without weakening th
 
 ## Publication Dependency / Alignment Gate
 
-Re-read accepted #61 (bind guard/Origin helpers, adapter signatures, UI stack) and update this file before the Publication Gate.
+Resolved by Coordinator after #61 Final Acceptance. Accepted #61 provides:
+
+```text
+Origin/Host helper: console/src/http-app.ts::checkRequestAuthority / expectedAuthority
+MCP adapter:        console/src/mcp-client.ts::ConsoleMcp + StdioMcpClient
+UI stack:           plain HTML/CSS/JavaScript under console/public
+CI layout:          additive `console` job in .github/workflows/ci.yml
+Network behavior:   upgrades currently rejected; #63 keeps that behavior
+```
+
+#63 must reuse those helpers/signatures rather than creating parallel ingress or adapter layers. It may add POST mutation routes and an internal event-bus module, but it must not add WebSocket/SSE transport; browser push belongs to #62.
 
 ## Evidence Contract
 
