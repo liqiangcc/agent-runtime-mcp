@@ -35,6 +35,8 @@ manually switching between tmux sessions.
 ## 3. Placement decision (Coordinator, Issue #60 review)
 
 ```text
+Trust:      no application-level authentication; the Tailscale tailnet is the access boundary
+            (Console binds only to loopback or a Tailscale interface address)
 Location:   console/ directory in this repository, own package.json + lockfile
 Data path:  Console is an MCP client of the seven public tools for
             list / inspect / read / observe+wait / write_text / send_control / health
@@ -55,7 +57,7 @@ The Console must never:
 
 ```text
 browser (desktop / mobile)
-   ↓ HTTPS + authenticated session
+   ↓ HTTP over the Tailscale tailnet (tailnet membership/ACL = access control)
 Console server (console/)
    ├── MCP client adapter ──── stdio ───▶ agent-runtime-mcp (seven tools)  ──▶ existing panes
    ├── terminal attach adapter ── pty ──▶ tmux attach/pipe on the same socket ──▶ existing panes
@@ -68,7 +70,7 @@ Separation points:
 Console UI            | Console server
 Console server        | agent-runtime-mcp (MCP contract is the boundary)
 MCP data path         | direct-tmux adapters (attach, lifecycle)
-authentication/authz  | channel operation
+tailnet access control| Console (the Console does not authenticate users)
 observation (facts)   | interpretation (human)
 Console-owned history | MCP bounded read
 ```
@@ -80,7 +82,7 @@ agent-runtime-mcp        = bounded, safe Channel communication (unchanged)
 MCP client adapter       = translate Console requests into public MCP calls, nothing more
 terminal attach adapter  = raw interactive byte stream for one pane, no interpretation
 session lifecycle adapter= create/destroy tmux sessions on operator authority, never via MCP
-auth layer               = decide who may read / who may write or control / who may manage lifecycle
+bind guard               = refuse to listen on anything but loopback or a Tailscale address
 Console UI               = presentation and human-local state (position, bookmarks, search)
 ```
 
@@ -110,7 +112,7 @@ Degradation: truncation metadata from `read_channel` is surfaced, never hidden.
 
 ### WC-UC3 — Send text and explicit control
 
-Actor: authenticated human with write permission. Outcome: deliver ordinary text
+Actor: any human on the tailnet. Outcome: deliver ordinary text
 (`write_text`, optional `submit`) or exactly one of `ENTER | INTERRUPT | ESCAPE`
 (`send_control`) to one Channel.
 
@@ -119,16 +121,16 @@ Rules: the Console does not invent additional key grammar; confirmation is requi
 
 ### WC-UC4 — Full interactive terminal (Terminal View)
 
-Actor: authenticated human with terminal permission. Outcome: an xterm-style interactive
+Actor: any human on the tailnet. Outcome: an xterm-style interactive
 terminal attached to one existing pane, including arbitrary keys and resize.
 
 This path **does not** go through the MCP (the MCP has no raw-key capability by design). It is a
-separate adapter bound to the same tmux socket/scope, guarded by the same auth layer, and it
+separate adapter bound to the same tmux socket/scope, bound to the same address as the Console, and it
 must never be exposed as an MCP tool.
 
 ### WC-UC5 — Create / manage sessions
 
-Actor: authenticated operator with lifecycle permission. Outcome: create a new tmux session in
+Actor: any human on the tailnet (feature is operator-enabled, default off). Outcome: create a new tmux session in
 the configured socket (optionally with a cwd and a start command chosen from an
 operator-configured allowlist), or kill a session.
 
@@ -139,9 +141,9 @@ operator enables it explicitly.
 ## 6. MVP scope (ordered)
 
 ```text
-MVP-1  Console skeleton + auth gate + MCP client adapter + session list (WC-UC1)
+MVP-1  Console skeleton + Tailscale bind guard + MCP client adapter + session list (WC-UC1)
 MVP-2  Browse View: bounded read + observe/wait refresh + Console-owned bounded history (WC-UC2)
-MVP-3  Send text / explicit control with write authorization (WC-UC3)
+MVP-3  Send text / explicit control (WC-UC3)
 MVP-4  Terminal View: direct tmux attach adapter (WC-UC4)
 MVP-5  Session lifecycle adapter, operator-enabled (WC-UC5)
 MVP-6  End-to-end dogfood and operator deployment guide
@@ -153,7 +155,7 @@ Success proves: a human can list, browse, write, control, and attach to existing
 browser **without** the MCP product surface changing and **without** the Console interpreting
 agent semantics.
 
-Hard failure: unauthenticated write/control/lifecycle; Console-triggered endpoint recreation on
+Hard failure: listening on a non-loopback, non-Tailscale address; Console-triggered endpoint recreation on
 failure; Console reading outside the configured tmux scope; MCP tool surface growth.
 
 Safe degradation: backend unavailable → read-only "unavailable" state; cursor expiry → explicit
@@ -163,17 +165,25 @@ Never inferred: agent identity, task progress, "done/working/blocked" from termi
 
 ## 8. Security requirements
 
-- **Authentication is a hard precondition**, not an environment hope. The Console server binds to
-  loopback by default; any non-loopback bind requires a configured auth mode (reverse-proxy
-  trusted identity header from an allowlisted proxy, or a local bearer/session secret). Reads,
-  writes/controls, terminal attach, and lifecycle are **separately authorized** roles.
-- WebSocket/SSE endpoints verify `Origin`; state-changing HTTP uses CSRF protection.
+- **Access control is delegated to the Tailscale tailnet** (Coordinator decision, Issue #60).
+  The Console implements **no** user authentication or roles. This is consistent with
+  `docs/deployment.md §5`: the deployment layer (here: tailnet membership and Tailscale ACLs)
+  owns who can reach the process. Everyone who can reach the Console can read, write, control,
+  attach and — if enabled — manage sessions.
+- Consequently the **bind guard is the only Console-side control**: `CONSOLE_BIND` defaults to
+  `127.0.0.1`; the server also accepts an address that belongs to a local Tailscale interface
+  (`100.64.0.0/10` or the `fd7a:115c:a1e0::/48` range); it **refuses to start** on `0.0.0.0`,
+  `::`, or any other non-loopback address. There is no override flag.
+- WebSocket/SSE endpoints and state-changing HTTP verify `Origin`/`Host` against the bound
+  address so an unrelated website open in the same browser cannot drive the Console.
 - T5 (`docs/security.md`): terminal content may contain secrets. Console history is memory-only
   by default, bounded, and excluded from logs. Any persistence is opt-in with retention limits.
 - T1/T4: the Console never builds shell strings from user input; the lifecycle adapter executes
   `tmux` as executable + argv with an operator-configured command allowlist.
 - T8/S11: terminal output is untrusted data; it is rendered escaped, never executed or used as
   Console policy input.
+- Operators who need per-user permissions must implement them with Tailscale ACLs (or place the
+  Console behind their own authenticating proxy on the tailnet); that is outside this repository.
 - The Console's tmux scope (`TMUX_SOCKET_NAME|PATH`, `TMUX_ALLOWED_SESSIONS`) is the same
   configuration handed to the MCP; the attach/lifecycle adapters must enforce the same allowlist.
 - No root; the Console runs as the same ordinary account as the MCP.
@@ -218,7 +228,7 @@ tmux user option), never from parsing terminal output.
 | Jump between sessions | MVP navigation | WC-UC1 |
 | Send selected output to another agent session | Deferred (context transfer) — requires its own security review (T5 cross-session data flow) | §9 Future |
 | Session history indexing | Deferred; conflicts with memory-only default | §9 Future |
-| No writable terminals publicly without authentication | Strengthened into a hard precondition with roles and loopback default | §8 |
+| No writable terminals publicly without authentication | Console is never publicly reachable: it can only bind loopback or a Tailscale address; tailnet membership/ACL is the access control | §8 |
 
 ## 12. Repository and CI constraints for `console/`
 

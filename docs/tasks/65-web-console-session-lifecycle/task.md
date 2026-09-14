@@ -23,7 +23,7 @@ Requirement authority: `docs/web-console-requirements.md` (WC-UC5).
 
 ## Goal
 
-Allow an authenticated `lifecycle`-role operator to create a new tmux session (name, cwd, and a
+Allow a human on the tailnet (feature operator-enabled, default off) to create a new tmux session (name, cwd, and a
 start command chosen **only** from an operator-configured allowlist) or kill an existing session,
 through a separate `session lifecycle adapter` in `console/` that invokes `tmux` as executable +
 argv on the configured socket. Default off. Never via the MCP, never in `src/`.
@@ -31,14 +31,14 @@ argv on the configured socket. Default off. Never via the MCP, never in `src/`.
 ## Primary Use Case (WC-UC5)
 
 ```text
-Actor: operator with lifecycle role
+Actor: human on the tailnet
 Trigger: wants to start a new agent session (e.g. Codex in repo X) from the phone without SSH
 Preconditions: #61 Console; CONSOLE_LIFECYCLE_ENABLED=true; command allowlist configured
 Main flow:
   1. operator picks an allowlisted profile (label → argv template with only cwd/name parameters), enters a session name and cwd (validated against CONSOLE_ALLOWED_CWD_ROOTS)
   2. adapter runs tmux new-session -d -s <name> -c <cwd> <argv...> on the configured socket
   3. new session appears in the list via the MCP within one refresh
-  4. kill-session requires confirmation and the lifecycle role
+  4. kill-session requires explicit confirmation
 Success outcome: session created/killed; MCP inventory reflects it; no MCP change
 Failure outcome: name conflict, cwd outside roots, profile not allowlisted → refused before spawn; tmux error → surfaced
 Degraded outcome: feature disabled → routes 404; keeper session (docs/deployment.md §9) is never killable from the Console
@@ -50,7 +50,7 @@ Authoritative evidence: Actions integration test creating/killing a disposable s
 ```text
 lifecycle adapter | MCP                → the MCP still never creates/destroys endpoints
 allowlisted profiles | free commands   → no free-form command or shell; argv templates only
-lifecycle role | terminal/write roles  → separate grant
+lifecycle feature flag | rest of Console → operator-enabled; tailnet is the access boundary
 Console lifecycle | deployment keeper  → keeper session protected; Console never becomes the supervisor
 ```
 
@@ -58,14 +58,14 @@ Console lifecycle | deployment keeper  → keeper session protected; Console nev
 
 ```text
 console/lifecycle-adapter = validate + run new-session/kill-session as argv on the configured socket
-console/api/lifecycle     = authz + CSRF + confirmation token for kill
+console/api/lifecycle     = Origin/Host check + confirmation step for kill
 console/ui/lifecycle      = profile picker, name/cwd inputs, kill confirmation
 ```
 
 ## Logic / Control Separation
 
 Logic: validation (name charset, cwd roots, allowlist), argv building, error mapping.
-Control (operator): enabling the feature, defining profiles/roots, who holds the role, restart/supervision policy (stays outside the Console).
+Control (operator): enabling the feature, defining profiles/roots, tailnet membership/ACLs, restart/supervision policy (stays outside the Console).
 
 ## Success / Failure / Degradation
 
@@ -108,7 +108,7 @@ C7: audit log contains no command output or secrets. (unit)
 
 ```text
 Security-sensitive: yes (T1, T3, T4, S6 boundary preservation; new deployment-layer authority)
-Remote ingress affected: yes — lifecycle role, default-off flag
+Remote ingress affected: yes — default-off flag; tailnet is the access boundary
 ```
 
 ## Success Criteria
@@ -123,7 +123,7 @@ BLOCK if requirements would need the MCP to expose lifecycle or if allowlisting 
 
 ## Publication Dependency / Alignment Gate
 
-Re-read accepted #61 (roles, guard layout) and, if #64 is accepted first, align adapter module conventions. Coordinator must confirm the default profile set before publication.
+Re-read accepted #61 (bind guard/Origin helpers, guard layout) and, if #64 is accepted first, align adapter module conventions. Coordinator must confirm the default profile set before publication.
 
 ## Evidence Contract
 

@@ -16,14 +16,14 @@ Preferred worker: coordinator-authorized-devin
 Environment: env:devin
 Handoff profile: docs/tasks/handoffs/devin.md
 Required capabilities: github-read-write, repository-code-authoring, github-actions-evidence, local-node-tmux-execution
-Hard dependencies: Issue #61 Final Acceptance (console/ skeleton, auth roles, MCP client adapter)
+Hard dependencies: Issue #61 Final Acceptance (console/ skeleton, bind guard, MCP client adapter)
 ```
 
 Requirement authority: `docs/web-console-requirements.md` (WC-UC2).
 
 ## Goal
 
-Let an authenticated `read`-role human browse the recent output of one Channel in the browser as a
+Let a human on the tailnet browse the recent output of one Channel in the browser as a
 scrollable page that keeps its reading position when new output arrives, with client-side search
 and copy, using only `read_channel` + `get_channel(observe:true)` + `wait_channel_event` and a
 **Console-owned, finite, memory-only** history ring.
@@ -31,7 +31,7 @@ and copy, using only `read_channel` + `get_channel(observe:true)` + `wait_channe
 ## Primary Use Case (WC-UC2)
 
 ```text
-Actor: human with read role
+Actor: human on the tailnet
 Trigger: opens one session from the list to follow what an agent is printing
 Preconditions: #61 Console running; Channel available
 Main flow:
@@ -52,7 +52,7 @@ Authoritative evidence: Actions integration test against real tmux producing out
 MCP bounded read/observe | Console-owned history ring   → MCP never stores history; Console ring is finite and memory-only
 observation (output_idle) | interpretation               → Console shows "output paused", never "done"
 server ring | browser view state                         → reading position, bookmarks, search are browser-local
-read role | write/terminal roles                         → this Task adds no mutation path
+read path | mutation paths                               → this Task adds no mutation path
 ```
 
 ## Single Responsibilities
@@ -79,7 +79,7 @@ Never inferred: agent/task semantics.
 
 - history ring with configurable ceilings (defaults documented; e.g. 5,000 lines / 2 MiB per Channel, max N open Channels) and a visible drop marker;
 - observer loop respecting server bounds from `docs/mcp-contract.md §7` (idle_ms/timeout_ms ranges, 2 waiters per Channel) and stopping when no viewer remains;
-- WS/SSE push with `Origin` verification;
+- WS/SSE push with `Origin`/`Host` verification against the bound address;
 - browse UI: position keeping, "new output" marker, search, copy, browser-local bookmarks;
 - structured error surfaces for `CURSOR_*`, `OBSERVATION_GAP`, `CHANNEL_*`, `WAITER_LIMIT`;
 - tests: ring bounds, tail dedupe, loop cancellation, integration with output bursts on real tmux.
@@ -113,7 +113,7 @@ C6: no src/ diff; console static guard passes; runtime bundle excludes console/.
 
 ```text
 Security-sensitive: yes (T5 sensitive output in browser memory; T8 no semantic authority; T10 bounded loops)
-Remote ingress affected: read role only; no mutation path added
+Remote ingress affected: no mutation path added; tailnet is the access boundary
 ```
 
 ## Success Criteria
@@ -128,7 +128,7 @@ BLOCK if MCP wait bounds make live following impossible without product change �
 
 ## Publication Dependency / Alignment Gate
 
-Before `status:ready`, the Coordinator must re-read the accepted #61 Candidate and align: adapter API names, auth role hooks, UI stack chosen in #61, CI job layout. Update this file, then run the Publication Gate.
+Before `status:ready`, the Coordinator must re-read the accepted #61 Candidate and align: adapter API names, bind guard/Origin helpers, UI stack chosen in #61, CI job layout. Update this file, then run the Publication Gate.
 
 ## Evidence Contract
 

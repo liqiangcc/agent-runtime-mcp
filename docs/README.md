@@ -49,7 +49,7 @@ Tunnel/provider/network/TLS/DNS/firewall/workspace authorization are operator co
 
 ### Upper-layer components — not product capability
 
-`web-console-requirements.md` (Issue #60) specifies a human-facing Web Console that lives in `console/` as an **MCP client** of the seven tools. It is an upper-layer component: it may hold its own bounded history, auth roles and two explicitly separated direct-tmux adapters (terminal attach, operator-enabled session lifecycle), but it never changes the product surface or `src/`.
+`web-console-requirements.md` (Issue #60) specifies a human-facing Web Console that lives in `console/` as an **MCP client** of the seven tools. It is an upper-layer component: it may hold its own bounded history, delegates access control to the Tailscale tailnet, and has two explicitly separated direct-tmux adapters (terminal attach, operator-enabled session lifecycle), but it never changes the product surface or `src/`.
 
 ## C. Repository development workflow — not product protocol
 
