@@ -246,6 +246,9 @@ Never inferred: agent identity, task progress, "done/working/blocked" from termi
   configuration handed to the MCP; the attach/lifecycle adapters must enforce the same allowlist.
 - No root; the Console runs as the same ordinary account as the MCP.
 
+Operator runbook (bind to the host's Tailscale address, tailnet ACL examples, systemd user
+service, and the explicit no-authentication posture): `docs/web-console-deployment.md`.
+
 ## 9. Deferred to Future (explicitly out of MVP)
 
 ```text

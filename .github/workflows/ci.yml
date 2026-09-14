@@ -352,3 +352,49 @@ jobs:
             exit 1
           fi
           echo 'runtime-bundle-console-exclusion=PASS'
+
+  console-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install tmux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux
+          tmux -V
+      - name: Build MCP
+        run: |
+          npm ci
+          npm run build --silent
+      - name: Build Console
+        working-directory: console
+        run: |
+          npm ci
+          npm run build --silent
+      - name: Install e2e harness and Chromium
+        working-directory: tests/console-e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Record exact e2e candidate identity
+        shell: bash
+        run: |
+          echo "candidate=${GITHUB_SHA}"
+          node --version
+          npm --version
+          tmux -V
+      - name: Playwright + Chromium end-to-end dogfood (WC-UC1–UC3 + kill-server)
+        working-directory: tests/console-e2e
+        run: npx playwright test
+      - name: Upload e2e evidence (screenshots, traces, console stderr — no terminal payloads)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: console-e2e-${{ github.sha }}
+          path: |
+            tests/console-e2e/test-results/
+            tests/console-e2e/playwright-report/
+          if-no-files-found: warn
