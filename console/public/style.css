@@ -2,12 +2,20 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  height: 100%;
+}
+
 body {
   margin: 0;
   padding: 0.75rem;
   font-family: system-ui, -apple-system, sans-serif;
   background: #11151a;
   color: #e8e8e8;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .topbar {
@@ -15,7 +23,7 @@ body {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem 1rem;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.6rem;
 }
 
 h1 {
@@ -40,41 +48,60 @@ h1 {
   color: #fecaca;
 }
 
-.banner.checking {
-  background: #374151;
-  color: #d1d5db;
+.banner.err {
+  background: #7f1d1d;
+  color: #fecaca;
+  margin-bottom: 0.6rem;
 }
 
-.controls {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-left: auto;
-  font-size: 0.85rem;
-}
-
-.controls button,
-.controls select {
+.topbar button,
+.topbar select {
   font: inherit;
+  font-size: 0.85rem;
   padding: 0.3rem 0.6rem;
   border-radius: 0.35rem;
   border: 1px solid #4b5563;
   background: #1f2937;
   color: inherit;
+  cursor: pointer;
 }
 
-.controls .auto {
+.auto {
+  font-size: 0.85rem;
+  color: #9ca3af;
   display: flex;
   align-items: center;
   gap: 0.3rem;
 }
 
-.error {
-  color: #fca5a5;
-  font-size: 0.9rem;
+.layout {
+  display: flex;
+  gap: 0.75rem;
+  flex: 1;
+  min-height: 0;
 }
 
-.empty {
+/* ---------- session sidebar ---------- */
+
+.sidebar {
+  width: 19rem;
+  flex-shrink: 0;
+  overflow-y: auto;
+  border: 1px solid #2d3743;
+  border-radius: 0.5rem;
+  padding: 0.6rem;
+  background: #141922;
+}
+
+.sidebar-toggle {
+  display: none;
+}
+
+.sidebar-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: #9ca3af;
 }
 
@@ -82,55 +109,64 @@ h1 {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: grid;
-  gap: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .channel {
-  background: #1c232c;
   border: 1px solid #2d3743;
   border-radius: 0.5rem;
-  padding: 0.6rem 0.75rem;
+  padding: 0.5rem 0.6rem;
+  background: #171d25;
+  cursor: pointer;
+}
+
+.channel:hover {
+  border-color: #4b5563;
+}
+
+.channel.selected {
+  border-color: #60a5fa;
 }
 
 .channel-heading {
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 0.6rem;
-  margin-bottom: 0.4rem;
+  gap: 0.5rem;
+  margin-bottom: 0.3rem;
 }
 
 .channel-id {
   font-family: ui-monospace, monospace;
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   word-break: break-all;
 }
 
 .state {
-  margin-left: auto;
-  padding: 0.1rem 0.5rem;
-  border-radius: 0.35rem;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.72rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 1rem;
   background: #374151;
+  white-space: nowrap;
 }
 
-.state-available {
+.state-active {
   background: #14532d;
   color: #bbf7d0;
 }
 
-.state-unavailable {
-  background: #7f1d1d;
-  color: #fecaca;
+.state-idle {
+  background: #374151;
 }
 
 .channel-fields {
   display: grid;
-  grid-template-columns: minmax(6.5rem, auto) 1fr;
-  gap: 0.2rem 0.75rem;
+  grid-template-columns: auto 1fr;
+  gap: 0.15rem 0.6rem;
   margin: 0;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
 }
 
 .channel-fields dt {
@@ -143,18 +179,264 @@ h1 {
   font-family: ui-monospace, monospace;
 }
 
-.channel.selected {
-  border-color: #60a5fa;
+.empty {
+  color: #9ca3af;
+  font-size: 0.85rem;
 }
 
-.composer {
-  position: sticky;
-  bottom: 0;
-  margin-top: 1rem;
-  padding: 0.6rem 0.75rem;
-  background: #171d25;
+/* ---------- chat pane ---------- */
+
+.chat {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
   border: 1px solid #2d3743;
   border-radius: 0.5rem;
+  background: #141922;
+  overflow: hidden;
+}
+
+.chat-empty {
+  margin: auto;
+  color: #9ca3af;
+  font-size: 0.95rem;
+}
+
+.chat-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.chat-pane[hidden] {
+  display: none;
+}
+
+.chat-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid #2d3743;
+  background: #171d25;
+}
+
+.chat-title {
+  font-family: ui-monospace, monospace;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.chat-state {
+  font-size: 0.72rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 1rem;
+  background: #374151;
+}
+
+.chat-state.state-live {
+  background: #14532d;
+  color: #bbf7d0;
+}
+
+.chat-state.state-polling {
+  background: #78350f;
+  color: #fde68a;
+}
+
+.chat-state.state-needs_reobserve,
+.chat-state.state-error,
+.chat-state.state-closed {
+  background: #7f1d1d;
+  color: #fecaca;
+}
+
+.chat-toolbar input[type='search'] {
+  flex: 1;
+  min-width: 7rem;
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.28rem 0.55rem;
+  border-radius: 0.35rem;
+  border: 1px solid #4b5563;
+  background: #0d1117;
+  color: inherit;
+}
+
+.chat-toolbar button {
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.28rem 0.55rem;
+  border-radius: 0.35rem;
+  border: 1px solid #4b5563;
+  background: #1f2937;
+  color: inherit;
+  cursor: pointer;
+}
+
+.advanced-link {
+  font-size: 0.78rem;
+  color: #9ca3af;
+  text-decoration: none;
+}
+
+.advanced-link:hover {
+  color: #d1d5db;
+}
+
+.observe-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.8rem;
+  background: #3b2f14;
+  color: #fde68a;
+  border-bottom: 1px solid #2d3743;
+}
+
+.observe-banner button {
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 0.35rem;
+  border: 1px solid #a16207;
+  background: #78350f;
+  color: #fde68a;
+  cursor: pointer;
+}
+
+/* ---------- messages ---------- */
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.entry {
+  max-width: 92%;
+  border-radius: 0.6rem;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.85rem;
+}
+
+.entry-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.entry-meta {
+  font-size: 0.7rem;
+  color: #9ca3af;
+}
+
+.entry-actions {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.entry-actions button {
+  font: inherit;
+  font-size: 0.68rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 0.3rem;
+  border: 1px solid transparent;
+  background: none;
+  color: #9ca3af;
+  cursor: pointer;
+}
+
+.entry-actions button:hover {
+  color: #e8e8e8;
+}
+
+.entry-body {
+  margin: 0;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.entry.user {
+  align-self: flex-end;
+  background: #1d4ed8;
+  border: 1px solid #2563eb;
+}
+
+.entry.user .entry-meta,
+.entry.user .entry-actions button {
+  color: #bfdbfe;
+}
+
+.entry.output {
+  align-self: flex-start;
+  background: #1f2937;
+  border: 1px solid #2d3743;
+}
+
+.entry.bookmarked {
+  border-color: #eab308;
+}
+
+.entry.marker,
+.control-line {
+  align-self: center;
+  background: none;
+  border: none;
+  color: #6b7280;
+  font-size: 0.72rem;
+  font-style: italic;
+  padding: 0.1rem;
+}
+
+.raw-view {
+  flex: 1;
+  overflow: auto;
+  margin: 0;
+  padding: 0.7rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #0d1117;
+}
+
+.new-output {
+  position: absolute;
+  right: 1.4rem;
+  bottom: 7.2rem;
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 1rem;
+  border: 1px solid #2563eb;
+  background: #1d4ed8;
+  color: #dbeafe;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.chat-pane {
+  position: relative;
+}
+
+/* ---------- composer ---------- */
+
+.composer {
+  padding: 0.55rem 0.7rem;
+  background: #171d25;
+  border-top: 1px solid #2d3743;
 }
 
 .composer-target {
@@ -163,7 +445,7 @@ h1 {
   gap: 0.4rem;
   font-size: 0.8rem;
   color: #9ca3af;
-  margin-bottom: 0.4rem;
+  margin-bottom: 0.35rem;
 }
 
 .composer-target-name {
@@ -184,7 +466,7 @@ h1 {
   font-size: 0.8rem;
   padding: 0.3rem 0.5rem;
   border-radius: 0.35rem;
-  margin-bottom: 0.4rem;
+  margin-bottom: 0.35rem;
 }
 
 .send-result.ok {
@@ -262,4 +544,38 @@ h1 {
 
 .spacer {
   flex: 1;
+}
+
+/* ---------- phone-width ---------- */
+
+@media (max-width: 700px) {
+  body {
+    padding: 0.5rem;
+  }
+
+  .layout {
+    position: relative;
+  }
+
+  .sidebar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 85%;
+    max-width: 19rem;
+    z-index: 10;
+    transform: translateX(-105%);
+    transition: transform 0.15s ease;
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .sidebar-toggle {
+    display: inline-block;
+  }
+
+  .entry {
+    max-width: 98%;
+  }
 }

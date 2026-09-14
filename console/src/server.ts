@@ -5,6 +5,7 @@ import { ConsoleEventBus } from './events.js';
 import { createRequestHandler, expectedAuthority, rejectUpgrade } from './http-app.js';
 import { createLogger } from './logger.js';
 import { StdioMcpClient } from './mcp-client.js';
+import { HistoryHub } from './observer.js';
 
 function fatal(message: string): never {
   process.stderr.write(`agent-runtime-mcp-console: ${message}\n`);
@@ -36,7 +37,21 @@ const mcp = new StdioMcpClient({
 });
 
 const events = new ConsoleEventBus();
-const server = createServer(createRequestHandler({ mcp, events, expectedHost, publicDir: config.publicDir, logger }));
+const history = new HistoryHub({
+  mcp,
+  events,
+  logger,
+  options: {
+    idleMs: config.history.observeIdleMs,
+    timeoutMs: config.history.observeTimeoutMs,
+    pollMs: config.history.pollMs,
+    tailLines: config.history.tailLines,
+    tailBytes: config.history.tailBytes,
+    maxObservedChannels: config.history.maxObservedChannels,
+    ring: { maxLines: config.history.maxLines, maxBytes: config.history.maxBytes },
+  },
+});
+const server = createServer(createRequestHandler({ mcp, events, history, expectedHost, publicDir: config.publicDir, logger }));
 
 server.on('upgrade', (req, socket) => rejectUpgrade(req, socket, expectedHost, logger));
 
@@ -56,7 +71,9 @@ function shutdown(signal: string): void {
   const force = setTimeout(() => process.exit(0), 2_000);
   force.unref();
   server.close(() => {
-    void mcp.close().finally(() => process.exit(0));
+    void history.close().finally(() => {
+      void mcp.close().finally(() => process.exit(0));
+    });
   });
 }
 

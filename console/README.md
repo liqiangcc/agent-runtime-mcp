@@ -6,8 +6,10 @@ coupling to the product is the public MCP contract (`docs/mcp-contract.md`):
 the Console spawns `node <repo>/dist/src/server.js` over stdio and calls the
 public tools through the official `@modelcontextprotocol/client`.
 
-Current slice (Tasks #61 + #63): session list + backend health banner, plus a
-chat composer that sends `write_text` / `send_control` through the same adapter.
+Current slice (Tasks #61 + #63 + #62): chat-first conversation view — session
+list sidebar, backend health banner, a chat composer that sends `write_text` /
+`send_control` through the same adapter, and a Console-owned bounded history
+ring observed per Channel and pushed to the browser over read-only SSE.
 
 ```text
 browser ──HTTP──▶ Console server ──stdio MCP──▶ agent-runtime-mcp ──▶ existing tmux panes
@@ -25,9 +27,10 @@ browser ──HTTP──▶ Console server ──stdio MCP──▶ agent-runtim
   address (`100.64.0.0/10` or `fd7a:115c:a1e0::/48`) **currently assigned to a
   local network interface**. `0.0.0.0`, `::`, hostnames, and every other
   address exit non-zero. There is no override flag.
-- **Origin/Host check.** Every request must carry a `Host` equal to the bound
-  `address:port`; a present `Origin` must resolve to the same authority.
-  Upgrade requests are refused (no WebSocket endpoints exist yet).
+- **Origin/Host check.** Every request — including the read-only SSE history
+  stream — must carry a `Host` equal to the bound `address:port`; a present
+  `Origin` must resolve to the same authority. Upgrade requests are refused:
+  there is no WebSocket endpoint.
 - **No terminal payloads in logs.** Structured JSON logs on stderr contain only
   operation, path, status and timing fields; non-scalar fields collapse to a
   type tag. Request and response bodies are never logged.
@@ -39,7 +42,10 @@ browser ──HTTP──▶ Console server ──stdio MCP──▶ agent-runtim
   all — endpoint lifecycle stays outside; failure never creates, restarts or
   destroys endpoints. A CI guard rejects tmux lifecycle/attach/key-injection
   invocations anywhere under `console/`.
-- **No persistence.** Nothing is written to disk by the Console.
+- **No persistence.** Nothing is written to disk by the Console; conversation
+  history lives only in bounded in-process rings (below) and disappears on
+  restart. Terminal output is stored and rendered verbatim — no role, prompt,
+  or agent-protocol parsing.
 
 ## Configuration
 
@@ -50,6 +56,14 @@ browser ──HTTP──▶ Console server ──stdio MCP──▶ agent-runtim
 | `CONSOLE_MCP_ENTRY` | `<repo>/dist/src/server.js` | Path to the built agent-runtime-mcp stdio server entry point. |
 | `CONSOLE_MCP_REQUEST_TIMEOUT_MS` | `10000` | Per-call MCP request timeout (max 120000). |
 | `CONSOLE_PUBLIC_DIR` | `console/public` | Static UI directory. |
+| `CONSOLE_HISTORY_MAX_LINES` | `5000` | Per-Channel ring line ceiling (10–100000). |
+| `CONSOLE_HISTORY_MAX_BYTES` | `2097152` | Per-Channel ring byte ceiling (4 KiB–64 MiB). |
+| `CONSOLE_HISTORY_MAX_CHANNELS` | `4` | Max Channels observed at once (1–8; the MCP allows at most 8 observers). |
+| `CONSOLE_OBSERVE_IDLE_MS` | `1000` | `wait_channel_event` `idle_ms` (250–60000). |
+| `CONSOLE_OBSERVE_TIMEOUT_MS` | `15000` | `wait_channel_event` `timeout_ms` (100–60000). |
+| `CONSOLE_OBSERVE_POLL_MS` | `2500` | Fallback poll interval when observation is unavailable (500–60000). |
+| `CONSOLE_TAIL_LINES` | `400` | Lines requested per bounded `read_channel` tail (10–2000). |
+| `CONSOLE_TAIL_BYTES` | `262144` | Bytes requested per `read_channel` tail (4 KiB–**1 MiB**, the MCP's public per-read bound — independent of the ring's total byte ceiling). |
 | `TMUX_*` | — | Passed through to the MCP child unchanged (e.g. `TMUX_SOCKET_NAME`, `TMUX_SOCKET_PATH`, `TMUX_ALLOWED_SESSIONS`, `TMUX_TIMEOUT_MS`). The Console itself never interprets them. |
 
 Reconnect policy: when the MCP child is unreachable the adapter retries with
@@ -78,6 +92,14 @@ address instead.
   process is down.
 - `GET /api/channels` → MCP `list_channels` result.
 - `GET /api/channels/:id` → MCP `get_channel` result; `404 CHANNEL_NOT_FOUND`.
+- `GET /api/channels/:id/history` → `{channel_id, state, ring}` snapshot of the
+  Console-owned conversation ring (below); `?format=raw` returns the same ring
+  rendered as `text/plain` transcript.
+- `GET /api/channels/:id/events` → read-only Server-Sent Events stream
+  (`text/event-stream`). Opening it attaches the Channel's observe loop;
+  closing it detaches, and the last viewer leaving stops the loop. Sends a
+  `snapshot` event then `delta` events (`appended`/`updated` ring entries and
+  observation `state`). No request body, no mutations, no WebSocket upgrade.
 - `POST /api/channels/:id/text` → `{text: string, submit?: boolean (default true)}`
   forwarded verbatim to MCP `write_text`. Responses:
   `200 {transport_result:'delivered', result}`; `504 TIMEOUT` = **ambiguous —
@@ -111,13 +133,47 @@ control:   {type:'control',   channel_id, control, sent_at, transport_result}
 transport_result ∈ 'delivered' | 'ambiguous'
 ```
 
-The bus is process-local only — no WebSocket/SSE transport exists in this slice.
+The bus is process-local only; it feeds the history ring described next.
+
+### Conversation history ring
+
+Each Channel gets a bounded in-process `HistoryRing` (default 5,000 lines /
+2 MiB) owned by `HistoryHub` (`console/src/observer.ts`). Entries, in order:
+
+- `earlier_output` — the tail snapshot taken at first attach,
+- `output_block` — appended output with state `open → paused → closed`,
+- `user_turn` / `control` — the Console's own sends (from the bus above),
+- `drop_marker` — a leading marker recording how many entries/lines the ring
+  ceilings evicted.
+
+Attach ordering is observe-before-read: `get_channel(observe:true)` acquires
+the cursor **before** the initial bounded `read_channel` tail, and overlapping
+tails are deduped so a marker produced during attach lands exactly once — a
+gap is never intentionally created. The loop then waits on
+`wait_channel_event`:
+
+- `output_idle` → re-read the tail, dedupe into the current block, mark it
+  `paused` (it may resume on the next output);
+- `timeout` → heartbeat only: never a block boundary. A timeout carrying
+  `activity_observed` re-reads the tail into the still-open block so
+  continuous output stays visible; it does not pause or close;
+- `channel_closed` → observation state `closed`;
+- cursor errors (`CURSOR_EXPIRED`, `OBSERVATION_GAP`,
+  `CHANNEL_INSTANCE_CHANGED`) → explicit `needs_reobserve` state; the UI shows
+  a banner with a re-observe action instead of pretending continuity;
+- `WAITER_LIMIT` / `OBSERVATION_UNSUPPORTED` → bounded `read_channel` polling
+  fallback.
+
+The next `user_turn` closes the current block (`closed` is terminal); a
+`control` send records but does not close it. The last SSE viewer leaving
+stops the loop within one wait timeout; re-opening re-observes and dedupes
+rather than replaying.
 
 ## Development
 
 ```bash
 npm run typecheck   # tsc --noEmit
-npm test            # unit tests (bind guard, request authority, logger)
+npm test            # unit tests (bind guard, request authority, logger, history ring/observer, SSE)
 ```
 
 The real-tmux end-to-end test lives outside `console/` in the repository test
@@ -128,5 +184,5 @@ servers; it runs in the `console` CI job after both packages are built.
 
 `console/` imports nothing from `src/`; the runtime deployment bundle
 (`npm run package:runtime`) must not contain `console/` paths — both are
-asserted in CI. Browse View, text/control input, terminal attach and session
-lifecycle are later Tasks (#62–#65) and are intentionally absent here.
+asserted in CI. Terminal attach and session lifecycle are later Tasks
+(#64–#65) and are intentionally absent here.

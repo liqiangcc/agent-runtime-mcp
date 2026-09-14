@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
+import { request as httpRequest } from 'node:http';
 import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -155,7 +156,7 @@ test(
     const rootRes = await fetch(`http://${authority}/`);
     assert.equal(rootRes.status, 200);
     const html = await rootRes.text();
-    assert.match(html, /Channels/);
+    assert.match(html, /Sessions/);
 
     // C3: after the tmux server dies, health flips to unavailable and the
     // Console never recreates endpoints.
@@ -287,5 +288,184 @@ test(
     const appJs = await (await fetch(`http://${authority}/app.js`)).text();
     assert.match(appJs, /confirm\(/);
     assert.match(appJs, /INTERRUPT/);
+  },
+);
+
+test(
+  'console chat history observes a real tmux pane (attach dedupe, block rules, viewer lifecycle)',
+  { timeout: 120_000 },
+  async (t) => {
+    const socketName = `console-hist-${process.pid}-${Date.now()}`;
+    const sessionName = `conit-hist-${process.pid}`;
+    const port = 52_000 + (process.pid % 8_000);
+    const authority = `127.0.0.1:${port}`;
+    const consoleEnv: NodeJS.ProcessEnv = {
+      CONSOLE_BIND: '127.0.0.1',
+      CONSOLE_PORT: String(port),
+      CONSOLE_MCP_ENTRY: mcpEntry,
+      CONSOLE_OBSERVE_IDLE_MS: '400',
+      CONSOLE_OBSERVE_TIMEOUT_MS: '2500',
+      CONSOLE_OBSERVE_POLL_MS: '800',
+      CONSOLE_TAIL_LINES: '200',
+      CONSOLE_TAIL_BYTES: '65536',
+      TMUX_SOCKET_NAME: socketName,
+      TMUX_ALLOWED_SESSIONS: sessionName,
+    };
+
+    await tmux(socketName, 'new-session', '-d', '-s', sessionName);
+    await tmux(socketName, 'send-keys', '-t', sessionName, '-l', 'exec bash --noprofile --norc');
+    await tmux(socketName, 'send-keys', '-t', sessionName, 'Enter');
+    await waitFor(
+      async () => (await tmux(socketName, 'list-panes', '-t', sessionName, '-F', '#{pane_current_command}')).trim() === 'bash',
+    );
+    await tmux(socketName, 'send-keys', '-t', sessionName, '-l', 'stty -echo');
+    await tmux(socketName, 'send-keys', '-t', sessionName, 'Enter');
+
+    const { child: consoleChild, stderr: consoleStderr } = spawnConsole(consoleEnv);
+    t.after(() => {
+      consoleChild.kill('SIGTERM');
+    });
+    t.after(async () => {
+      await tmux(socketName, 'kill-server').catch(() => undefined);
+    });
+
+    await waitFor(async () => {
+      try {
+        const res = await fetch(`http://${authority}/api/channels`);
+        if (!res.ok) return false;
+        const body = await res.json();
+        return Array.isArray(body.channels) && body.channels.length === 1;
+      } catch {
+        return false;
+      }
+    });
+    assert.ok(consoleChild.exitCode === null, `console exited early: ${consoleStderr()}`);
+
+    const listBody = await (await fetch(`http://${authority}/api/channels`)).json();
+    const channelId = listBody.channels[0].channel_id as string;
+
+    async function history(): Promise<{ state: string; ring: { entries: any[] } }> {
+      const res = await fetch(`http://${authority}/api/channels/${encodeURIComponent(channelId)}/history`, { cache: 'no-store' });
+      assert.equal(res.status, 200);
+      return res.json();
+    }
+
+    async function waitHistory(pred: (h: { state: string; ring: { entries: any[] } }) => boolean, timeoutMs = 15_000): Promise<void> {
+      await waitFor(async () => pred(await history()), timeoutMs);
+    }
+
+    function outputText(h: { ring: { entries: any[] } }): string {
+      return h.ring.entries
+        .filter((e) => e.kind === 'earlier_output' || e.kind === 'output_block')
+        .map((e) => e.text)
+        .join('\n');
+    }
+
+    function openEvents(): { close: () => void } {
+      const req = httpRequest(
+        { host: '127.0.0.1', port, path: `/api/channels/${encodeURIComponent(channelId)}/events`, method: 'GET', headers: { host: authority } },
+        (res) => {
+          res.resume();
+        },
+      );
+      req.end();
+      return { close: () => req.destroy() };
+    }
+
+    async function post(route: string, body: unknown): Promise<number> {
+      const res = await fetch(`http://${authority}/api/channels/${encodeURIComponent(channelId)}/${route}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      await res.text();
+      return res.status;
+    }
+
+    // ---- C2: attach while output is flowing; every marker lands exactly once ----
+    await tmux(
+      socketName,
+      'send-keys',
+      '-t',
+      sessionName,
+      '-l',
+      'for i in 1 2 3 4 5 6 7 8 9 10; do printf "ATTACH_%s\\n" "$i"; sleep 0.2; done',
+    );
+    await tmux(socketName, 'send-keys', '-t', sessionName, 'Enter');
+
+    const stream = openEvents();
+    t.after(() => stream.close());
+
+    await waitHistory((h) => h.state === 'live');
+    await waitHistory((h) => {
+      const text = outputText(h);
+      return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].every((i) => text.includes(`ATTACH_${i}`));
+    }, 20_000);
+
+    const seen = outputText(await history());
+    for (let i = 1; i <= 10; i += 1) {
+      const count = seen.match(new RegExp(`ATTACH_${i}(?![0-9])`, 'g'))?.length ?? 0;
+      assert.equal(count, 1, `ATTACH_${i} must appear exactly once (dedupe, no gap) — got ${count}`);
+    }
+    const kinds = (await history()).ring.entries.map((e) => e.kind);
+    assert.ok(kinds.includes('earlier_output'), 'pre-attach output forms the earlier-output block');
+
+    // ---- C3: send -> user turn -> output block -> paused; timeout is not a boundary ----
+    assert.equal(await post('text', { text: "printf 'C62_TURN1_OUT\\n'", submit: true }), 200);
+    await waitHistory((h) => h.ring.entries.some((e) => e.kind === 'user_turn' && e.text.includes('C62_TURN1_OUT')));
+    await waitHistory((h) =>
+      h.ring.entries.some((e) => e.kind === 'output_block' && e.text.includes('C62_TURN1_OUT')),
+    );
+    await waitHistory((h) =>
+      h.ring.entries.some((e) => e.kind === 'output_block' && e.text.includes('C62_TURN1_OUT') && e.state === 'paused'),
+    );
+
+    // >2 observe timeouts pass: a wait timeout alone must not close the block.
+    await new Promise((resolve) => setTimeout(resolve, 5_200));
+    const mid = await history();
+    const block1 = mid.ring.entries.find((e) => e.kind === 'output_block' && e.text.includes('C62_TURN1_OUT'));
+    assert.ok(block1 && block1.state !== 'closed', 'wait timeout must not close an output block');
+
+    assert.equal(await post('text', { text: "printf 'C62_TURN2_OUT\\n'", submit: true }), 200);
+    await waitHistory((h) => {
+      const blocks = h.ring.entries.filter((e) => e.kind === 'output_block');
+      const b1 = blocks.find((e) => e.text.includes('C62_TURN1_OUT'));
+      const b2 = blocks.find((e) => e.text.includes('C62_TURN2_OUT'));
+      return b1?.state === 'closed' && b2 !== undefined;
+    });
+    const afterSecond = await history();
+    const turns = afterSecond.ring.entries.filter((e) => e.kind === 'user_turn');
+    assert.equal(turns.length, 2, 'each Console send is one user turn');
+    await waitHistory((h) =>
+      h.ring.entries.some((e) => e.kind === 'output_block' && e.text.includes('C62_TURN2_OUT') && e.state === 'paused'),
+    );
+
+    // UI evidence: served composer/page wire SSE + paused label + raw toggle.
+    const appJs = await (await fetch(`http://${authority}/app.js`)).text();
+    assert.match(appJs, /EventSource/);
+    assert.match(appJs, /output paused/);
+    const index = await (await fetch(`http://${authority}/`)).text();
+    assert.match(index, /raw-toggle|Raw transcript/);
+
+    // ---- C5: last viewer leaving stops the loop; re-attach resumes ----
+    stream.close();
+    await waitHistory((h) => h.state === 'idle', 10_000);
+
+    assert.equal(await post('text', { text: "printf 'C62_UNSEEN_OUT\\n'", submit: true }), 200);
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    const unseen = await history();
+    assert.ok(
+      unseen.ring.entries.some((e) => e.kind === 'user_turn' && e.text.includes('C62_UNSEEN_OUT')),
+      'the Console still records its own send while unobserved',
+    );
+    assert.ok(
+      !outputText(unseen).includes('C62_UNSEEN_OUT'),
+      'no output reads happen after the last viewer leaves',
+    );
+
+    const stream2 = openEvents();
+    t.after(() => stream2.close());
+    await waitHistory((h) => h.state === 'live');
+    await waitHistory((h) => outputText(h).includes('C62_UNSEEN_OUT'), 15_000);
   },
 );
