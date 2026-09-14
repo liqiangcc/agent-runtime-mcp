@@ -153,7 +153,7 @@ export class StdioMcpClient implements ConsoleMcp {
       result = await client.callTool({ name, arguments: args }, { timeout: timeoutMs });
     } catch (error) {
       if (error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout) {
-        throw new McpToolError('TIMEOUT', `${name} request timed out after ${timeoutMs}ms; the mutation may have been delivered`);
+        throw new McpToolError('TIMEOUT', `${name} request timed out after ${timeoutMs}ms`);
       }
       if (!this.client) {
         throw new McpUnavailableError(`agent-runtime-mcp connection lost during ${name}`);

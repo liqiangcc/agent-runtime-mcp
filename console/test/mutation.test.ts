@@ -191,7 +191,9 @@ test('C6: adapter TIMEOUT surfaces as ambiguous with exactly one adapter call', 
   assert.equal(res.status, 504);
   const body = await res.json();
   assert.equal(body.error.code, 'TIMEOUT');
-  assert.match(body.error.message, /ambiguous/i);
+  // Ambiguity wording is produced solely by the mutation route; the generic
+  // adapter TIMEOUT error stays mechanically neutral.
+  assert.equal(body.error.message, 'ambiguous: the text may have been delivered');
   assert.equal(mcp.calls.length, 1, 'no automatic retry after ambiguous timeout');
 });
 
