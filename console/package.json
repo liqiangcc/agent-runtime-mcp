@@ -1,0 +1,23 @@
+{
+  "name": "agent-runtime-mcp-console",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Upper-layer Web Console for agent-runtime-mcp. Not part of the seven-tool MCP product; consumes only the public MCP contract.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build --silent && node --test dist/test/*.test.js",
+    "start": "node dist/src/server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "2.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

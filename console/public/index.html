@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agent-runtime console</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>Channels</h1>
+  <div id="health" class="banner checking">checking backend…</div>
+  <div class="controls">
+    <button id="refresh" type="button">Refresh</button>
+    <label class="auto">
+      <input type="checkbox" id="auto" checked>
+      auto refresh
+    </label>
+    <select id="interval" aria-label="refresh interval">
+      <option value="5000">5s</option>
+      <option value="10000" selected>10s</option>
+      <option value="30000">30s</option>
+    </select>
+  </div>
+</header>
+<main>
+  <p id="error" class="error" hidden></p>
+  <p id="empty" class="empty" hidden>No channels in scope.</p>
+  <ul id="channels" class="channel-list"></ul>
+</main>
+<script src="/app.js" defer></script>
+</body>
+</html>
