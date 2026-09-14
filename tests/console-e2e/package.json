@@ -1,0 +1,13 @@
+{
+  "name": "agent-runtime-mcp-console-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Playwright + Chromium end-to-end dogfood for the Web Console. Test/CI tooling only — never imported by the Console runtime and excluded from the runtime deployment bundle.",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}
