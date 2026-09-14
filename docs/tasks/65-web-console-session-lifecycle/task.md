@@ -1,6 +1,6 @@
 # Task 65 — Web Console: operator-enabled tmux session lifecycle adapter
 
-> **Draft.** Non-claimable until Issue #61 is accepted and the Alignment Gate below is re-read by the Coordinator. Lifecycle authority is a deployment-layer concern (`docs/deployment.md §9`); this Task must not move it toward the MCP.
+> **Published for execution.** Alignment Gate re-run by the Coordinator on canonical main `e3e8e28d966afec9e0430718cc2827dcadbd247a`. Lifecycle authority is a deployment-layer concern (`docs/deployment.md §9`); this Task must not move it toward the MCP.
 
 ## Metadata
 
@@ -9,14 +9,14 @@ GitHub Issue: #65
 Task ID: 65-web-console-session-lifecycle
 Task kind: implementation + verification
 Parent: Issue #60 (Web Console Goal)
-Base commit: to be recorded at publication (must contain accepted #61 Candidate)
+Base commit: e3e8e28d966afec9e0430718cc2827dcadbd247a
 Candidate commit: n/a
 Session bootstrap: docs/tasks/65-web-console-session-lifecycle/prompt.md
 Preferred worker: coordinator-authorized-devin
 Environment: env:devin
 Handoff profile: docs/tasks/handoffs/devin.md
 Required capabilities: github-read-write, repository-code-authoring, github-actions-evidence, local-node-tmux-execution
-Hard dependencies: Issue #61 Final Acceptance
+Hard dependencies: Issue #61 Final Acceptance (satisfied)
 ```
 
 Requirement authority: `docs/web-console-requirements.md` (WC-UC5).
@@ -123,7 +123,9 @@ BLOCK if requirements would need the MCP to expose lifecycle or if allowlisting 
 
 ## Publication Dependency / Alignment Gate
 
-Re-read accepted #61 (bind guard/Origin helpers, guard layout) and, if #64 is accepted first, align adapter module conventions. Coordinator must confirm the default profile set before publication.
+Re-read accepted #61 (bind guard/Origin helpers, guard layout) and, if #64 is accepted first, align adapter module conventions.
+
+Coordinator publication decision (frozen): **the repository default lifecycle profile set is EMPTY** — `CONSOLE_LIFECYCLE_PROFILES` must be explicitly configured by the operator; enabling the lifecycle feature with no profiles configured exposes no start command at all.
 
 ## Evidence Contract
 
