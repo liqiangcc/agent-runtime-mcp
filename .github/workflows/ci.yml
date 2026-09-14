@@ -299,3 +299,56 @@ jobs:
             artifacts/${{ env.ARCHIVE_NAME }}
             artifacts/${{ env.CHECKSUM_NAME }}
           if-no-files-found: error
+
+  console:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install tmux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux
+          tmux -V
+      - name: Static Console boundary guard
+        shell: bash
+        run: |
+          if git grep -n -E 'new-session|kill-session|attach-session|pipe-pane|send-keys|shell:[[:space:]]*true' -- console; then
+            echo 'Console boundary violation detected under console/' >&2
+            exit 1
+          fi
+          echo 'console-static-guard=PASS'
+      - name: Install console dependencies
+        working-directory: console
+        run: npm ci
+      - name: Console typecheck
+        working-directory: console
+        run: npm run typecheck
+      - name: Console unit tests
+        working-directory: console
+        run: npm test
+      - name: Install repository dependencies and build MCP plus test harness
+        run: |
+          npm ci
+          npm run build --silent
+      - name: Record exact console candidate identity
+        shell: bash
+        run: |
+          echo "candidate=${GITHUB_SHA}"
+          node --version
+          npm --version
+          tmux -V
+      - name: Console integration against real tmux and built MCP
+        run: node --test dist/tests/console/*.test.js
+      - name: Assert runtime bundle excludes console/
+        shell: bash
+        run: |
+          npm run package:runtime
+          archive="$(ls artifacts/agent-runtime-mcp-v*.tar.gz | head -1)"
+          if tar -tzf "$archive" | grep -n 'console'; then
+            echo 'console/ leaked into the runtime bundle' >&2
+            exit 1
+          fi
+          echo 'runtime-bundle-console-exclusion=PASS'
