@@ -161,6 +161,9 @@ test('diffTail dedupes overlapping tails and never invents a gap', () => {
   // inserts before them — blanks must not anchor or be re-appended.
   assert.deepEqual(diffTail('p\nout1\n\n\n', 'p\nout1\nout2\n\n'), { appended: 'out2', overlapped: 2 });
   assert.deepEqual(diffTail('p\nout1\n\n\n', 'p\nout1\n\n\n'), { appended: '', overlapped: 1 });
+  // Insertion before a same-count blank suffix (a top line scrolled out):
+  // the inserted line is still detected exactly once.
+  assert.deepEqual(diffTail('p\no1\n\n\n', 'o1\nN\n\n\n'), { appended: 'N', overlapped: 1 });
   // Uncertainty surfaces more text, never a claimed gap: a wholly rewritten
   // pane appends the full new tail.
   assert.deepEqual(diffTail('a\nb\nc', 'x\ny\nz'), { appended: 'x\ny\nz', overlapped: 0 });
