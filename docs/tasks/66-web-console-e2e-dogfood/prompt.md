@@ -16,7 +16,7 @@ Environment: env:devin
 Handoff profile: docs/tasks/handoffs/devin.md
 Reviewer: Coordinator
 Verification Runner: GitHub Actions (exact Candidate SHA)
-Upstream dependencies: #61, #62, #63, #64 Final Acceptance (#65 per Coordinator decision)
+Upstream dependencies: #61, #63, #62 Final Acceptance (primary loop); #64/#65 per Coordinator decision
 ```
 
 ## Start Protocol
@@ -31,6 +31,7 @@ Upstream dependencies: #61, #62, #63, #64 Final Acceptance (#65 per Coordinator 
 ## Key constraints
 
 - Never modify `src/`, the seven-tool MCP surface, or existing CI guards.
+- Chat-first positioning applies (`docs/web-console-requirements.md §2`): the conversation view is the default; Terminal View is an advanced debugging/recovery entry and not the acceptance path.
 - Console-specific guards, the Tailscale bind guard (no Console-side authentication) and no-payload logging from #61 remain in force.
 
 ## Completion

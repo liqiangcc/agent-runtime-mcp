@@ -1,10 +1,10 @@
-# Session Bootstrap — Issue #62 Web Console Browse View
+# Session Bootstrap — Issue #62 Web Console Chat History (conversation-style view)
 
 You are the **coordinator-authorized Devin executor** for `liqiangcc/agent-runtime-mcp` Issue #62.
 
 This file is bootstrap/navigation only. The frozen Contract is:
 
-`docs/tasks/62-web-console-browse-view/task.md`
+`docs/tasks/62-web-console-chat-history/task.md`
 
 ## Execution Context
 
@@ -16,7 +16,7 @@ Environment: env:devin
 Handoff profile: docs/tasks/handoffs/devin.md
 Reviewer: Coordinator
 Verification Runner: GitHub Actions (exact Candidate SHA)
-Upstream dependencies: #61 Final Acceptance
+Upstream dependencies: #61 and #63 Final Acceptance
 ```
 
 ## Start Protocol
@@ -31,6 +31,7 @@ Upstream dependencies: #61 Final Acceptance
 ## Key constraints
 
 - Never modify `src/`, the seven-tool MCP surface, or existing CI guards.
+- Chat-first: the conversation view is the default page; user turns are only the Console's own sends; never parse terminal output into roles or detect prompts.
 - Console-specific guards, the Tailscale bind guard (no Console-side authentication) and no-payload logging from #61 remain in force.
 
 ## Completion

@@ -31,6 +31,7 @@ Upstream dependencies: #61 Final Acceptance
 ## Key constraints
 
 - Never modify `src/`, the seven-tool MCP surface, or existing CI guards.
+- Chat-first positioning applies (`docs/web-console-requirements.md §2`): the conversation view is the default; Terminal View is an advanced debugging/recovery entry and not the acceptance path.
 - Console-specific guards, the Tailscale bind guard (no Console-side authentication) and no-payload logging from #61 remain in force.
 
 ## Completion
