@@ -38,8 +38,9 @@ Trigger: opens an agent session to see what has happened and continue the conver
 Preconditions: #61 Console running; #63 composer/send routes present; Channel available
 Main flow:
   1. browser opens the conversation page and the Console creates/joins that Channel's bounded history manager;
-     bounded read_channel snapshot becomes one "earlier output" block, get_channel(observe:true) starts the observe loop,
-     and browser receives the current ring through the history snapshot/SSE surface
+     get_channel(observe:true) establishes the observation cursor FIRST, then bounded read_channel becomes the
+     initial "earlier output" block. This observe-before-read ordering avoids an attach gap; any overlap is deduped.
+     Browser receives the current ring through the history snapshot/SSE surface
   2. human types a message in the composer (#63); accepted #63 emits exactly one process-local
      user-turn event {type:'user-turn', channel_id, text, submit, sent_at, transport_result}, which the history manager records and renders immediately
   3. the observe loop waits (wait_channel_event, finite idle/timeout); on activity it re-reads the bounded
@@ -68,7 +69,7 @@ chat view | Terminal View (#64)                 → Terminal is an "Advanced" en
 
 ```text
 console/history-ring   = per-Channel finite ring of {user_turn | output_block} entries with line/byte ceilings and drop marker
-console/observer-loop  = one observe/wait loop per open Channel; closes/open output blocks on idle/next-turn; stops when no viewer remains
+console/observer-loop  = one observe/wait loop per open Channel; observe cursor is acquired before initial tail read; closes/opens output blocks on idle/next-turn; stops when no viewer remains
 console/ui/chat        = conversation rendering (escaped, markdown-safe), live append, position keeping, search, copy, raw toggle
 console/api/history    = bounded JSON snapshot of the server-owned ring
 console/api/events     = same-origin SSE stream for read-only history/output updates; no WebSocket upgrade
@@ -77,7 +78,7 @@ console/api/write (#63)= emits the accepted process-local user-turn/control even
 
 ## Logic / Control Separation
 
-Logic: ring bounds, tail dedupe against the previous snapshot, block boundary rules, cursor handling, structured error mapping.
+Logic: ring bounds, tail dedupe against the previous snapshot, observe-before-read attach ordering, block boundary rules, cursor handling, structured error mapping.
 Control (human/operator): which session to open, when to send, whether to open Raw/Terminal, ring ceilings, persistence (off; out of scope).
 
 ## Success / Failure / Degradation
@@ -90,12 +91,13 @@ Never inferred: agent identity, task state, "done".
 ## In Scope
 
 - ring entry model `{kind: user_turn|output_block|earlier_output, ...}` with configurable finite ceilings (documented defaults: 5,000 lines / 2 MiB per Channel, max 4 actively observed Channels so backend observer capacity retains headroom) and a visible drop marker;
+- observe-before-read attach/resync ordering: establish an observation cursor first, then read the bounded tail; dedupe any overlap instead of risking a gap;
 - block boundary rules exactly as in WC-UC2 (idle/next-turn), including the "earlier output" block for pre-attach content; a wait timeout alone does not close a block;
 - observer loop respecting `docs/mcp-contract.md §7` bounds (idle_ms/timeout_ms ranges, 2 waiters per Channel), cancelled when the last viewer leaves;
 - read-only SSE push at `GET /api/channels/:id/events` plus bounded snapshot at `GET /api/channels/:id/history`; both reuse #61 `checkRequestAuthority`; no WebSocket is added and the existing upgrade rejection stays unchanged;
 - chat UI: default view for a session; user turns visually distinct; output blocks monospace-in-bubble, HTML-escaped, safe markdown rendering (no raw HTML, no script); live append; position keeping with "new output" marker; search; copy; browser-local bookmarks; Raw transcript toggle; explicit "Advanced → Terminal" link placeholder (target implemented by #64);
 - structured error surfaces for `CURSOR_*`, `OBSERVATION_GAP`, `CHANNEL_*`, `WAITER_LIMIT`;
-- tests: ring bounds and drop marker; tail dedupe; block boundary rules (idle / next-turn; timeout is not a boundary); loop cancellation; Origin rejection; **no-parsing guard**: a deterministic transcript containing prompt-like and role-like strings (`> `, `$ `, `assistant:`, `user:`) is rendered as plain output, never as separate turns; integration on real tmux.
+- tests: ring bounds and drop marker; attach-gap/overlapping-tail dedupe; block boundary rules (idle / next-turn; timeout is not a boundary); loop cancellation; Origin rejection; **no-parsing guard**: a deterministic transcript containing prompt-like and role-like strings (`> `, `$ `, `assistant:`, `user:`) is rendered as plain output, never as separate turns; integration on real tmux.
 
 ## Out of Scope
 
@@ -107,6 +109,7 @@ Never inferred: agent identity, task state, "done".
 ## Architecture Invariants
 
 - The Console's only knowledge of "who said what" is its own `write_text` calls / accepted #63 user-turn events.
+- Observation cursor acquisition precedes initial/re-observe tail reads; overlaps are deduped, gaps are never intentionally created.
 - `read_channel` truncation metadata is surfaced, never hidden.
 - `output_idle` is displayed as a pause, never completion.
 - `wait_channel_event` timeout is not displayed as pause/completion and does not close a block.
@@ -118,7 +121,7 @@ Never inferred: agent identity, task state, "done".
 
 ```text
 C1: ring never exceeds configured line/byte ceilings under a synthetic 10× overflow; drop marker present. (unit)
-C2: overlapping read tails are deduped; no duplicated or lost lines for a deterministic tmux output script. (integration)
+C2: observe-before-read attach ordering plus overlapping tail reads produce no duplicate/lost lines for a deterministic tmux script, including a marker emitted during attach. (integration)
 C3: a send via accepted #63 appears immediately as a user turn; output observed afterwards appears as the following output block; the block closes on output_idle and a second send opens a new block; a wait timeout alone does not close it. (integration + UI)
 C4: prompt-like / role-like strings in output are rendered as plain output; no turn split occurs. (unit, no-parsing guard)
 C5: observer loop stops within one timeout after the last viewer disconnects; no new waits are started and the existing wait settles/cancels within the bound. (integration)
@@ -165,6 +168,7 @@ Accepted interfaces to reuse:
 Alignment decisions:
 - #62 owns browser push and history; use **SSE**, not WebSocket, because the path is server→browser only.
 - Keep #61's existing WebSocket upgrade rejection unchanged.
+- Acquire `get_channel(observe:true)` cursor before the initial/re-observe `read_channel`; dedupe overlap instead of allowing an attach gap.
 - `timeout` from `wait_channel_event` is not a block boundary and carries no completion/pause meaning; only `output_idle` or the next user turn closes an output block.
 - The server-owned ring is authoritative for the current Console process only; SSE reconnect/resync uses the bounded history snapshot and never persists to disk.
 
