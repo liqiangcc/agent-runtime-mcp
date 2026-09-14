@@ -1,6 +1,6 @@
 # Task 66 — Web Console end-to-end dogfood and operator deployment guide
 
-> **Draft.** Non-claimable until Issues #61–#64 are accepted (and #65 if the Coordinator includes lifecycle in the MVP acceptance). This is a verification Task; defects found are split into product/Console fix Tasks rather than repaired here (precedent: Issue #12 → #17).
+> **Draft.** Non-claimable until Issues #61, #63 and #62 are accepted (primary closed loop); #64 and #65 are included only if the Coordinator has accepted them — they are not on the default acceptance path. This is a verification Task; defects found are split into product/Console fix Tasks rather than repaired here (precedent: Issue #12 → #17).
 
 ## Metadata
 
@@ -16,15 +16,15 @@ Preferred worker: coordinator-authorized-devin
 Environment: env:devin
 Handoff profile: docs/tasks/handoffs/devin.md
 Required capabilities: github-read-write, repository-code-authoring, github-actions-evidence, local-node-tmux-execution, headless-browser-testing
-Hard dependencies: Final Acceptance of #61, #62, #63, #64; #65 optional per Coordinator decision
+Hard dependencies: Final Acceptance of #61, #63, #62 (primary loop); #64 and #65 optional per Coordinator decision
 ```
 
-Requirement authority: `docs/web-console-requirements.md` §6–§8.
+Requirement authority: `docs/web-console-requirements.md` §2, §6–§8.
 
 ## Goal
 
 Prove, through one headless-browser end-to-end flow in GitHub Actions against a real disposable
-tmux server, that the Console MVP satisfies WC-UC1–WC-UC4 (and WC-UC5 if included) while the MCP
+tmux server, that the Console MVP satisfies the **primary closed loop** (open browser → pick agent → conversation-style history → send message → new output block; WC-UC1–UC3) and, only if accepted, WC-UC4/WC-UC5 as secondary paths while the MCP
 product surface, bounds and boundary remain unchanged; and deliver an operator deployment guide
 (Tailscale address bind, tailnet ACL guidance, no Console-side auth) as documentation only.
 
@@ -36,12 +36,16 @@ Trigger: MVP slices accepted individually; need one combined proof and a deploym
 Main flow:
   1. harness prepares tmux socket with an allowed and a disallowed session, starts agent-runtime-mcp via the Console
   2. headless browser opens the Console (loopback in CI) → list shows only the allowed session and health=true
-  3. browse view follows a scripted output burst; position kept when scrolled up
-  4. write text with submit → visible in browse; INTERRUPT with confirmation → prompt returns
-  5. terminal view types a key sequence → effect visible; closing view leaves no tmux client
-  6. (optional) lifecycle create/kill via allowlisted profile
-  7. kill-server → health=false, no recreation, UI shows unavailable
-Success outcome: all steps pass; seven-tool discovery unchanged; boundary guards pass
+  3. PRIMARY LOOP: pick the session → default page is the conversation view with one "earlier output" block
+     → type a message in the composer and press Enter → user turn appears → scripted output follows → appears as
+     the next output block → "output paused" on idle; a second message opens a new block
+  4. no-parsing check: output containing prompt-like/role-like strings stays a single output block
+  5. Stop (INTERRUPT) with confirmation during a sleep → next output block shows the prompt returned (as output, not status)
+  6. Raw transcript toggle shows the same content unshaped; position kept when scrolled up during a burst
+  7. (secondary, only if #64 accepted) Advanced → Terminal types a key sequence → effect visible; closing leaves no tmux client
+  8. (secondary, only if #65 accepted) lifecycle create/kill via allowlisted profile
+  9. kill-server → health=false, no recreation, UI shows unavailable
+Success outcome: steps 1–6 and 9 pass (primary acceptance); secondary steps pass if included; seven-tool discovery unchanged; boundary guards pass
 Failure outcome: any step fails → defect recorded and SPLIT into a fix Task; this Task is not the place to fix product code
 Authoritative evidence: exact-SHA Actions run of the e2e job + artifacts (screenshots, logs without payloads)
 ```
@@ -68,7 +72,7 @@ evidence | acceptance                     → Actions success is evidence; Coord
 ## Claims / Verification
 
 ```text
-C1: e2e flow steps 1–5 (and 6 if included) PASS in Actions on the exact Candidate SHA.
+C1: primary-loop steps 1–6 and 9 PASS in Actions on the exact Candidate SHA; secondary steps 7/8 PASS if included, otherwise recorded as NOT RUN with the Coordinator's decision.
 C2: after kill-server the Console shows unavailable and tmux list-sessions proves no recreation.
 C3: test:discovery still reports exactly seven tools; static-boundary and console guard pass; bundle excludes console/.
 C4: deployment guide reviewed against docs/web-console-requirements.md §8 and docs/deployment.md; no secrets or hostnames persisted.
@@ -85,6 +89,7 @@ Remote ingress affected: documentation only
 
 1. SC1: C1–C4 PASS with evidence.
 2. SC2: any defect is recorded with reproduction and split into a new Task; none patched silently.
+4. SC4: acceptance does not depend on Terminal View; the primary loop is proven chat-first.
 3. SC3: deployment guide published.
 
 ## Failure / Blocked Rules
@@ -93,7 +98,7 @@ BLOCK if an upstream slice is not accepted or the CI runner cannot run a headles
 
 ## Publication Dependency / Alignment Gate
 
-Coordinator re-reads accepted #61–#64 (and #65 decision), fixes the exact step list and the headless browser tooling choice, then runs the Publication Gate.
+Coordinator re-reads accepted #61, #63, #62 (and #64/#65 decisions), fixes the exact step list and the headless browser tooling choice, then runs the Publication Gate.
 
 ## Evidence Contract
 

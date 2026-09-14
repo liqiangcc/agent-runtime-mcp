@@ -1,6 +1,6 @@
-# Task 63 — Web Console: send text and explicit control
+# Task 63 — Web Console: send a message and explicit control (chat composer + mutation routes)
 
-> **Draft.** Non-claimable until Issue #61 is accepted and the Alignment Gate below is re-read by the Coordinator.
+> **Draft.** Non-claimable until Issue #61 is accepted and the Alignment Gate below is re-read by the Coordinator. In the Chat-first ordering (`docs/web-console-requirements.md §6`) this is MVP-2 and precedes #62 Chat History, which consumes the user-turn event defined here.
 
 ## Metadata
 
@@ -16,17 +16,17 @@ Preferred worker: coordinator-authorized-devin
 Environment: env:devin
 Handoff profile: docs/tasks/handoffs/devin.md
 Required capabilities: github-read-write, repository-code-authoring, github-actions-evidence, local-node-tmux-execution
-Hard dependencies: Issue #61 Final Acceptance; #62 recommended but not required
+Hard dependencies: Issue #61 Final Acceptance. Downstream: #62 depends on this Task's user-turn event.
 ```
 
-Requirement authority: `docs/web-console-requirements.md` (WC-UC3).
+Requirement authority: `docs/web-console-requirements.md` §2 and WC-UC3.
 
 ## Goal
 
-Let a human on the tailnet deliver ordinary text (`write_text`, optional `submit`)
+Let a human on the tailnet, from a **chat composer**, deliver a message (`write_text`, `submit=true` by default; multi-line/no-submit mode available)
 or exactly one explicit control (`send_control`: `ENTER | INTERRUPT | ESCAPE`) to one Channel from
 the browser, with Origin/Host verification, confirmation for `INTERRUPT`, and honest handling of ambiguous
-mutation timeouts — no new key grammar, no retry.
+mutation timeouts — no new key grammar, no retry. Every send emits a **user-turn event** `{channel_id, text, submit, sent_at, transport_result}` that #62 records as conversation history; controls emit a control event.
 
 ## Primary Use Case (WC-UC3)
 
@@ -35,11 +35,11 @@ Actor: human on the tailnet
 Trigger: wants to answer an agent prompt or interrupt a running command
 Preconditions: #61 Console running; Channel available
 Main flow:
-  1. human types text in the composer (multi-line allowed), chooses submit or not, sends
+  1. human types a message in the chat composer (Enter sends with submit=true; Shift+Enter newline; a "send without Enter" option exists)
   2. Console verifies Origin/Host, forwards to write_text through the adapter unchanged
-  3. for controls, human presses ENTER / ESCAPE directly or INTERRUPT after confirmation
+  3. for controls, human uses the "Stop" (INTERRUPT, confirmation required), "Enter", "Escape" actions — presented as actions, not key chords
   4. Console shows mechanical result: delivered | rejected(INVALID_ARGUMENT…) | ambiguous timeout
-Success outcome: text/control reaches the pane exactly once; UI states "delivered (transport only)"
+Success outcome: text/control reaches the pane exactly once; UI states "delivered (transport only)"; a user-turn/control event is emitted
 Failure outcome: mismatched Origin/Host → 403; invalid Cc control chars → the MCP's INVALID_ARGUMENT shown verbatim; Channel missing → explicit error
 Degraded outcome: TIMEOUT after send → "ambiguous: may have been delivered" with no automatic retry; user decides
 Authoritative evidence: Actions integration test writing to a real tmux pane and reading back
@@ -59,7 +59,8 @@ mutation result | application meaning → "delivered" is transport only
 ```text
 console/api/write     = Origin/Host check + one write_text call
 console/api/control   = Origin/Host check + one send_control call with the closed enum
-console/ui/composer   = text entry, submit toggle, control buttons, confirmation, result display
+console/ui/composer   = chat-style message entry (Enter sends), no-submit option, Stop/Enter/Escape actions, confirmation, result display
+console/events        = user-turn / control event emitted per send (consumed by #62; this Task only defines and emits it)
 ```
 
 ## Logic / Control Separation
@@ -78,7 +79,8 @@ Never inferred: whether the agent "accepted" the input.
 
 - `Origin`/`Host` verification on both mutation routes;
 - API routes `POST /api/channels/:id/text` and `POST /api/channels/:id/control`;
-- composer UI with submit toggle, size indicator (1 MiB hard bound is the MCP's; Console shows a soft hint), control buttons, INTERRUPT confirmation, result banner;
+- chat composer UI (bottom of the session page, ChatGPT-like): Enter sends with submit=true, Shift+Enter newline, explicit "send without Enter" option, size hint (1 MiB hard bound is the MCP's), Stop/Enter/Escape actions, INTERRUPT confirmation, result banner; no command-line styling;
+- user-turn / control event definition and emission (in-process event + WS broadcast) for #62;
 - logging: operation, channel_id, result category, byte size — never the text;
 - tests: cross-origin denial, enum rejection of anything but the three values, write→read-back on real tmux, timeout mapping (mocked adapter).
 
@@ -105,6 +107,7 @@ C4: text with submit=true appears in the pane and read_channel shows the marker;
 C5: INTERRUPT after a sleep command returns the pane to prompt; UI required confirmation. (integration + UI test)
 C6: adapter TIMEOUT is surfaced as ambiguous and no second call is made. (unit with mocked adapter)
 C7: logs contain no text payload. (unit)
+C8: each successful or ambiguous send emits exactly one user-turn event carrying text/submit/sent_at/transport_result; a rejected send emits none. (unit)
 ```
 
 ## Security Review
@@ -116,9 +119,9 @@ Remote ingress affected: yes — tailnet is the access boundary; bind guard from
 
 ## Success Criteria
 
-1. SC1: C1–C7 PASS on the exact Candidate SHA in Actions.
+1. SC1: C1–C8 PASS on the exact Candidate SHA in Actions.
 2. SC2: no `src/` change; console static guard passes (no `send-keys` in console/).
-3. SC3: `console/README.md` documents the ambiguity rule and that anyone on the tailnet can write.
+3. SC3: `console/README.md` documents the ambiguity rule, the user-turn event shape, and that anyone on the tailnet can write.
 
 ## Failure / Blocked Rules
 

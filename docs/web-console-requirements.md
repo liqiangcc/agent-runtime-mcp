@@ -26,11 +26,37 @@ docs/deployment.md
 If anything in this document appears to conflict with those documents, the product documents
 win and this document must be corrected.
 
-## 2. Goal
+## 2. Goal and product positioning (Chat-first)
 
-Give a human one browser place to **discover, observe, and interact with** many already-existing
-tmux-backed terminal sessions (Devin, Codex, Claude Code, Gemini CLI, plain shells) instead of
-manually switching between tmux sessions.
+Give a human one browser place to **talk to** many already-existing tmux-backed agent sessions
+(Devin, Codex, Claude Code, Gemini CLI, plain shells) instead of manually switching between tmux
+sessions.
+
+Positioning decision (Coordinator, Issue #60, revision 2):
+
+```text
+Chat-first, not terminal-first.
+Default experience  = a ChatGPT-like conversation page per agent session
+tmux                = background runtime only; the default UI shows no command-line styling
+Terminal View       = advanced debugging / failure-recovery entry, hidden behind an explicit action
+```
+
+The Console is a **presentation / orchestration layer**. It presents mechanical Channel facts in a
+conversational shape; it does not understand the agent. Concretely:
+
+- a "user turn" is exactly a message the Console itself sent through `write_text`;
+- an "output block" is exactly the mechanically observed output that followed (bounded
+  `read_channel` snapshots delimited by `wait_channel_event` quiet or the next user turn);
+- the Console never segments terminal output into user/assistant/tool roles, never detects
+  prompts, and never parses Devin/Codex/Claude Code/Gemini protocols;
+- the raw transcript (unshaped terminal text) stays available behind a toggle.
+
+Primary closed loop that everything else serves:
+
+```text
+open browser → pick an agent session → see conversation-style history
+→ type a message → see the new output appear as the next block
+```
 
 ## 3. Placement decision (Coordinator, Issue #60 review)
 
@@ -43,7 +69,9 @@ Data path:  Console is an MCP client of the seven public tools for
 Direct tmux: only for two explicitly separated adapters that the MCP cannot and must not provide:
             (a) interactive terminal attach (Terminal View)
             (b) session creation/management (deployment-layer lifecycle)
-Semantics:  agent type / agent status / chat-turn rendering are deferred to Future (see §9)
+UX:         Chat-first (§2); Terminal View is an advanced debugging/recovery entry, not the default
+Semantics:  conversation shape is derived only from the Console's own sends + observed output;
+            agent type / agent status / role parsing are deferred to Future (see §9)
 ```
 
 The Console must never:
@@ -97,32 +125,55 @@ Actor: operator/human. Outcome: a list of Channels visible in the configured tmu
 Failure: MCP/backend unavailable → explicit "unavailable" banner; no auto-recovery.
 Degradation: missing fields display as unknown; nothing is inferred from terminal text.
 
-### WC-UC2 — Browse bounded output (Browse View)
+### WC-UC2 — Conversation-style history (Chat History)
 
-Actor: human. Outcome: read the recent output of one Channel as a scrollable page; keep the
-reading position when new output arrives; search and copy within what the browser holds.
+Actor: human. Outcome: open one agent session and see a ChatGPT-like page: the messages this
+Console sent (user turns, right/accent) interleaved with the mechanically observed output that
+followed each of them (output blocks, plain, monospace inside a bubble, markdown-safe escaped);
+new output appears as the next block; reading position is kept; search and copy work within
+what the browser holds. A **Raw transcript** toggle shows the same Console-owned buffer as
+unshaped terminal text.
+
+Conversation shape rules (the whole "chat" model):
+
+```text
+user turn    = one write_text call issued by this Console (text, timestamp, submit flag, transport result)
+output block = bounded read_channel tail observed after that turn, closed by wait_channel_event
+               output_idle / timeout or by the next user turn
+pre-history  = output that existed before the Console attached is one "earlier output" block
+```
+
+No prompt detection, no role inference, no protocol parsing. Output produced by someone typing
+directly in tmux appears as output, not as a user turn — the Console only knows what it sent.
 
 Data source: `read_channel` (bounded) plus `get_channel(observe:true)` / `wait_channel_event`
 for change notification. **History is Console-owned**: a finite in-memory ring per Channel with
-explicit byte/line ceilings. Persistence to disk is **off by default**; if enabled it is an
-operator decision with a documented retention limit (see §8 T5).
+explicit byte/line ceilings, holding both user turns and output blocks. Persistence to disk is
+**off by default**; if enabled it is an operator decision with a documented retention limit
+(see §8 T5).
 
 Failure: `CHANNEL_NOT_FOUND` / `CHANNEL_UNAVAILABLE` / `CURSOR_*` errors are shown as such.
-Degradation: truncation metadata from `read_channel` is surfaced, never hidden.
+Degradation: truncation metadata from `read_channel` is surfaced, never hidden; "output paused"
+is displayed for `output_idle`, never "done".
 
-### WC-UC3 — Send text and explicit control
+### WC-UC3 — Send a message and explicit control
 
-Actor: any human on the tailnet. Outcome: deliver ordinary text
-(`write_text`, optional `submit`) or exactly one of `ENTER | INTERRUPT | ESCAPE`
-(`send_control`) to one Channel.
+Actor: any human on the tailnet. Outcome: from the chat composer, deliver ordinary text
+(`write_text`, `submit=true` by default for a chat message; a multi-line/no-submit mode exists)
+or exactly one of `ENTER | INTERRUPT | ESCAPE` (`send_control`, presented as "Stop" / "Enter" /
+"Escape" actions, not as key chords) to one Channel. Each send is recorded as a user turn for
+WC-UC2.
 
 Rules: the Console does not invent additional key grammar; confirmation is required for
 `INTERRUPT`; a mutation timeout is displayed as ambiguous and is **never** auto-retried.
 
-### WC-UC4 — Full interactive terminal (Terminal View)
+### WC-UC4 — Terminal View (advanced debugging / recovery entry)
 
-Actor: any human on the tailnet. Outcome: an xterm-style interactive
-terminal attached to one existing pane, including arbitrary keys and resize.
+Actor: any human on the tailnet who needs to recover a stuck session or interact with a TUI
+that the chat composer cannot express. Outcome: an xterm-style interactive terminal attached to
+one existing pane, including arbitrary keys and resize. It is reached from an explicit
+"Advanced → Terminal" action, is **not** the default view, and is **not** part of the primary
+acceptance loop.
 
 This path **does not** go through the MCP (the MCP has no raw-key capability by design). It is a
 separate adapter bound to the same tmux socket/scope, bound to the same address as the Console, and it
@@ -141,19 +192,26 @@ operator enables it explicitly.
 ## 6. MVP scope (ordered)
 
 ```text
-MVP-1  Console skeleton + Tailscale bind guard + MCP client adapter + session list (WC-UC1)
-MVP-2  Browse View: bounded read + observe/wait refresh + Console-owned bounded history (WC-UC2)
-MVP-3  Send text / explicit control (WC-UC3)
-MVP-4  Terminal View: direct tmux attach adapter (WC-UC4)
-MVP-5  Session lifecycle adapter, operator-enabled (WC-UC5)
-MVP-6  End-to-end dogfood and operator deployment guide
+MVP-1  Console skeleton + Tailscale bind guard + MCP client adapter + session list (WC-UC1)   #61
+MVP-2  Send a message / explicit control: mutation routes + composer (WC-UC3)                   #63
+MVP-3  Chat History: conversation-style view over Console-owned bounded history + raw toggle    #62
+       (WC-UC2) — completes the primary closed loop
+MVP-4  Terminal View as advanced debugging/recovery entry (WC-UC4)                               #64
+MVP-5  Session lifecycle adapter, operator-enabled (WC-UC5)                                       #65
+MVP-6  End-to-end dogfood (primary loop first) and operator deployment guide                    #66
 ```
+
+Issue #61 was published before the Chat-first revision and is frozen while it executes; its
+deliverables (bind guard, MCP client adapter, session list) are unchanged by this revision. Its
+Contract text mentioning "Browse View"/"Chat View deferred" is historical and is superseded here
+for later Tasks only.
 
 ## 7. Success / Failure / Degradation (Console-wide)
 
-Success proves: a human can list, browse, write, control, and attach to existing sessions from a
-browser **without** the MCP product surface changing and **without** the Console interpreting
-agent semantics.
+Success proves the primary closed loop: open browser → pick an agent session → conversation-style
+history → type a message → the new output appears as the next block — from a browser **without**
+the MCP product surface changing and **without** the Console interpreting agent semantics.
+Terminal View is not on the acceptance path.
 
 Hard failure: listening on a non-loopback, non-Tailscale address; Console-triggered endpoint recreation on
 failure; Console reading outside the configured tmux scope; MCP tool surface growth.
@@ -191,7 +249,7 @@ Never inferred: agent identity, task progress, "done/working/blocked" from termi
 ## 9. Deferred to Future (explicitly out of MVP)
 
 ```text
-Chat View / ChatGPT-style turn rendering
+role/turn parsing of terminal output (user/assistant/tool segmentation, prompt detection)
 agent type / agent status columns
 context transfer between agents
 output annotations, agent comparison
@@ -217,13 +275,13 @@ tmux user option), never from parsing terminal output.
 | List tmux sessions; name, title, cwd | MVP, mechanical facts via MCP | WC-UC1 / #61 |
 | `repository` column | Derived only from `cwd` shown as-is (no git inspection in MVP) | WC-UC1 |
 | `agent type`, `status` | Deferred; would require operator-declared metadata | §9 Future |
-| Open an existing session | MVP | WC-UC2 / WC-UC4 |
+| Open an existing session | MVP, opens the conversation page | WC-UC2 |
 | Create session with cwd + command | Operator-enabled lifecycle adapter, argv allowlist only | WC-UC5 / #65 |
 | Stop/restart sessions | "Stop" = kill via lifecycle adapter with confirmation; "restart" is deployment supervision and is **not** a Console capability | WC-UC5 / `docs/deployment.md §9` |
-| Chat View (markdown, ChatGPT-like) | Deferred | §9 Future |
-| Browse View incl. infinite scrolling | MVP within the bounded Console-owned ring; "infinite" is bounded by the ring ceiling with a visible drop marker | WC-UC2 / #62 |
+| Chat View (markdown, ChatGPT-like) | **MVP default view** as Chat History: user turns = Console sends, output blocks = observed output; no role parsing; markdown is rendered escaped/safe | WC-UC2 / #62 |
+| Browse View incl. infinite scrolling | Folded into Chat History's Raw transcript toggle; bounded by the ring ceiling with a visible drop marker | WC-UC2 / #62 |
 | Search, copy, bookmarks, keep position | MVP, browser-local | WC-UC2 / #62 |
-| Terminal View, Ctrl-C/Escape, arbitrary keys | MVP via direct attach adapter (not MCP) | WC-UC4 / #64 |
+| Terminal View, Ctrl-C/Escape, arbitrary keys | Advanced debugging/recovery entry via direct attach adapter (not MCP); not the default view | WC-UC4 / #64 |
 | Send text; observe updates | MVP via `write_text` / observe+wait | WC-UC3 / #63, WC-UC2 / #62 |
 | Jump between sessions | MVP navigation | WC-UC1 |
 | Send selected output to another agent session | Deferred (context transfer) — requires its own security review (T5 cross-session data flow) | §9 Future |

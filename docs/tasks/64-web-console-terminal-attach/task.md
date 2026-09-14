@@ -1,6 +1,6 @@
-# Task 64 — Web Console Terminal View: direct tmux attach adapter outside the MCP
+# Task 64 — Web Console Terminal View (advanced debugging / recovery entry): direct tmux attach adapter outside the MCP
 
-> **Draft.** Non-claimable until Issue #61 is accepted and the Alignment Gate below is re-read by the Coordinator. This Task carries the highest security weight of the Console MVP.
+> **Draft.** Non-claimable until Issue #61 is accepted and the Alignment Gate below is re-read by the Coordinator. This Task carries the highest security weight of the Console MVP. Under the Chat-first positioning (`docs/web-console-requirements.md §2`) Terminal View is an **advanced debugging / failure-recovery entry**, not the default view and not on the primary acceptance path; the Coordinator may defer it after #62/#63.
 
 ## Metadata
 
@@ -19,11 +19,11 @@ Required capabilities: github-read-write, repository-code-authoring, github-acti
 Hard dependencies: Issue #61 Final Acceptance
 ```
 
-Requirement authority: `docs/web-console-requirements.md` (WC-UC4).
+Requirement authority: `docs/web-console-requirements.md` §2 and WC-UC4.
 
 ## Goal
 
-Provide a full interactive browser terminal for one **existing** pane through a separate
+Provide, behind an explicit "Advanced → Terminal" action on the session page, a full interactive browser terminal for one **existing** pane through a separate
 `terminal attach adapter` that speaks to tmux directly (pty + `tmux attach-session -t <target>`
 on the configured socket), guarded by `CONSOLE_TERMINAL_ENABLED`, enforcing the same tmux scope/allowlist as the MCP — and **never** exposing this
 capability through the MCP.
@@ -31,11 +31,11 @@ capability through the MCP.
 ## Primary Use Case (WC-UC4)
 
 ```text
-Actor: human on the tailnet
-Trigger: needs arbitrary keys (arrow keys, Ctrl-combos, TUI interaction) that write_text/send_control cannot express
+Actor: human on the tailnet debugging or recovering a stuck agent session
+Trigger: the chat composer cannot express what is needed (TUI interaction, arrow keys, Ctrl-combos, recovering a wedged program)
 Preconditions: #61 Console; pane exists in scope; node-pty (or equivalent) buildable on the host
 Main flow:
-  1. human opens Terminal View for a Channel; Console resolves channel_id → tmux pane target via get_channel backend_metadata.tmux (never from user-typed target grammar)
+  1. human chooses Advanced → Terminal on the session page (the chat view stays the default); Console resolves channel_id → tmux pane target via get_channel backend_metadata.tmux (never from user-typed target grammar)
   2. adapter spawns tmux attach in a pty sized to the browser terminal; bytes stream both ways over a WS with Origin/Host verification
   3. resize propagates; detaching closes the pty; leaving the page detaches
 Success outcome: interactive session identical to a local tmux attach, confined to the configured socket and allowlist
@@ -48,6 +48,7 @@ Authoritative evidence: Actions integration test typing into a disposable pane v
 
 ```text
 MCP data path | terminal attach adapter     → attach never goes through, or is exposed by, the MCP
+default chat view | Terminal View           → Terminal is an explicit advanced entry; chat flow never requires it
 attach feature flag | rest of Console         → operator-enabled; tailnet is the access boundary
 channel_id resolution | tmux target grammar → target derived from backend_metadata.tmux, never user input
 adapter module | rest of console/           → the only module allowed to spawn tmux attach; static guard enforces
@@ -92,6 +93,7 @@ Never inferred: application state from the byte stream.
 - Attach is confined to the configured socket and `TMUX_ALLOWED_SESSIONS`.
 - tmux invoked as executable + argv; no shell.
 - Feature default-off; tailnet is the access boundary.
+- Terminal View is never the default page and is not required for the primary closed loop.
 
 ## Claims / Verification
 
@@ -117,7 +119,7 @@ Remote ingress affected: yes — feature flag, bind guard from #61, Origin/Host 
 
 1. SC1: C1–C8 PASS on the exact Candidate SHA in Actions.
 2. SC2: no `src/` change; seven-tool surface unchanged.
-3. SC3: `console/README.md` documents the flag, cap, and that attach bypasses the MCP by design.
+3. SC3: `console/README.md` documents the flag, cap, that attach bypasses the MCP by design, and that Terminal View is an advanced debugging/recovery entry.
 
 ## Failure / Blocked Rules
 
