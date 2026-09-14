@@ -493,7 +493,7 @@ test('C8: SSE history stream rejects mismatched Origin/Host; authority checks un
   sse.close();
 });
 
-test('bounded-mirror: an evicting mutation surfaces evicted_ids exactly once; later deltas stay incremental', async (t) => {
+test('bounded-mirror: an evicting delta carries one authoritative snapshot; later deltas stay incremental', async (t) => {
   const mcp = new ScriptedMcp();
   const bus = new ConsoleEventBus();
   const hub = new HistoryHub({
@@ -515,20 +515,30 @@ test('bounded-mirror: an evicting mutation surfaces evicted_ids exactly once; la
   emit('e\nf'); // overflows: the oldest turn is evicted
   bus.emit({ type: 'control', channel_id: CHANNEL, control: 'ENTER', sent_at: 't', transport_result: 'delivered' }); // non-evicting
 
-  const turnIds = hub
-    .snapshot(CHANNEL)
-    .ring.entries.filter((e) => e.kind === 'user_turn')
-    .map((e) => e.id);
-  const evicting = updates.filter((u) => (u.evicted_ids?.length ?? 0) > 0);
-  assert.equal(evicting.length, 1, 'exactly one delta carries the eviction identity');
-  const evictedId = evicting[0].evicted_ids?.[0];
-  assert.ok(evictedId !== undefined && !turnIds.includes(evictedId), 'evicted id must be an entry no longer in the ring');
-  const after = updates.slice(updates.indexOf(evicting[0]) + 1);
+  const firstTurn = updates.flatMap((u) => u.appended ?? []).find((e) => e.kind === 'user_turn');
+  assert.ok(firstTurn, 'expected the evicted turn to have been appended first');
+  const deltas = updates.filter((u) => u.type === 'delta');
+  const resyncs = deltas.filter((u) => u.snapshot !== undefined);
+  assert.equal(resyncs.length, 1, 'exactly one delta carries the authoritative snapshot');
   assert.ok(
-    after.every((u) => (u.evicted_ids?.length ?? 0) === 0),
-    'a subsequent non-evicting delta must not resend eviction identity',
+    resyncs[0].snapshot?.entries.every((e) => e.id !== firstTurn.id),
+    'the authoritative snapshot must no longer contain the evicted entry',
   );
-  assert.ok(after.every((u) => u.snapshot === undefined), 'incremental deltas must not resend a full snapshot');
+  const after = deltas.slice(deltas.indexOf(resyncs[0]) + 1);
+  assert.ok(after.length > 0, 'expected a subsequent non-evicting delta');
+  assert.ok(
+    after.every((u) => u.snapshot === undefined),
+    'a subsequent non-evicting delta must not resend a full snapshot',
+  );
+});
+
+test('served app.js replaces the browser mirror when a delta carries an authoritative snapshot', async (t) => {
+  const ctx = await startSseServer(new ScriptedMcp(), new HistoryHub({ mcp: new ScriptedMcp(), events: new ConsoleEventBus() }));
+  t.after(() => ctx.server.close());
+  const res = await rawGet(ctx, '/app.js', { host: ctx.authority });
+  assert.equal(res.status, 200);
+  assert.match(res.body, /if \(update\.snapshot\)/, 'applyDelta must detect an authoritative snapshot delta');
+  assert.match(res.body, /applySnapshot\(update\);\s*\n\s*return;/, 'applyDelta must replace the mirror and stop incremental handling');
 });
 
 test('SSE viewer stays attached while the response is open and detaches exactly once', async (t) => {

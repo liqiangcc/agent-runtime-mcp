@@ -40,8 +40,7 @@ export interface HubUpdate {
   updated?: HistoryEntry[];
   dropped_entries?: number;
   dropped_lines?: number;
-  /** Exact eviction identity — present only on deltas that evicted entries. */
-  evicted_ids?: number[];
+  /** Authoritative resync — present only on the delta that evicted entries. */
   snapshot?: RingSnapshot;
 }
 
@@ -67,6 +66,7 @@ interface ChannelState {
   lastRead: string;
   attachedOnce: boolean;
   currentBlockId: number | null;
+  lastBroadcastDroppedEntries: number;
   viewers: Set<HistoryListener>;
   loopActive: boolean;
   stopped: boolean;
@@ -147,6 +147,7 @@ export class HistoryHub {
       lastRead: '',
       attachedOnce: false,
       currentBlockId: null,
+      lastBroadcastDroppedEntries: 0,
       viewers: new Set(),
       loopActive: false,
       stopped: false,
@@ -185,7 +186,11 @@ export class HistoryHub {
       throw new McpToolError('RESOURCE_EXHAUSTED', `at most ${this.maxObserved} Channels may be observed at once`);
     }
     cs.viewers.add(listener);
-    listener({ type: 'snapshot', channel_id: channelId, state: cs.state, detail: cs.detail, snapshot: cs.ring.snapshot() });
+    const snap = cs.ring.snapshot();
+    listener({ type: 'snapshot', channel_id: channelId, state: cs.state, detail: cs.detail, snapshot: snap });
+    // The initial snapshot is authoritative — it already reflects any eviction
+    // that happened while no viewer was attached.
+    cs.lastBroadcastDroppedEntries = snap.dropped_entries;
     if (!cs.loopActive && !cs.pollTimer) {
       void this.runLoop(cs);
     }
@@ -212,7 +217,11 @@ export class HistoryHub {
 
   private broadcast(cs: ChannelState, appended: HistoryEntry[] = [], updated: HistoryEntry[] = []): void {
     if (cs.viewers.size === 0) return;
-    const evicted = cs.ring.drainEvictedIds();
+    const snap = cs.ring.snapshot();
+    // Exactly-once authoritative resync: only the delta that first observes an
+    // increase in dropped_entries carries a full bounded snapshot so attached
+    // mirrors can prune evicted entries. Ordinary deltas stay incremental.
+    const resync = snap.dropped_entries > cs.lastBroadcastDroppedEntries;
     const delta: HubUpdate = {
       type: 'delta',
       channel_id: cs.channelId,
@@ -220,10 +229,11 @@ export class HistoryHub {
       detail: cs.detail,
       appended,
       updated,
-      dropped_entries: cs.ring.snapshot().dropped_entries,
-      dropped_lines: cs.ring.snapshot().dropped_lines,
-      ...(evicted.length > 0 ? { evicted_ids: evicted } : {}),
+      dropped_entries: snap.dropped_entries,
+      dropped_lines: snap.dropped_lines,
+      ...(resync ? { snapshot: snap } : {}),
     };
+    cs.lastBroadcastDroppedEntries = snap.dropped_entries;
     for (const listener of [...cs.viewers]) {
       try {
         listener(delta);

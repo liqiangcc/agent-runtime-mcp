@@ -189,6 +189,12 @@ function renderAll() {
 }
 
 function applyDelta(update) {
+  if (update.snapshot) {
+    // Authoritative resync: the bounded ring evicted entries — replace the
+    // whole mirror so evicted entries disappear from display/search/copy.
+    applySnapshot(update);
+    return;
+  }
   const wasPinned = isPinned();
   if (update.appended) {
     for (const entry of update.appended) {
@@ -206,20 +212,6 @@ function applyDelta(update) {
       const old = document.getElementById(entryDomId(entry.id));
       if (old) old.replaceWith(buildBubble(entry));
     }
-  }
-  if (update.evicted_ids && update.evicted_ids.length > 0) {
-    // Authoritative eviction identity: the bounded ring dropped exactly these
-    // entries — the mirror must prune them rather than retain evicted content.
-    const evicted = new Set(update.evicted_ids);
-    let pruned = false;
-    for (const id of evicted) {
-      if (chatById.delete(id)) pruned = true;
-      bookmarks.delete(id);
-      const node = document.getElementById(entryDomId(id));
-      if (node) node.remove();
-    }
-    if (pruned) chatOrder = chatOrder.filter((id) => !evicted.has(id));
-    updateBookmarkCount();
   }
   if (update.dropped_entries > 0) {
     upsertDropMarker(update.dropped_entries, update.dropped_lines);
@@ -251,6 +243,15 @@ function applySnapshot(update) {
     chatById.set(entry.id, entry);
     chatOrder.push(entry.id);
   }
+  // Authoritative state — drop bookmarks that point at entries no longer held.
+  let prunedBookmarks = false;
+  for (const id of [...bookmarks]) {
+    if (!chatById.has(id)) {
+      bookmarks.delete(id);
+      prunedBookmarks = true;
+    }
+  }
+  if (prunedBookmarks) saveBookmarks();
   renderAll();
   if (update.snapshot.dropped_entries > 0) {
     upsertDropMarker(update.snapshot.dropped_entries, update.snapshot.dropped_lines);
