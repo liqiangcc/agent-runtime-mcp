@@ -532,6 +532,43 @@ test('bounded-mirror: an evicting delta carries one authoritative snapshot; late
   );
 });
 
+test('bounded-mirror: eviction while unobserved is covered by the attach snapshot; later deltas stay incremental', async (t) => {
+  const mcp = new ScriptedMcp();
+  const bus = new ConsoleEventBus();
+  const hub = new HistoryHub({
+    mcp,
+    events: bus,
+    options: { idleMs: 5, timeoutMs: 50, pollMs: 20, tailLines: 200, tailBytes: 64 * 1024, ring: { maxLines: 4, maxBytes: 64 * 1024 } },
+  });
+  t.after(() => hub.close());
+
+  // Overflow the ring with NO viewer attached — bus events still mutate it.
+  const emit = (text: string) =>
+    bus.emit({ type: 'user-turn', channel_id: CHANNEL, text, submit: true, sent_at: 't', transport_result: 'delivered' });
+  emit('a\nb');
+  emit('c\nd');
+  emit('e\nf'); // evicts the oldest turn while unobserved
+
+  mcp.readQueue.push({ text: '' });
+  const updates: HubUpdate[] = [];
+  const detach = hub.addViewer(CHANNEL, (u) => updates.push(u));
+  t.after(detach);
+  await waitFor(() => hub.status(CHANNEL).state === 'live');
+
+  const initial = updates[0];
+  assert.equal(initial.type, 'snapshot');
+  assert.ok((initial.snapshot?.dropped_entries ?? 0) > 0, 'the initial snapshot must already reflect the unobserved eviction');
+
+  // A subsequent non-evicting mutation must not emit a stale resync snapshot.
+  bus.emit({ type: 'control', channel_id: CHANNEL, control: 'ENTER', sent_at: 't', transport_result: 'delivered' });
+  const deltas = updates.filter((u) => u.type === 'delta');
+  assert.ok(deltas.length > 0, 'expected post-attach deltas');
+  assert.ok(
+    deltas.every((u) => u.snapshot === undefined),
+    'no delta after attach may carry a resync snapshot for the unobserved eviction',
+  );
+});
+
 test('served app.js replaces the browser mirror when a delta carries an authoritative snapshot', async (t) => {
   const ctx = await startSseServer(new ScriptedMcp(), new HistoryHub({ mcp: new ScriptedMcp(), events: new ConsoleEventBus() }));
   t.after(() => ctx.server.close());
@@ -539,6 +576,8 @@ test('served app.js replaces the browser mirror when a delta carries an authorit
   assert.equal(res.status, 200);
   assert.match(res.body, /if \(update\.snapshot\)/, 'applyDelta must detect an authoritative snapshot delta');
   assert.match(res.body, /applySnapshot\(update\);\s*\n\s*return;/, 'applyDelta must replace the mirror and stop incremental handling');
+  assert.match(res.body, /bookmarks\.delete\(id\)/, 'evicted entries must be pruned from bookmarks');
+  assert.match(res.body, /if \(prunedBookmarks\) saveBookmarks\(\);/, 'pruned bookmarks must persist via the per-channel localStorage helper');
 });
 
 test('SSE viewer stays attached while the response is open and detaches exactly once', async (t) => {
