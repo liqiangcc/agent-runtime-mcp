@@ -9,6 +9,9 @@ The Web Console is an **upper-layer human interaction component**. It is **not**
 corrected version of the original Issue #60 proposal and is the canonical requirement for the
 Console layer only.
 
+This file supersedes the original proposal text committed as `1db4327` ("docs: add agent session
+web console requirements"), whose items are mapped in §11.
+
 Canonical product authority remains:
 
 ```text
@@ -197,7 +200,27 @@ tmux user option), never from parsing terminal output.
 - store complete terminal history by default;
 - act as remote ingress/tunnel/TLS for the MCP itself.
 
-## 11. Repository and CI constraints for `console/`
+## 11. Mapping of the original proposal items
+
+| Original proposal item | Disposition | Where |
+|---|---|---|
+| List tmux sessions; name, title, cwd | MVP, mechanical facts via MCP | WC-UC1 / #61 |
+| `repository` column | Derived only from `cwd` shown as-is (no git inspection in MVP) | WC-UC1 |
+| `agent type`, `status` | Deferred; would require operator-declared metadata | §9 Future |
+| Open an existing session | MVP | WC-UC2 / WC-UC4 |
+| Create session with cwd + command | Operator-enabled lifecycle adapter, argv allowlist only | WC-UC5 / #65 |
+| Stop/restart sessions | "Stop" = kill via lifecycle adapter with confirmation; "restart" is deployment supervision and is **not** a Console capability | WC-UC5 / `docs/deployment.md §9` |
+| Chat View (markdown, ChatGPT-like) | Deferred | §9 Future |
+| Browse View incl. infinite scrolling | MVP within the bounded Console-owned ring; "infinite" is bounded by the ring ceiling with a visible drop marker | WC-UC2 / #62 |
+| Search, copy, bookmarks, keep position | MVP, browser-local | WC-UC2 / #62 |
+| Terminal View, Ctrl-C/Escape, arbitrary keys | MVP via direct attach adapter (not MCP) | WC-UC4 / #64 |
+| Send text; observe updates | MVP via `write_text` / observe+wait | WC-UC3 / #63, WC-UC2 / #62 |
+| Jump between sessions | MVP navigation | WC-UC1 |
+| Send selected output to another agent session | Deferred (context transfer) — requires its own security review (T5 cross-session data flow) | §9 Future |
+| Session history indexing | Deferred; conflicts with memory-only default | §9 Future |
+| No writable terminals publicly without authentication | Strengthened into a hard precondition with roles and loopback default | §8 |
+
+## 12. Repository and CI constraints for `console/`
 
 - own `package.json`, lockfile, TypeScript config; Node.js >= 20; small dependency surface;
 - no import from `src/` at runtime; the only product coupling is the public MCP contract;
