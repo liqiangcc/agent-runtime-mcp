@@ -207,6 +207,20 @@ function applyDelta(update) {
       if (old) old.replaceWith(buildBubble(entry));
     }
   }
+  if (update.evicted_ids && update.evicted_ids.length > 0) {
+    // Authoritative eviction identity: the bounded ring dropped exactly these
+    // entries — the mirror must prune them rather than retain evicted content.
+    const evicted = new Set(update.evicted_ids);
+    let pruned = false;
+    for (const id of evicted) {
+      if (chatById.delete(id)) pruned = true;
+      bookmarks.delete(id);
+      const node = document.getElementById(entryDomId(id));
+      if (node) node.remove();
+    }
+    if (pruned) chatOrder = chatOrder.filter((id) => !evicted.has(id));
+    updateBookmarkCount();
+  }
   if (update.dropped_entries > 0) {
     upsertDropMarker(update.dropped_entries, update.dropped_lines);
   }

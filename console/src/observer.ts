@@ -40,6 +40,8 @@ export interface HubUpdate {
   updated?: HistoryEntry[];
   dropped_entries?: number;
   dropped_lines?: number;
+  /** Exact eviction identity — present only on deltas that evicted entries. */
+  evicted_ids?: number[];
   snapshot?: RingSnapshot;
 }
 
@@ -210,6 +212,7 @@ export class HistoryHub {
 
   private broadcast(cs: ChannelState, appended: HistoryEntry[] = [], updated: HistoryEntry[] = []): void {
     if (cs.viewers.size === 0) return;
+    const evicted = cs.ring.drainEvictedIds();
     const delta: HubUpdate = {
       type: 'delta',
       channel_id: cs.channelId,
@@ -219,6 +222,7 @@ export class HistoryHub {
       updated,
       dropped_entries: cs.ring.snapshot().dropped_entries,
       dropped_lines: cs.ring.snapshot().dropped_lines,
+      ...(evicted.length > 0 ? { evicted_ids: evicted } : {}),
     };
     for (const listener of [...cs.viewers]) {
       try {

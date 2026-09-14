@@ -9,7 +9,7 @@ import { diffTail, formatRawTranscript, HistoryRing, type HistoryEntry } from '.
 import { createRequestHandler, expectedAuthority } from '../src/http-app.js';
 import { createLogger } from '../src/logger.js';
 import { McpToolError, type ConsoleMcp, type TerminalControl, type ToolPayload } from '../src/mcp-client.js';
-import { HistoryHub } from '../src/observer.js';
+import { HistoryHub, type HubUpdate } from '../src/observer.js';
 
 const publicDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'public');
 const CHANNEL = 'tmux:abcdef123456:0';
@@ -152,6 +152,9 @@ test('diffTail dedupes overlapping tails and never invents a gap', () => {
   });
   // Scroll + last line rewritten in place: prev-minus-last-line anchors.
   assert.deepEqual(diffTail('a\nb\npro', 'b\npro2\nd'), { appended: 'pro2\nd', overlapped: 1 });
+  // Exact reviewer regression: the later repeated A/B is real new output and
+  // must not become an alignment anchor (interior search would yield 'Y').
+  assert.deepEqual(diffTail('A\nB', 'A\nB\nX\nA\nB\nY'), { appended: 'X\nA\nB\nY', overlapped: 2 });
   // Repeated identical lines: alignment must not skip real lines by
   // anchoring a later interior occurrence.
   assert.deepEqual(diffTail('x\ny', 'x\ny\nx\ny\nz'), { appended: 'x\ny\nz', overlapped: 2 });
@@ -488,6 +491,44 @@ test('C8: SSE history stream rejects mismatched Origin/Host; authority checks un
   assert.equal(sse.status, 200);
   await waitFor(() => sse.chunks.join('').includes('event: snapshot'));
   sse.close();
+});
+
+test('bounded-mirror: an evicting mutation surfaces evicted_ids exactly once; later deltas stay incremental', async (t) => {
+  const mcp = new ScriptedMcp();
+  const bus = new ConsoleEventBus();
+  const hub = new HistoryHub({
+    mcp,
+    events: bus,
+    options: { idleMs: 5, timeoutMs: 50, pollMs: 20, tailLines: 200, tailBytes: 64 * 1024, ring: { maxLines: 4, maxBytes: 64 * 1024 } },
+  });
+  t.after(() => hub.close());
+  mcp.readQueue.push({ text: '' });
+  const updates: HubUpdate[] = [];
+  const detach = hub.addViewer(CHANNEL, (u) => updates.push(u));
+  t.after(detach);
+  await waitFor(() => hub.status(CHANNEL).state === 'live');
+
+  const emit = (text: string) =>
+    bus.emit({ type: 'user-turn', channel_id: CHANNEL, text, submit: true, sent_at: 't', transport_result: 'delivered' });
+  emit('a\nb'); // 2 lines
+  emit('c\nd'); // 4 lines — at ceiling
+  emit('e\nf'); // overflows: the oldest turn is evicted
+  bus.emit({ type: 'control', channel_id: CHANNEL, control: 'ENTER', sent_at: 't', transport_result: 'delivered' }); // non-evicting
+
+  const turnIds = hub
+    .snapshot(CHANNEL)
+    .ring.entries.filter((e) => e.kind === 'user_turn')
+    .map((e) => e.id);
+  const evicting = updates.filter((u) => (u.evicted_ids?.length ?? 0) > 0);
+  assert.equal(evicting.length, 1, 'exactly one delta carries the eviction identity');
+  const evictedId = evicting[0].evicted_ids?.[0];
+  assert.ok(evictedId !== undefined && !turnIds.includes(evictedId), 'evicted id must be an entry no longer in the ring');
+  const after = updates.slice(updates.indexOf(evicting[0]) + 1);
+  assert.ok(
+    after.every((u) => (u.evicted_ids?.length ?? 0) === 0),
+    'a subsequent non-evicting delta must not resend eviction identity',
+  );
+  assert.ok(after.every((u) => u.snapshot === undefined), 'incremental deltas must not resend a full snapshot');
 });
 
 test('SSE viewer stays attached while the response is open and detaches exactly once', async (t) => {

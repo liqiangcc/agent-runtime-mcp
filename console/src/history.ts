@@ -114,6 +114,7 @@ export class HistoryRing {
   private nextId = 1;
   private droppedEntries = 0;
   private droppedLines = 0;
+  private evictedIds: number[] = [];
 
   constructor(options: RingOptions = {}) {
     this.maxLines = options.maxLines ?? DEFAULT_MAX_LINES;
@@ -162,7 +163,20 @@ export class HistoryRing {
       this.bytes -= entryBytes(removed);
       this.droppedEntries += 1;
       this.droppedLines += entryLines(removed);
+      this.evictedIds.push(removed.id);
     }
+  }
+
+  /**
+   * Ids evicted since the last drain. Delta broadcasters consume this once
+   * per evicting mutation so mirrors can prune exactly — incremental deltas
+   * never resend it and never resend a full snapshot.
+   */
+  drainEvictedIds(): number[] {
+    if (this.evictedIds.length === 0) return [];
+    const ids = this.evictedIds;
+    this.evictedIds = [];
+    return ids;
   }
 
   snapshot(): RingSnapshot {
