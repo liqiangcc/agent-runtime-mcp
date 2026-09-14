@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { collectInterfaceAddresses, evaluateBindAddress } from './bind-guard.js';
 import { ConfigError, loadConfig } from './config.js';
+import { ConsoleEventBus } from './events.js';
 import { createRequestHandler, expectedAuthority, rejectUpgrade } from './http-app.js';
 import { createLogger } from './logger.js';
 import { StdioMcpClient } from './mcp-client.js';
@@ -34,7 +35,8 @@ const mcp = new StdioMcpClient({
   logger,
 });
 
-const server = createServer(createRequestHandler({ mcp, expectedHost, publicDir: config.publicDir, logger }));
+const events = new ConsoleEventBus();
+const server = createServer(createRequestHandler({ mcp, events, expectedHost, publicDir: config.publicDir, logger }));
 
 server.on('upgrade', (req, socket) => rejectUpgrade(req, socket, expectedHost, logger));
 

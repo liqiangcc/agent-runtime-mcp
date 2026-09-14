@@ -4,6 +4,7 @@ import { connect as netConnect } from 'node:net';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { ConsoleEventBus } from '../src/events.js';
 import { checkRequestAuthority, createRequestHandler, expectedAuthority, rejectUpgrade } from '../src/http-app.js';
 import { createLogger } from '../src/logger.js';
 import { McpToolError, McpUnavailableError, type ConsoleMcp, type ToolPayload } from '../src/mcp-client.js';
@@ -54,7 +55,7 @@ async function startServer(mcp: ConsoleMcp): Promise<TestContext> {
   const logger = createLogger((line) => logs.push(line));
   const ctx: TestContext = { server: null as unknown as Server, port: 0, authority: '', logs };
   const server = createServer((req, res) => {
-    void createRequestHandler({ mcp, expectedHost: ctx.authority, publicDir, logger })(req, res);
+    void createRequestHandler({ mcp, events: new ConsoleEventBus(), expectedHost: ctx.authority, publicDir, logger })(req, res);
   });
   server.on('upgrade', (req, socket) => rejectUpgrade(req, socket, ctx.authority, logger));
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));

@@ -28,6 +28,23 @@
   <p id="empty" class="empty" hidden>No channels in scope.</p>
   <ul id="channels" class="channel-list"></ul>
 </main>
+<footer id="composer" class="composer" hidden>
+  <div class="composer-target">
+    to <span id="composer-target" class="composer-target-name"></span>
+    <button id="composer-close" type="button" class="composer-close" aria-label="clear selection">×</button>
+  </div>
+  <div id="send-result" class="send-result" hidden></div>
+  <textarea id="composer-text" rows="2" placeholder="Message… (Enter sends · Shift+Enter for a newline)"></textarea>
+  <div class="composer-actions">
+    <button id="send" type="button" class="primary">Send</button>
+    <label class="hint"><input type="checkbox" id="no-submit"> send without Enter</label>
+    <span id="size-hint" class="size-hint"></span>
+    <span class="spacer"></span>
+    <button id="control-stop" type="button" class="danger">Stop</button>
+    <button id="control-enter" type="button">Enter</button>
+    <button id="control-escape" type="button">Escape</button>
+  </div>
+</footer>
 <script src="/app.js" defer></script>
 </body>
 </html>
