@@ -515,6 +515,15 @@ mode is compatibility fallback only:
   destabilize the layout. Real iPhone Home Screen standalone screenshots with
   safe-area/header/content/composer/dead-zone measurements are required
   before READY.
+- Standalone header/content-inset: the sticky header must never overlap the
+  first content line in real iPhone standalone — safe-area, header height,
+  scroll-padding/content inset, and scroll anchor restore must be
+  coordinated. Default header chrome converges to ChatGPT-level minimalism:
+  menu, session name, ultra-light status, overflow only; prototype/mock/
+  standalone badges, agent profile, and Focus controls move into secondary/
+  overflow/debug affordances. Evidence requires real iPhone standalone
+  screenshots plus top safe-area/header/content-inset/first-content-baseline
+  measurements.
 
 ## Completion Protocol
 
