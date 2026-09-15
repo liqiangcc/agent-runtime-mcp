@@ -373,6 +373,33 @@ events (clearly marked as mock):
   the existing observer/SSE, that requires a separate Publication Gate and
   must not ride inside #90 presentation work.
 
+## Amendment — Markdown / reading fidelity (FINAL GATE DECISION)
+
+Markdown reading fidelity is a first-class acceptance goal, binding both the
+prototype and the later production contract:
+
+- Answer/content segments render as Markdown/GFM: headings, paragraphs,
+  bold/italic/strikethrough, blockquotes, ordered/unordered/nested lists,
+  task lists, inline code, fenced code, links, tables, horizontal rules —
+  with real mobile reading typography (hierarchy, spacing, line-height, max
+  line-width, CJK/Latin mixed text), not browser defaults.
+- 320–430px: no page-level horizontal scroll; code blocks/tables may scroll
+  locally; long URLs/tokens/inline code wrap or scroll safely; the sticky
+  composer must not cover content tail.
+- Streaming Markdown must be stable: unclosed emphasis/list/code fence/table
+  must not flicker, jump layout, duplicate DOM, or lose text; completed
+  blocks keep DOM/scroll position; fenced code streams visibly; final closed
+  form on stream end.
+- Content boundary: only adapter-classified answer/content segments get
+  Markdown; thinking/tool/command/raw keep activity/raw presentation;
+  uncertain classification falls back to raw/generic — original text is
+  always retrievable, never swallowed.
+- Trust boundary: agent/terminal Markdown is untrusted — no raw HTML
+  execution, no scripts/event handlers/dangerous URLs; links get no page
+  control. Prototype may vendor a renderer/sanitizer under the prototype path
+  to prove the approach; the production dependency choice is frozen by the
+  Coordinator after prototype approval.
+
 ## Completion Protocol
 
 ```text
