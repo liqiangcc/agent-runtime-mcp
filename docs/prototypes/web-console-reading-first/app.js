@@ -161,39 +161,78 @@ const params = new URLSearchParams(location.search);
 // detected via the display-mode media query; this only mirrors its CSS).
 if (params.get('display') === 'standalone') document.body.classList.add('standalone-sim');
 
-// ---- runtime viewport reconciliation ----
-// iOS standalone miscomputes 100%/vh against a stale browser-chrome
-// height. Measure the real viewport (visualViewport, falling back to
-// innerHeight) and publish it as --app-vh; CSS consumes it with the
-// 100dvh/fill-available chain as fallback. Re-measure on every lifecycle
-// event that can change it. rAF-coalesced; pure style write — never
-// touches transcript DOM, scroll, stream, drawer, or composer state.
-let vhRaf = 0, vpDebug = null;
-function syncAppVh() {
-  if (vhRaf) return;
-  vhRaf = requestAnimationFrame(() => {
-    vhRaf = 0;
-    const vvh = window.visualViewport ? window.visualViewport.height : 0;
-    const h = vvh || window.innerHeight;
-    document.documentElement.style.setProperty('--app-vh', `${h}px`);
-    if (vpDebug) {
-      const dead = window.innerHeight - document.getElementById('composer').getBoundingClientRect().bottom;
-      vpDebug.textContent = `vv=${Math.round(vvh)} ih=${window.innerHeight} app=${Math.round(h)} dead=${Math.round(dead)}`;
-    }
+// ---- runtime viewport reconciliation (keyboard/stale aware) ----
+// iOS standalone can report a stale/undersized visualViewport.height, so
+// we never trust one source blindly. A candidate set is sampled on every
+// lifecycle transition; the keyboard heuristic decides whether
+// visualViewport is authoritative (keyboard open) or must be rejected in
+// favour of the larger stable layout viewport (no keyboard).
+// Safe-area is applied exactly once via env() padding on the composer —
+// never folded into --app-vh. Re-measurement is a pure style write and
+// never touches transcript/scroll/stream/drawer/composer state.
+const DIAG = []; // bounded ring buffer for ?debug / diagnostics copy
+const DIAG_MAX = 120;
+let composing = false;
+
+function diagPush(ev, extra = {}) {
+  if (DIAG.length >= DIAG_MAX) DIAG.shift();
+  const vv = window.visualViewport || {};
+  const comp = document.getElementById('composer').getBoundingClientRect();
+  DIAG.push({
+    t: new Date().toISOString().slice(11, 23), ev,
+    vvH: Math.round(vv.height || 0), vvOT: Math.round(vv.offsetTop || 0), vvPT: Math.round(vv.pageTop || 0),
+    ih: window.innerHeight, ch: document.documentElement.clientHeight,
+    shellH: Math.round(document.body.getBoundingClientRect().height),
+    compTop: Math.round(comp.top), compBot: Math.round(comp.bottom),
+    dead: Math.round(window.innerHeight - comp.bottom),
+    standalone: matchMedia('(display-mode: standalone)').matches,
+    orient: screen.orientation ? screen.orientation.type : `${window.orientation}`,
+    focus: document.activeElement?.id || document.activeElement?.tagName || '',
+    composing, draftLen: $('composer-text') ? $('composer-text').value.length : 0,
+    ...extra,
   });
 }
-window.addEventListener('pageshow', syncAppVh);
-window.addEventListener('resize', syncAppVh);
-window.addEventListener('orientationchange', syncAppVh);
-window.visualViewport?.addEventListener('resize', syncAppVh);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) syncAppVh(); });
+
+function pickViewportHeight() {
+  const vv = window.visualViewport;
+  const layout = Math.max(window.innerHeight, document.documentElement.clientHeight);
+  const keyboardLikely = !!(vv && vv.height < window.innerHeight - 120);
+  if (vv && keyboardLikely)
+    return { h: vv.height, src: 'vv', reason: 'keyboard-open' };
+  if (vv && vv.height >= layout - 40)
+    return { h: vv.height, src: 'vv', reason: 'vv>=layout' };
+  return { h: layout, src: 'layout', reason: vv ? `stale-vv-rejected(${Math.round(vv.height)}<${layout}-40)` : 'no-vv' };
+}
+
+let vhTimer = 0, vhRaf = 0, vpDebug = null;
+function applyViewport(ev) {
+  const pick = pickViewportHeight();
+  document.documentElement.style.setProperty('--app-vh', `${pick.h}px`);
+  diagPush(ev, { src: pick.src, why: pick.reason });
+  if (vpDebug) vpDebug.textContent =
+    `${pick.src}=${Math.round(pick.h)} ih=${window.innerHeight} dead=${Math.round(window.innerHeight - document.getElementById('composer').getBoundingClientRect().bottom)}`;
+}
+function syncAppVh(ev, { clear = false } = {}) {
+  if (clear) document.documentElement.style.removeProperty('--app-vh'); // drop stale value, recompute fresh
+  clearTimeout(vhTimer);
+  // intermediate rAF sample (keyboard needs responsive shrink), then a
+  // debounced settle sample so transient iOS values never commit.
+  if (!vhRaf) vhRaf = requestAnimationFrame(() => { vhRaf = 0; applyViewport(ev + ':raf'); });
+  vhTimer = setTimeout(() => applyViewport(ev + ':settle'), 240);
+}
+window.addEventListener('pageshow', () => syncAppVh('pageshow', { clear: true }));
+window.addEventListener('resize', () => syncAppVh('resize'));
+window.addEventListener('orientationchange', () => syncAppVh('orientation', { clear: true }));
+window.visualViewport?.addEventListener('resize', () => syncAppVh('vv.resize'));
+document.addEventListener('visibilitychange', () => { if (!document.hidden) syncAppVh('visible', { clear: true }); });
 // ?debug=viewport — live measurement readout for real-device capture
 if (params.get('debug')) {
   vpDebug = document.createElement('div');
   vpDebug.id = 'vp-debug';
   document.body.appendChild(vpDebug);
 }
-syncAppVh();
+diagPush('boot');
+syncAppVh('boot');
 const profile = params.get('agent') || 'generic';
 const adapter = window.Adapters[profile] || window.Adapters.generic;
 const entries = profile === 'devin' ? DEVIN_ENTRIES : GENERIC_ENTRIES;
@@ -453,6 +492,13 @@ $('overflow-menu').addEventListener('click', (e) => {
       document.documentElement.requestFullscreen().catch(() => toast('fullscreen not available here'));
     else toast('fullscreen not supported on this browser');
   }
+  else if (act === 'diag-copy') {
+    diagPush('diag-copy');
+    const payload = JSON.stringify(DIAG, null, 1);
+    (navigator.clipboard?.writeText(payload) || Promise.reject())
+      .then(() => toast('diagnostics copied'))
+      .catch(() => { $('raw-pre').textContent = payload; $('raw-view').hidden = false; toast('clipboard blocked — diagnostics shown in raw view'); });
+  }
   else if (act === 'profile-devin') location.search = '?agent=devin';
   else if (act === 'profile-generic') location.search = '?agent=generic';
   else toast(`${act} — mock affordance only`);
@@ -483,13 +529,27 @@ $('raw-close').addEventListener('click', () => { $('raw-view').hidden = true; })
 
 // ---- composer: typing is local-only; Send is the ONLY mutation boundary ----
 const ta = $('composer-text');
+// IME safety: never mutate the field (height, value) while a composition
+// session is active — iOS Safari can drop/duplicate composed characters
+// when layout shifts mid-composition.
+ta.addEventListener('compositionstart', () => { composing = true; diagPush('compositionstart'); });
+ta.addEventListener('compositionend', () => {
+  composing = false;
+  diagPush('compositionend');
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
+});
+ta.addEventListener('focus', () => diagPush('focus'));
+ta.addEventListener('blur', () => { diagPush('blur'); syncAppVh('blur'); });
 ta.addEventListener('input', () => {
+  if (composing) return;
   ta.style.height = 'auto';
   ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
 });
 $('send').addEventListener('click', () => {
-  const text = ta.value.trim();
-  if (!text) return;
+  const text = ta.value; // exact visible draft — never trimmed/mutated
+  if (!text.trim()) return;
+  diagPush('send', { draftLen: text.length });
   const e = { kind: 'user', time: now(), text };
   entries.push(e);
   const wasPinned = isPinned();

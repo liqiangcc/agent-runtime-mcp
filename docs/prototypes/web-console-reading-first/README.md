@@ -63,17 +63,33 @@ shared Reading-first shell (app.js, index.html, style.css)
   topbar, prototype badge, drawer (top+bottom), composer and bottom
   sheets, so the notch/Dynamic Island/Home Indicator never cover content.
 - The app shell fills the real dynamic viewport via TWO mechanisms:
-  JS runtime reconciliation measures `visualViewport.height`
-  (fallback `window.innerHeight`) and publishes `--app-vh` on
-  `<html>`, re-measured on boot/pageshow/visibilitychange/
-  visualViewport.resize/window.resize/orientation change (rAF-coalesced,
-  style-write only — never touches transcript/scroll/stream/drawer/
-  composer state); CSS falls back through `var(--app-vh, 100dvh)` →
-  `100dvh` → `100vh` → `-webkit-fill-available`. Conversation is the
-  only flexible region; header and composer take only required height;
-  the collapsed Advanced panel reserves zero height (opened via the
-  composer "+" button). `?debug=viewport` adds a live readout
-  (vv/innerHeight/app-vh/deadBottom) for real-device capture.
+  JS runtime reconciliation samples a CANDIDATE SET
+  (visualViewport.height/offsetTop/pageTop, innerHeight,
+  documentElement.clientHeight) and publishes `--app-vh` on `<html>`;
+  it is keyboard/stale aware — when no soft keyboard is present a
+  suspiciously smaller vv is rejected in favour of the larger stable
+  layout viewport, and when the keyboard is genuinely open vv is
+  authoritative for the visible editing surface. Re-measured on
+  boot/pageshow(bfcache)/visibilitychange→visible/vv.resize/resize/
+  orientationchange/blur with rAF + 240ms debounced settle; stale values
+  are cleared before recompute on pageshow/visible/orientation.
+  Safe-area is applied exactly once via env() composer padding — never
+  folded into --app-vh. Pure style write; never touches transcript/
+  scroll/stream/drawer/composer state. CSS fallback chain:
+  `var(--app-vh, 100dvh)` → `100dvh` → `100vh` → `-webkit-fill-available`.
+  Conversation is the only flexible region; header and composer take
+  only required height; the collapsed Advanced panel reserves zero
+  height (opened via the composer "+" button).
+- Diagnostics: `?debug=viewport` adds a live readout
+  (src/innerHeight/deadBottom); overflow → Debug → "Copy viewport/input
+  diagnostics" copies a bounded 120-entry ring buffer (timestamps,
+  events, all viewport candidates, shell/composer rects, deadBottom,
+  focus + composition flag + draft LENGTH only — never draft content,
+  chosen source + rejection reason).
+- Composer input: `compositionstart`/`compositionend` are tracked; the
+  field is never mutated (height/value) mid-composition so iOS IME
+  cannot drop/duplicate characters. Send submits the EXACT visible
+  draft at most once; failed/ambiguous outcomes never auto-retry.
 - `@media (display-mode: standalone)` marks the badge and hides the
   optional "Enter fullscreen" menu item. The Fullscreen API remains a
   user-triggered enhancement in browser mode only; browser chrome is
