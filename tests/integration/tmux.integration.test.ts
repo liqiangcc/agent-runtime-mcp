@@ -13,6 +13,7 @@ const socketName = `agent-runtime-mcp-${process.pid}-${Date.now()}`;
 const readSession = 'mvp002-read';
 const recorderA = 'mvp002-input-a';
 const recorderB = 'mvp002-input-b';
+const bracketedRecorder = 'mvp002-input-bp';
 const hiddenRecorder = 'mvp002-hidden';
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-mcp-'));
 const recorderFiles = new Map<string, string>();
@@ -39,11 +40,12 @@ async function waitFor(predicate: () => Promise<boolean> | boolean, timeoutMs = 
   throw new Error('timed out waiting for integration fixture');
 }
 
-async function createRecorderSession(sessionName: string): Promise<void> {
+async function createRecorderSession(sessionName: string, bracketedPaste = false): Promise<void> {
   const outputPath = join(tempRoot, `${sessionName}.bin`);
   recorderFiles.set(sessionName, outputPath);
   const fixturePath = join(process.cwd(), 'tests', 'fixtures', 'terminal-recorder.mjs');
-  const command = `${shellQuote(process.execPath)} ${shellQuote(fixturePath)} ${shellQuote(outputPath)}`;
+  const flag = bracketedPaste ? ' --bracketed-paste' : '';
+  const command = `${shellQuote(process.execPath)} ${shellQuote(fixturePath)}${flag} ${shellQuote(outputPath)}`;
   await tmux('new-session', '-d', '-s', sessionName, command);
   await waitFor(async () => (await tmux('capture-pane', '-p', '-t', sessionName)).includes('READY'));
 }
@@ -84,6 +86,7 @@ describe('real tmux Channel backend', () => {
     await tmux('send-keys', '-t', readSession, 'Enter');
     await createRecorderSession(recorderA);
     await createRecorderSession(recorderB);
+    await createRecorderSession(bracketedRecorder, true);
     await createRecorderSession(hiddenRecorder);
     await new Promise((resolve) => setTimeout(resolve, 300));
   });
@@ -148,6 +151,20 @@ describe('real tmux Channel backend', () => {
 
     assert.deepEqual(received, Buffer.from(text));
     assert.equal(readRecorder(recorderB).length, 0);
+  });
+
+  it('injects no bracketed-paste markers or ESC bytes when the pane enabled DECSET 2004', async () => {
+    const backend = new TmuxBackend({ socketName, allowedSessions: [bracketedRecorder] });
+    const channelId = backend.channelIdForPane(await paneId(bracketedRecorder));
+    const text = "echo marker-free\nsecond 世界\tline";
+
+    clearRecorder(bracketedRecorder);
+    await backend.writeText(channelId, text, { submit: false });
+    const received = await waitForRecorderBytes(bracketedRecorder, Buffer.byteLength(text));
+
+    assert.deepEqual(received, Buffer.from(text));
+    assert.equal(received.includes(0x1b), false);
+    console.log('BRACKETED_PASTE_EVIDENCE', JSON.stringify({ bytes: received.length, expected: Buffer.byteLength(text), esc_bytes: [...received].filter((b) => b === 0x1b).length }));
   });
 
   it('distinguishes submit=false from submit=true and reuses explicit ENTER semantics', async () => {
