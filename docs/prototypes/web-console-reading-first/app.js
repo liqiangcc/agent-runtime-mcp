@@ -189,58 +189,40 @@ function diagPush(ev, extra = {}) {
     orient: screen.orientation ? screen.orientation.type : `${window.orientation}`,
     focus: document.activeElement?.id || document.activeElement?.tagName || '',
     composing, draftLen: $('composer-text') ? $('composer-text').value.length : 0,
+    kbInset: Math.round(kbInset()),
     ...extra,
   });
 }
 
-function pickViewportHeight() {
+// Structural model: the app shell height is the STABLE layout viewport
+// (innerHeight/clientHeight) and never tracks a keyboard-shrunken
+// visualViewport. Keyboard occlusion is a separate --kb-inset applied
+// only to the composer position + conversation scroll padding, so the
+// composer lifts above the keyboard and content stays reachable.
+// Keyboard close = inset goes to 0; no self-heal timers, no blur needed.
+let vpDebug = null;
+function kbInset() {
   const vv = window.visualViewport;
-  const layout = Math.max(window.innerHeight, document.documentElement.clientHeight);
-  const keyboardLikely = !!(vv && vv.height < window.innerHeight - 120);
-  if (vv && keyboardLikely)
-    return { h: vv.height, src: 'vv', reason: 'keyboard-open' };
-  if (vv && vv.height >= layout - 40)
-    return { h: vv.height, src: 'vv', reason: 'vv>=layout' };
-  return { h: layout, src: 'layout', reason: vv ? `stale-vv-rejected(${Math.round(vv.height)}<${layout}-40)` : 'no-vv' };
+  return vv ? Math.max(0, window.innerHeight - (vv.height + vv.offsetTop)) : 0;
 }
-
-let vhTimer = 0, vhRaf = 0, vpDebug = null, shrinkTimers = [];
-function currentAppVh() {
-  return parseFloat(document.documentElement.style.getPropertyValue('--app-vh')) || 0;
-}
+let vhTimer = 0, vhRaf = 0;
 function applyViewport(ev) {
-  const pick = pickViewportHeight();
-  document.documentElement.style.setProperty('--app-vh', `${pick.h}px`);
-  diagPush(ev, { src: pick.src, why: pick.reason });
+  const layout = Math.max(window.innerHeight, document.documentElement.clientHeight);
+  const kb = Math.round(kbInset());
+  document.documentElement.style.setProperty('--app-vh', `${layout}px`);
+  document.documentElement.style.setProperty('--kb-inset', `${kb}px`);
+  diagPush(ev, { src: 'layout', kbInset: kb });
   if (vpDebug) vpDebug.textContent =
-    `${pick.src}=${Math.round(pick.h)} ih=${window.innerHeight} dead=${Math.round(window.innerHeight - document.getElementById('composer').getBoundingClientRect().bottom)}`;
-  return pick;
-}
-// After any shrink commit (keyboard open or a stale vv that slipped
-// through), iOS may not deliver a clean reconcile when it ends. Schedule
-// staggered re-samples that adopt the larger stable layout max once the
-// keyboard heuristic clears — no user tap needed.
-function scheduleRecoverySamples(ev) {
-  shrinkTimers.forEach(clearTimeout);
-  shrinkTimers = [600, 1200, 2400].map(ms => setTimeout(() => {
-    const pick = pickViewportHeight();
-    if (pick.h > currentAppVh()) applyViewport(`${ev}:recover@${ms}`);
-    else diagPush(`${ev}:recover@${ms}`, { src: pick.src, why: pick.reason + ' (no-change)' });
-  }, ms));
-}
-function layoutMax() {
-  return Math.max(window.innerHeight, document.documentElement.clientHeight);
+    `layout=${layout} kb=${kb} dead=${Math.round(window.innerHeight - document.getElementById('composer').getBoundingClientRect().bottom)}`;
 }
 function syncAppVh(ev, { clear = false } = {}) {
-  if (clear) document.documentElement.style.removeProperty('--app-vh'); // drop stale value, recompute fresh
+  if (clear) { // drop stale values, recompute fresh
+    document.documentElement.style.removeProperty('--app-vh');
+    document.documentElement.style.removeProperty('--kb-inset');
+  }
   clearTimeout(vhTimer);
-  // intermediate rAF sample (keyboard needs responsive shrink), then a
-  // debounced settle sample so transient iOS values never commit.
   if (!vhRaf) vhRaf = requestAnimationFrame(() => { vhRaf = 0; applyViewport(ev + ':raf'); });
-  vhTimer = setTimeout(() => {
-    const pick = applyViewport(ev + ':settle');
-    if (pick.h < layoutMax() - 40) scheduleRecoverySamples(ev);
-  }, 240);
+  vhTimer = setTimeout(() => applyViewport(ev + ':settle'), 240);
 }
 window.addEventListener('pageshow', () => syncAppVh('pageshow', { clear: true }));
 window.addEventListener('resize', () => syncAppVh('resize'));
@@ -248,11 +230,6 @@ window.addEventListener('orientationchange', () => syncAppVh('orientation', { cl
 window.visualViewport?.addEventListener('resize', () => syncAppVh('vv.resize'));
 window.visualViewport?.addEventListener('scroll', () => syncAppVh('vv.scroll'));
 document.addEventListener('visibilitychange', () => { if (!document.hidden) syncAppVh('visible', { clear: true }); });
-// first user touch after a stale shrink also re-samples — covers keyboard
-// paths that deliver no event at all
-document.addEventListener('touchstart', () => {
-  if (currentAppVh() < layoutMax() - 40) syncAppVh('touch');
-}, { passive: true });
 // ?debug=viewport — live measurement readout for real-device capture
 if (params.get('debug')) {
   vpDebug = document.createElement('div');

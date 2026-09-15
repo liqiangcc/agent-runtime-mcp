@@ -62,30 +62,26 @@ shared Reading-first shell (app.js, index.html, style.css)
 - `viewport-fit=cover` + `env(safe-area-inset-*)` are applied to the
   topbar, prototype badge, drawer (top+bottom), composer and bottom
   sheets, so the notch/Dynamic Island/Home Indicator never cover content.
-- The app shell fills the real dynamic viewport via TWO mechanisms:
-  JS runtime reconciliation samples a CANDIDATE SET
-  (visualViewport.height/offsetTop/pageTop, innerHeight,
-  documentElement.clientHeight) and publishes `--app-vh` on `<html>`;
-  it is keyboard/stale aware — when no soft keyboard is present a
-  suspiciously smaller vv is rejected in favour of the larger stable
-  layout viewport, and when the keyboard is genuinely open vv is
-  authoritative for the visible editing surface. Re-measured on
-  boot/pageshow(bfcache)/visibilitychange→visible/vv.resize/resize/
-  orientationchange/blur with rAF + 240ms debounced settle; stale values
-  are cleared before recompute on pageshow/visible/orientation.
-  Safe-area is applied exactly once via env() composer padding — never
-  folded into --app-vh. Pure style write; never touches transcript/
-  scroll/stream/drawer/composer state. CSS fallback chain:
-  `var(--app-vh, 100dvh)` → `100dvh` → `100vh` → `-webkit-fill-available`.
-  Conversation is the only flexible region; header and composer take
-  only required height; the collapsed Advanced panel reserves zero
-  height (opened via the composer "+" button).
+- Structural viewport model (v13): the app shell height is the STABLE
+  layout viewport — `--app-vh` = max(innerHeight, clientHeight) and
+  NEVER tracks a keyboard-shrunken visualViewport. Keyboard occlusion is
+  a separate `--kb-inset` = innerHeight - (vv.height + vv.offsetTop),
+  clamped >=0, applied ONLY to the composer padding (lifts the pill
+  above the keyboard) and the conversation scroll padding. Keyboard
+  close simply clears the inset — no self-heal timers, no blur/tap
+  dependency. Recomputed on boot/pageshow(bfcache)/visibilitychange/
+  vv.resize/vv.scroll/resize/orientationchange/blur with rAF + 240ms
+  debounced settle; stale vars cleared first on pageshow/visible/
+  orientation. Safe-area applied exactly once via env() padding. CSS
+  fallback: `var(--app-vh, 100dvh)` -> `100dvh` -> `100vh` ->
+  `-webkit-fill-available`. Conversation is the only flexible region;
+  collapsed Advanced panel reserves zero height ("+" button).
 - Diagnostics: `?debug=viewport` adds a live readout
   (src/innerHeight/deadBottom); overflow → Debug → "Copy viewport/input
   diagnostics" copies a bounded 120-entry ring buffer (timestamps,
   events, all viewport candidates, shell/composer rects, deadBottom,
   focus + composition flag + draft LENGTH only — never draft content,
-  chosen source + rejection reason).
+  chosen source + kbInset per event).
 - Composer input: `compositionstart`/`compositionend` are tracked; the
   field is never mutated (height/value) mid-composition so iOS IME
   cannot drop/duplicate characters. Send submits the EXACT visible

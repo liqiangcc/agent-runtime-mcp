@@ -252,7 +252,7 @@ body.drawer-open #drawer, #drawer.dragging { visibility: visible; transition-del
 }
 
 #messages {
-  padding: 8px 20px 28px;
+  padding: 8px 20px calc(28px + var(--kb-inset, 0px));
   max-width: 720px;
   width: 100%;
   margin: 0 auto;
@@ -359,7 +359,7 @@ body.drawer-open #drawer, #drawer.dragging { visibility: visible; transition-del
 #composer {
   border-top: none;
   background: var(--bg);
-  padding: 6px 12px calc(10px + env(safe-area-inset-bottom));
+  padding: 6px 12px calc(10px + env(safe-area-inset-bottom) + var(--kb-inset, 0px));
 }
 .composer-row {
   display: flex;
