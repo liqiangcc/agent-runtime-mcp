@@ -598,6 +598,15 @@ mode is compatibility fallback only:
   soon as the keyboard is truly gone; the watcher stops entirely once closed.
   Diagnostics record which trigger cleared the inset. Recovery must never
   depend on blur/menu taps.
+- Canonical shell height + interaction-flush: in standalone the committed
+  `--app-vh` grows freely but only shrinks on explicit lifecycle resets
+  (pageshow/orientationchange/visibility) — keyboard-path events can never
+  shrink the shell, because iOS standalone demonstrably shrinks layout
+  metrics with the keyboard and restores them without events. `--kb-inset`
+  is measured against the canonical height and clears on editable blur. Any
+  user pointer/scroll interaction schedules bounded delayed re-samples
+  (interaction-flush, not gated on keyboard-open state), because iOS flushes
+  stale viewport metrics on interaction.
 
 ## Completion Protocol
 
