@@ -205,16 +205,34 @@ function kbInset() {
   const vv = window.visualViewport;
   return vv ? Math.max(0, window.innerHeight - (vv.height + vv.offsetTop)) : 0;
 }
-let vhTimer = 0, vhRaf = 0;
+let vhTimer = 0, vhRaf = 0, kbOpen = false, kbWatch = 0;
+function stopKbWatch() { clearInterval(kbWatch); kbWatch = 0; }
+function startKbWatch() {
+  // state-owned polling tied to keyboard-open lifetime only — NOT a
+  // blind timer on the root model. iOS standalone emits no event on
+  // keyboard close, so while the inset is committed we re-sample vv at
+  // low frequency and on any pointer/scroll activity; the moment the
+  // inset reads ~0 it is cleared and the watcher stops entirely.
+  if (kbWatch) return;
+  kbWatch = setInterval(() => {
+    if (kbInset() <= 2) { kbOpen = false; applyViewport('kbwatch:clear'); stopKbWatch(); }
+  }, 300);
+}
 function applyViewport(ev) {
   const layout = Math.max(window.innerHeight, document.documentElement.clientHeight);
   const kb = Math.round(kbInset());
   document.documentElement.style.setProperty('--app-vh', `${layout}px`);
   document.documentElement.style.setProperty('--kb-inset', `${kb}px`);
+  kbOpen = kb > 2;
+  if (kbOpen) startKbWatch(); else stopKbWatch();
   diagPush(ev, { src: 'layout', kbInset: kb });
   if (vpDebug) vpDebug.textContent =
     `layout=${layout} kb=${kb} dead=${Math.round(window.innerHeight - document.getElementById('composer').getBoundingClientRect().bottom)}`;
 }
+// instant re-sample on user activity while the keyboard is believed open
+// (covers close paths that emit no event at all); zero cost when closed.
+document.addEventListener('pointerdown', () => { if (kbOpen) syncAppVh('pointerdown:reconcile'); }, { passive: true, capture: true });
+document.getElementById('main').addEventListener('scroll', () => { if (kbOpen) syncAppVh('scroll:reconcile'); }, { passive: true });
 function syncAppVh(ev, { clear = false } = {}) {
   if (clear) { // drop stale values, recompute fresh
     document.documentElement.style.removeProperty('--app-vh');
