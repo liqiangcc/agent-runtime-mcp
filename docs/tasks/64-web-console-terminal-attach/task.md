@@ -1,6 +1,6 @@
 # Task 64 — Web Console Terminal View (advanced debugging / recovery entry): direct tmux attach adapter outside the MCP
 
-> **Draft.** Non-claimable until Issue #61 is accepted and the Alignment Gate below is re-read by the Coordinator. This Task carries the highest security weight of the Console MVP. Under the Chat-first positioning (`docs/web-console-requirements.md §2`) Terminal View is an **advanced debugging / failure-recovery entry**, not the default view and not on the primary acceptance path; the Coordinator may defer it after #62/#63.
+> **Published for execution.** Alignment Gate re-run on `bbfb2d84d978a10727f8711dcb03c1d45fed6bd3` (accepted #65 merge). This Task carries the highest security weight of the Console MVP. Under the Chat-first positioning (`docs/web-console-requirements.md §2`) Terminal View is an **advanced debugging / failure-recovery entry**, not the default view and not on the primary acceptance path.
 
 ## Metadata
 
@@ -9,14 +9,14 @@ GitHub Issue: #64
 Task ID: 64-web-console-terminal-attach
 Task kind: implementation + verification
 Parent: Issue #60 (Web Console Goal)
-Base commit: to be recorded at publication (must contain accepted #61 Candidate)
+Base commit: bbfb2d84d978a10727f8711dcb03c1d45fed6bd3
 Candidate commit: n/a
 Session bootstrap: docs/tasks/64-web-console-terminal-attach/prompt.md
 Preferred worker: coordinator-authorized-devin
 Environment: env:devin
 Handoff profile: docs/tasks/handoffs/devin.md
 Required capabilities: github-read-write, repository-code-authoring, github-actions-evidence, local-node-tmux-execution, native-pty-build
-Hard dependencies: Issue #61 Final Acceptance
+Hard dependencies: Issue #61 Final Acceptance — SATISFIED; Issue #65 accepted on main (lifecycle adapter is the sole new-session/kill-session exception; this Task adds the attach-session exception only for its own isolated adapter)
 ```
 
 Requirement authority: `docs/web-console-requirements.md` §2 and WC-UC4.
@@ -128,6 +128,8 @@ BLOCK if a pty dependency cannot be built on the CI runner and no built-in alter
 ## Publication Dependency / Alignment Gate
 
 Re-read accepted #61 (bind guard/Origin helpers, adapter, guard layout, UI stack) and update this file before the Publication Gate. Coordinator must explicitly confirm the `node-pty` (or alternative) dependency decision.
+
+**Coordinator dependency decision (frozen):** server-side PTY via `node-pty`, WebSocket transport via `ws`, browser rendering via `@xterm/xterm` (plus `@xterm/addon-fit` only if needed). All are Console-only dependencies — never part of the runtime/MCP bundle. If `node-pty` cannot build in CI, BLOCK rather than weaken terminal semantics.
 
 ## Evidence Contract
 
