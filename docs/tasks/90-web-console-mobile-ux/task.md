@@ -559,6 +559,21 @@ mode is compatibility fallback only:
   normal/live, tool-running, tool-expanded, interrupted, details, attaching,
   restored, drawer, and streaming-Markdown states, proving content remains
   the primary visual layer throughout.
+- Real-iPhone viewport + composer/input stability: viewport height must come
+  from a keyboard-aware reconciled candidate set (visualViewport metrics,
+  innerHeight, clientHeight, app-shell/composer rects, display-mode,
+  orientation, focus, composition state), never one blind source; reject
+  stale undersized measurements when no keyboard is present; safe-area is
+  applied exactly once; stale heights are recomputed on hidden→visible,
+  pageshow, orientation, and keyboard close. Composer/input is a real-device
+  gate: IME composition must not trigger premature send or lost/duplicated
+  characters; explicit Send submits the exact visible draft at most once;
+  focus/caret/draft survive viewport reconciliation; ambiguous/failed sends
+  never auto-retry. Diagnostics (bounded ring buffer, one-tap copy, draft
+  length only — never content) live behind overflow/debug. READY requires
+  real iPhone standalone evidence: ≥10 cold launches, ≥10 bg-fg switches,
+  ≥10 keyboard cycles including Chinese input, ≥5 type→send identity checks,
+  ≥1 orientation transition; any large dead zone or input corruption fails.
 
 ## Completion Protocol
 
