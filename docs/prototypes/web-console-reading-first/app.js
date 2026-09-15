@@ -467,7 +467,14 @@ $('send').addEventListener('click', () => {
     playStream(profile === 'devin' ? DEVIN_REPLY.slice() : GENERIC_REPLY.slice());
   }, 450);
 });
-$('composer-plus').addEventListener('click', () => toast('attach — mock affordance only'));
+// "+" opens the collapsed-by-default Advanced input panel (Stop/Enter/Esc,
+// type-only toggle). Collapsed it reserves zero height.
+$('composer-plus').addEventListener('click', () => {
+  const adv = $('advanced');
+  const open = adv.hidden;
+  adv.hidden = !open;
+  $('composer-plus').setAttribute('aria-expanded', String(open));
+});
 document.querySelectorAll('[data-ctl]').forEach(b =>
   b.addEventListener('click', () => toast(`${b.dataset.ctl} — mock control only`)));
 

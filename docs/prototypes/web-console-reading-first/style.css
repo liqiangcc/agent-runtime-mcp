@@ -31,6 +31,12 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* fill the real dynamic viewport — iOS standalone miscomputes
+     height:100% (stale browser-chrome height → dead gap at bottom).
+     Order matters: dvh last wins where supported (iOS 15.4+). */
+  height: 100vh;
+  height: -webkit-fill-available;
+  height: 100dvh;
 }
 
 button {
@@ -242,6 +248,7 @@ body.drawer-open #drawer, #drawer.dragging { visibility: visible; transition-del
 /* ---- main reading flow ---- */
 #main {
   flex: 1;
+  min-height: 0;
   position: relative;
   overflow-y: auto;
   overflow-x: hidden;
@@ -383,17 +390,13 @@ body.drawer-open #drawer, #drawer.dragging { visibility: visible; transition-del
   color: var(--text-dim);
   font-size: 20px;
 }
-#send-status { font-size: 12px; color: var(--text-dim); min-height: 16px; max-width: 720px; margin: 0 auto 4px; }
+#send-status { font-size: 12px; color: var(--text-dim); min-height: 0; max-width: 720px; margin: 0 auto; }
+#send-status:not(:empty) { min-height: 16px; margin-bottom: 4px; }
 
+/* collapsed advanced panel reserves zero height — the "+" button opens it */
 #advanced { max-width: 720px; margin: 6px auto 0; }
-#advanced summary {
-  font-size: 12.5px;
-  color: var(--text-dim);
-  cursor: pointer;
-  list-style: none;
-}
-#advanced summary::before { content: "▸ "; }
-#advanced[open] summary::before { content: "▾ "; }
+#advanced[hidden] { display: none; margin: 0; }
+#composer-plus[aria-expanded="true"] { background: var(--bg-raised); border-color: var(--accent); }
 .adv-body {
   display: flex;
   flex-wrap: wrap;

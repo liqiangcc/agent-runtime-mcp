@@ -62,6 +62,12 @@ shared Reading-first shell (app.js, index.html, style.css)
 - `viewport-fit=cover` + `env(safe-area-inset-*)` are applied to the
   topbar, prototype badge, drawer (top+bottom), composer and bottom
   sheets, so the notch/Dynamic Island/Home Indicator never cover content.
+- The app shell fills the real dynamic viewport: `body` uses
+  `100dvh` with `100vh`/`-webkit-fill-available` fallbacks — iOS
+  standalone miscomputes `height:100%` and leaves a dead gap at the
+  bottom. Conversation is the only flexible region; header and composer
+  take only required height; the collapsed Advanced panel reserves zero
+  height (opened via the composer "+" button).
 - `@media (display-mode: standalone)` marks the badge and hides the
   optional "Enter fullscreen" menu item. The Fullscreen API remains a
   user-triggered enhancement in browser mode only; browser chrome is
@@ -112,8 +118,9 @@ shared Reading-first shell (app.js, index.html, style.css)
   default (no card chrome); only the expanded body is a restrained dark
   surface. In-progress state is an accent icon, never a loud pulse/border.
   Markdown answers are never wrapped inside a tool card)
-- sticky bottom composer; Send primary; no-submit + Stop/Enter/Escape under
-  an "Advanced input" disclosure
+- sticky bottom composer hugging the bottom safe area; Send primary;
+  no-submit + Stop/Enter/Escape under the "+" Advanced panel (zero height
+  when collapsed)
 - compact observation-recovery UI for needs_reobserve / error / closed with a
   prominent Re-observe button (simulated via overflow "Demo states")
 - secondary affordances: raw transcript view, copy, bookmarks, search,

@@ -101,12 +101,11 @@
 <footer id="composer">
   <div id="send-status" role="status"></div>
   <div class="composer-row">
-    <button id="composer-plus" aria-label="Attach" title="Attach (mock)">+</button>
+    <button id="composer-plus" aria-label="Advanced input" aria-expanded="false" title="Advanced input (mock)">+</button>
     <textarea id="composer-text" rows="1" placeholder="Message reader-cn…"></textarea>
     <button id="send" class="btn-primary" aria-label="Send">↑</button>
   </div>
-  <details id="advanced">
-    <summary>Advanced input</summary>
+  <div id="advanced" hidden>
     <div class="adv-body">
       <label class="adv-line"><input type="checkbox" id="no-submit"> type only — do not submit</label>
       <div class="adv-controls">
@@ -115,7 +114,7 @@
         <button data-ctl="ESCAPE">Esc</button>
       </div>
     </div>
-  </details>
+  </div>
 </footer>
 </div><!-- /#canvas -->
 
