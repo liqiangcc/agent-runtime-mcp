@@ -524,6 +524,20 @@ mode is compatibility fallback only:
   overflow/debug affordances. Evidence requires real iPhone standalone
   screenshots plus top safe-area/header/content-inset/first-content-baseline
   measurements.
+- Standalone viewport reconciliation: measure `visualViewport.height`
+  (fallback `innerHeight`) at runtime and publish it via a CSS custom
+  property consumed by the app shell; re-measure after initial boot,
+  pageshow, visibilitychange→visible, visualViewport.resize, window.resize,
+  orientation change, and keyboard open/close, with rAF/debounce to avoid
+  thrash. CSS `100dvh`/`100vh`/`-webkit-fill-available` remain fallbacks, not
+  the sole mechanism. Header and composer are intrinsic-height rows and the
+  conversation is the only flexible scrolling region. Re-measurement must not
+  reset transcript DOM, scroll position, partial Markdown, activity cards,
+  recovery state, drawer state, or composer draft. READY requires real iPhone
+  standalone stability evidence: ≥10 cold launches, ≥10 background/foreground
+  switches, ≥10 keyboard open/close cycles, ≥1 orientation/viewport
+  transition — each recording viewport/app-shell/composer/deadBottom, with
+  deadBottom settling to intentional safe-area only.
 
 ## Completion Protocol
 
