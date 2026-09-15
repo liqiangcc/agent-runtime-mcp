@@ -130,8 +130,12 @@ shared Reading-first shell (app.js, index.html, style.css)
 - sticky bottom composer hugging the bottom safe area; Send primary;
   no-submit + Stop/Enter/Escape under the "+" Advanced panel (zero height
   when collapsed)
-- compact observation-recovery UI for needs_reobserve / error / closed with a
-  prominent Re-observe button (simulated via overflow "Demo states")
+- compact observation-recovery strip for needs_reobserve / error / closed:
+  a single 38px row (status + ⓘ gap-details expander + one Re-observe
+  action); the header only carries the state chip. Re-observe transitions
+  in place (interrupted → Re-observing…/Attaching… → live) with no scroll
+  jump or transcript rebuild; simulated via overflow "Demo states",
+  never auto-retries
 - secondary affordances: raw transcript view, copy, bookmarks, search,
   terminal (marked Advanced), lifecycle, refresh — all mock
 - context-transfer modal mock: source → target → preview → confirm

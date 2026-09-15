@@ -139,11 +139,18 @@ window.Adapters = window.Adapters || {};
       function safeText() {
         const nl = acc.lastIndexOf('\n');
         const tail = acc.slice(nl + 1);
-        return tail.startsWith('«') ? acc.slice(0, nl + 1) : acc;
+        if (tail.startsWith('«')) return acc.slice(0, nl + 1);
+        // a complete marker line with no body yet is also held back —
+        // otherwise it would flash as literal text for one frame
+        const lines = acc.replace(/\n+$/, '').split('\n');
+        if (MARKER.test(lines[lines.length - 1] || ''))
+          return acc.slice(0, acc.lastIndexOf(lines[lines.length - 1]));
+        return acc;
       }
 
-      function reconcile() {
-        const segs = parse(safeText()) || (safeText().trim() ? [{ type: 'text', text: safeText().trim() }] : []);
+      function reconcile(force) {
+        const text = force ? acc : safeText();
+        const segs = parse(text) || (text.trim() ? [{ type: 'text', text: text.trim() }] : []);
         for (let i = 0; i < segs.length; i++) {
           const seg = segs[i];
           const isLast = i === segs.length - 1;
@@ -183,7 +190,7 @@ window.Adapters = window.Adapters || {};
 
       return {
         update(delta) { acc += delta; reconcile(); },
-        done() { done = true; acc += ''; reconcile(); rendered.forEach(r => r.el.classList.remove('live')); },
+        done() { done = true; reconcile(true); rendered.forEach(r => r.el.classList.remove('live')); },
         abort() { done = true; rendered.forEach(r => r.el.classList.remove('live')); },
       };
     },

@@ -291,11 +291,24 @@ function setState(state) {
   chip.className = 'chip ' + (state === 'live' ? 'chip-live' : state === 'attaching' ? 'chip-attaching' : state === 'polling' ? 'chip-polling' : RECOVERY[state]?.chip || 'chip-polling');
   chip.textContent = state === 'needs_reobserve' ? 're-observe' : state;
   const r = RECOVERY[state];
-  rec.hidden = !r;
+  // attaching keeps the strip visible for an in-place interrupted →
+  // re-observing → live transition (no vanish/rebuild).
+  rec.hidden = !(r || state === 'attaching');
+  $('rec-detail').hidden = true;
+  $('rec-more').setAttribute('aria-expanded', 'false');
   if (r) {
     rec.className = r.cls;
     $('rec-title').textContent = r.title;
     $('rec-detail').textContent = r.detail;
+    $('reobserve').disabled = false;
+    $('reobserve').textContent = 'Re-observe';
+    $('rec-more').hidden = false;
+  } else if (state === 'attaching') {
+    rec.className = 'attaching';
+    $('rec-title').textContent = 'Re-observing…';
+    $('reobserve').disabled = true;
+    $('reobserve').textContent = 'Attaching…';
+    $('rec-more').hidden = true;
   }
 }
 
@@ -445,7 +458,13 @@ $('overflow-menu').addEventListener('click', (e) => {
   else toast(`${act} — mock affordance only`);
 });
 
-// recovery — explicit Re-observe resumes the interrupted stream; never auto-retry
+// recovery — compact strip: details expander + explicit Re-observe;
+// never auto-retry, transition happens in place in the same strip
+$('rec-more').addEventListener('click', () => {
+  const d = $('rec-detail');
+  d.hidden = !d.hidden;
+  $('rec-more').setAttribute('aria-expanded', String(!d.hidden));
+});
 $('reobserve').addEventListener('click', () => {
   setState('attaching');
   setTimeout(() => {

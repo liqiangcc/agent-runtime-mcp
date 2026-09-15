@@ -75,12 +75,13 @@
 
 <main id="main">
   <section id="recovery" hidden>
-    <div class="rec-icon" aria-hidden="true">⚠</div>
-    <div class="rec-body">
-      <div id="rec-title" class="rec-title">Observation interrupted</div>
-      <div id="rec-detail" class="rec-detail">Channel is still available; observation continuity was lost (cursor expired — GAP). Output produced during the gap is not shown below.</div>
+    <div class="rec-row">
+      <span class="rec-icon" aria-hidden="true">⚠</span>
+      <span id="rec-title" class="rec-title">Observation interrupted</span>
+      <button id="rec-more" aria-expanded="false" title="Gap details">ⓘ</button>
       <button id="reobserve" class="btn-primary">Re-observe</button>
     </div>
+    <div id="rec-detail" class="rec-detail" hidden>Channel is still available; observation continuity was lost (cursor expired — GAP). Output produced during the gap is not shown below.</div>
   </section>
 
   <section id="messages" aria-label="Conversation">

@@ -290,28 +290,45 @@ body.drawer-open #drawer, #drawer.dragging { visibility: visible; transition-del
 }
 .entry .sent-label { color: var(--accent); }
 
-/* ---- recovery banner: compact, explicit, distinct ---- */
+/* ---- recovery: compact strip — status + single action, details collapsed ---- */
 #recovery {
   position: sticky;
   top: 0;
   z-index: 10;
-  margin: 12px 12px 0;
+  margin: 8px 12px 0;
   max-width: 720px;
   align-self: center;
   width: calc(100% - 24px);
-  display: flex;
-  gap: 10px;
   background: var(--warn-bg);
   border: 1px solid var(--warn);
-  border-radius: var(--radius);
-  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+.rec-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  min-height: 38px;
 }
 #recovery.err { background: var(--err-bg); border-color: var(--err); }
-.rec-icon { color: var(--warn); font-size: 16px; }
+.rec-icon { color: var(--warn); font-size: 13px; flex-shrink: 0; }
 #recovery.err .rec-icon { color: var(--err); }
-.rec-title { font-weight: 650; font-size: 14px; }
-.rec-detail { font-size: 12.5px; color: var(--text-dim); margin: 4px 0 10px; }
-#reobserve { padding: 8px 18px; font-size: 14px; }
+.rec-title { font-weight: 550; font-size: 13px; flex: 1; min-width: 0; }
+#rec-more {
+  border: none; background: transparent; color: var(--text-dim);
+  font-size: 13px; padding: 4px 6px; flex-shrink: 0;
+}
+#reobserve { padding: 6px 14px; font-size: 12.5px; border-radius: 8px; flex-shrink: 0; }
+#recovery.attaching .rec-icon { color: var(--warn); }
+#recovery.attaching { background: var(--bg-card); border-color: var(--line); }
+.rec-detail {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 0 10px 10px 31px;
+  line-height: 1.45;
+}
+.rec-detail[hidden] { display: none; }
 
 /* ---- raw transcript ---- */
 #raw-view[hidden], #transfer-modal[hidden], #recovery[hidden] { display: none; }
