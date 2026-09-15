@@ -186,6 +186,12 @@ export class HistoryHub {
       throw new McpToolError('RESOURCE_EXHAUSTED', `at most ${this.maxObserved} Channels may be observed at once`);
     }
     cs.viewers.add(listener);
+    // A viewer present means observation must be armed: a stale in-flight
+    // wait must see stopped=false when it settles or the old loop would exit
+    // and strand the just-attached viewer. Re-arming is state-only — the
+    // existing loop (if any) keeps serving the Channel, so at most one
+    // logical observation loop/wait path exists.
+    cs.stopped = false;
     const snap = cs.ring.snapshot();
     listener({ type: 'snapshot', channel_id: channelId, state: cs.state, detail: cs.detail, snapshot: snap });
     // The initial snapshot is authoritative — it already reflects any eviction
