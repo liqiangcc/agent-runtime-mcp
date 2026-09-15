@@ -204,13 +204,32 @@ function pickViewportHeight() {
   return { h: layout, src: 'layout', reason: vv ? `stale-vv-rejected(${Math.round(vv.height)}<${layout}-40)` : 'no-vv' };
 }
 
-let vhTimer = 0, vhRaf = 0, vpDebug = null;
+let vhTimer = 0, vhRaf = 0, vpDebug = null, shrinkTimers = [];
+function currentAppVh() {
+  return parseFloat(document.documentElement.style.getPropertyValue('--app-vh')) || 0;
+}
 function applyViewport(ev) {
   const pick = pickViewportHeight();
   document.documentElement.style.setProperty('--app-vh', `${pick.h}px`);
   diagPush(ev, { src: pick.src, why: pick.reason });
   if (vpDebug) vpDebug.textContent =
     `${pick.src}=${Math.round(pick.h)} ih=${window.innerHeight} dead=${Math.round(window.innerHeight - document.getElementById('composer').getBoundingClientRect().bottom)}`;
+  return pick;
+}
+// After any shrink commit (keyboard open or a stale vv that slipped
+// through), iOS may not deliver a clean reconcile when it ends. Schedule
+// staggered re-samples that adopt the larger stable layout max once the
+// keyboard heuristic clears — no user tap needed.
+function scheduleRecoverySamples(ev) {
+  shrinkTimers.forEach(clearTimeout);
+  shrinkTimers = [600, 1200, 2400].map(ms => setTimeout(() => {
+    const pick = pickViewportHeight();
+    if (pick.h > currentAppVh()) applyViewport(`${ev}:recover@${ms}`);
+    else diagPush(`${ev}:recover@${ms}`, { src: pick.src, why: pick.reason + ' (no-change)' });
+  }, ms));
+}
+function layoutMax() {
+  return Math.max(window.innerHeight, document.documentElement.clientHeight);
 }
 function syncAppVh(ev, { clear = false } = {}) {
   if (clear) document.documentElement.style.removeProperty('--app-vh'); // drop stale value, recompute fresh
@@ -218,13 +237,22 @@ function syncAppVh(ev, { clear = false } = {}) {
   // intermediate rAF sample (keyboard needs responsive shrink), then a
   // debounced settle sample so transient iOS values never commit.
   if (!vhRaf) vhRaf = requestAnimationFrame(() => { vhRaf = 0; applyViewport(ev + ':raf'); });
-  vhTimer = setTimeout(() => applyViewport(ev + ':settle'), 240);
+  vhTimer = setTimeout(() => {
+    const pick = applyViewport(ev + ':settle');
+    if (pick.h < layoutMax() - 40) scheduleRecoverySamples(ev);
+  }, 240);
 }
 window.addEventListener('pageshow', () => syncAppVh('pageshow', { clear: true }));
 window.addEventListener('resize', () => syncAppVh('resize'));
 window.addEventListener('orientationchange', () => syncAppVh('orientation', { clear: true }));
 window.visualViewport?.addEventListener('resize', () => syncAppVh('vv.resize'));
+window.visualViewport?.addEventListener('scroll', () => syncAppVh('vv.scroll'));
 document.addEventListener('visibilitychange', () => { if (!document.hidden) syncAppVh('visible', { clear: true }); });
+// first user touch after a stale shrink also re-samples — covers keyboard
+// paths that deliver no event at all
+document.addEventListener('touchstart', () => {
+  if (currentAppVh() < layoutMax() - 40) syncAppVh('touch');
+}, { passive: true });
 // ?debug=viewport — live measurement readout for real-device capture
 if (params.get('debug')) {
   vpDebug = document.createElement('div');
