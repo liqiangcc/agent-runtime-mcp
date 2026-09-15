@@ -548,6 +548,17 @@ mode is compatibility fallback only:
   semantics unchanged. Evidence: real iPhone standalone five-state
   screenshots (live/interrupted/details/attaching/restored) plus
   no-scroll-jump and no-duplicate-action proof.
+- Consolidated interaction model: the prototype converges on a ChatGPT-like
+  interaction model as a whole, not piecemeal visual patches —
+  conversation/Markdown is always the primary visual layer in every state;
+  tool/activity rows stay lightweight single-line; the header default is
+  menu/session-name/ultra-light status/overflow only; the composer is the
+  single obvious primary action; and no state transition may jump scroll,
+  rebuild the transcript, or lose streaming/Markdown/activity/drawer/
+  composer-draft state. Real iPhone standalone evidence must cover
+  normal/live, tool-running, tool-expanded, interrupted, details, attaching,
+  restored, drawer, and streaming-Markdown states, proving content remains
+  the primary visual layer throughout.
 
 ## Completion Protocol
 
