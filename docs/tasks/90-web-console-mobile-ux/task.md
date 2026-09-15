@@ -482,6 +482,32 @@ content:
   mode — plus reference overlay/diff. If it still reads as an engineering
   dashboard/card-stack at first glance, it is not READY.
 
+## Amendment — Installable PWA / standalone mobile mode (FINAL GATE DECISION)
+
+Standalone/installed mode is the PRIMARY mobile acceptance surface; browser
+mode is compatibility fallback only:
+
+- Web App Manifest with `display: standalone` preferred; `fullscreen` only as
+  compatible fallback. The Fullscreen API is an optional user-triggered
+  enhancement, never the sole mechanism; never script-hide browser chrome.
+- iOS legacy path (`apple-mobile-web-app-capable`, status-bar style,
+  touch icon) is a documented fallback while no valid-HTTPS tailnet endpoint
+  exists for proper PWA install.
+- `viewport-fit=cover` + `env(safe-area-inset-*)` for header/drawer/composer/
+  sheets; system status bar/safe areas follow platform rules; the composer
+  hugs the bottom safe area in standalone.
+- `@media (display-mode: standalone)` removes browser-compensation chrome;
+  browser mode stays fully usable.
+- Drawer swipe, streaming Markdown, adapter folding, recovery, and composer
+  draft must survive standalone; no MCP/transport/mutation/cursor semantic
+  changes; no default caching of API/Channel data (any service worker is
+  static-asset-only).
+- Evidence: standalone screenshots (Reading, folded tools, Markdown,
+  streaming partial, drawer open/drag, composer, recovery) as the primary
+  side-by-side vs the ChatGPT reference; browser-mode sanity retained;
+  measured content-height/safe-area geometry; honest residual notes for any
+  install-path limits (e.g. tailnet HTTPS availability).
+
 ## Completion Protocol
 
 ```text
