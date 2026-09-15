@@ -322,6 +322,35 @@ authorize implementation yet. Per the Final Gate decision on Issue #90
 5. After approval, the Coordinator may revise/freeze the Contract against the
    approved prototype and then re-dispatch the formal Attempt.
 
+## Amendment — Agent-specific UI adapters (FINAL GATE DECISION)
+
+Target architecture for the approved direction (and therefore for the
+prototype being reviewed):
+
+```text
+shared Console shell
++ per-agent UI adapter (deep adaptation per agent type)
++ generic-terminal fallback
+```
+
+- The shared shell owns session/channel navigation, recovery UI, transport
+  safety, context-transfer shell, and raw fallback.
+- Each adapter owns presentation of one agent type's stable output format —
+  e.g. the `devin` adapter collapses intermediate activity (Thinking /
+  Running command / Read shell / tool results) into foldable cards, keeps
+  execution trace collapsed by default, prioritizes user messages and
+  primary/latest agent content, and preserves an expandable raw view.
+- Adapter presentation parsing lives only in the adapter layer — never in
+  runtime/core or the MCP product.
+- Adapter parse failure must fall back to raw/generic rendering: no dropped
+  content, no fabricated state.
+- Production MUST NOT infer agent type from terminal text. The agent-type
+  metadata/config/selection source is frozen only after prototype approval;
+  if it requires backend or public-contract changes, it goes through a
+  separate Publication Gate first.
+- `generic-terminal` fallback remains available for unrecognized/unconfigured
+  agent types.
+
 ## Completion Protocol
 
 ```text
