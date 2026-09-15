@@ -48,6 +48,33 @@ shared Reading-first shell (app.js, index.html, style.css)
   auto-retry). Per-keystroke streaming exists only inside the Advanced
   Terminal sheet.
 
+## Installable / standalone display mode
+
+- `manifest.webmanifest` declares `display: "standalone"` with
+  `start_url`/`scope`, theme/background colors and 192/512 icons. On a
+  valid-HTTPS origin this enables browser "Install app" / Add to Home
+  Screen; launched standalone, the URL bar and toolbars are gone.
+- iOS HTTP fallback (verified path): the legacy
+  `apple-mobile-web-app-capable` + `apple-mobile-web-app-status-bar-style`
+  + `apple-touch-icon` metas give an app-like standalone window via
+  "Add to Home Screen" even without a fetchable manifest — this works on
+  the current `http://100.73.234.114:8090` tailnet endpoint.
+- `viewport-fit=cover` + `env(safe-area-inset-*)` are applied to the
+  topbar, prototype badge, drawer (top+bottom), composer and bottom
+  sheets, so the notch/Dynamic Island/Home Indicator never cover content.
+- `@media (display-mode: standalone)` marks the badge and hides the
+  optional "Enter fullscreen" menu item. The Fullscreen API remains a
+  user-triggered enhancement in browser mode only; browser chrome is
+  never script-hidden.
+- **No service worker is registered** — deliberate choice: nothing is
+  cached, so no channel/API data can ever be cached; the prototype is
+  static assets only. If production ever adds one, it must be
+  static-asset-only.
+- Known blocker for a real iPhone install: `tailscale serve`/`cert`
+  cannot issue HTTPS certs on this tailnet (feature disabled, needs
+  tailnet admin). Until then, the verified path is the apple-* meta
+  standalone window over HTTP; manifest install requires HTTPS.
+
 ## Production boundary note (frozen rule for any future implementation)
 
 - Presentation parsing of agent-specific output formats belongs ONLY in a

@@ -156,7 +156,11 @@ const messages = $('messages');
 const main = $('main');
 
 // ---- profile / adapter selection (explicit mock switch, never inferred) ----
-const profile = new URLSearchParams(location.search).get('agent') || 'generic';
+const params = new URLSearchParams(location.search);
+// ?display=standalone — preview shim for reviewers (real standalone is
+// detected via the display-mode media query; this only mirrors its CSS).
+if (params.get('display') === 'standalone') document.body.classList.add('standalone-sim');
+const profile = params.get('agent') || 'generic';
 const adapter = window.Adapters[profile] || window.Adapters.generic;
 const entries = profile === 'devin' ? DEVIN_ENTRIES : GENERIC_ENTRIES;
 $('profile-label').textContent = adapter.label;
@@ -393,6 +397,14 @@ $('overflow-menu').addEventListener('click', (e) => {
   }
   else if (act === 'send-fail') { nextSendOutcome = 'fail'; toast('next send will fail (mock)'); }
   else if (act === 'send-ambiguous') { nextSendOutcome = 'ambiguous'; toast('next send will time out — ambiguous (mock)'); }
+  else if (act === 'fullscreen') {
+    // Optional user-triggered enhancement only — we never script-hide
+    // browser chrome, and failure must not disturb session state.
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else if (document.documentElement.requestFullscreen)
+      document.documentElement.requestFullscreen().catch(() => toast('fullscreen not available here'));
+    else toast('fullscreen not supported on this browser');
+  }
   else if (act === 'profile-devin') location.search = '?agent=devin';
   else if (act === 'profile-generic') location.search = '?agent=generic';
   else toast(`${act} — mock affordance only`);
