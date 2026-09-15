@@ -442,6 +442,21 @@ until explicit approval.
   code/table non-trigger) plus the standard 420×912 primary + 390/375 sanity
   screenshot set.
 
+Drawer geometry (reference `docs/assets/issues/90/chatgpt-drawer-reference-420.svg`):
+
+- Drawer occupies ~70–72% of viewport (~295–302 CSS px at 420px); the active
+  conversation canvas stays visible on the right and translates right as one
+  continuous surface with large rounded leading corners — not a plain overlay;
+  the canvas must not disappear/rebuild.
+- Gesture tracks the finger progressively and settles on distance/velocity
+  thresholds — no touch-end jump.
+- Do not copy ChatGPT product semantics (Library/Projects/Plugins); the pixel
+  target applies to geometry, hierarchy, spacing, typography and motion only.
+- Pre-READY evidence must include closed / ~50% drag / fully open / closing
+  drag screenshots at 420×912 plus an overlay/diff against the reference and
+  recorded drawer-width/canvas-translation/radius/gutter/typography
+  measurements.
+
 ## Completion Protocol
 
 ```text
