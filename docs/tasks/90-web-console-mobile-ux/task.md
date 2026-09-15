@@ -351,6 +351,28 @@ shared Console shell
 - `generic-terminal` fallback remains available for unrecognized/unconfigured
   agent types.
 
+## Amendment — Streaming / real-time I/O (FINAL GATE DECISION)
+
+The target UX is streaming, and the prototype must demonstrate it with mock
+events (clearly marked as mock):
+
+- Output is progressive: content appears incrementally as deltas arrive.
+  Adapter activity cards update in place — no whole-snapshot re-appends, no
+  duplicated blocks; DOM and scroll position stay stable (auto-follow only
+  when pinned to bottom).
+- Cursor continuity/GAP/CURSOR_EXPIRED stay fail-closed: a gap is never
+  presented as a seamless stream.
+- Composer typing is local-only and instant; explicit Send is the only
+  mutation boundary. The sent turn immediately shows sending → delivered /
+  failed / ambiguous; the write is at-most-once. Keystrokes are never written
+  to the agent.
+- Per-keystroke bidirectional streaming belongs only to Advanced Terminal.
+- Adapters do incremental presentation parsing; uncertainty falls back to
+  raw/generic without dropping content or fabricating completion.
+- If production streaming ever needs a backend/public event contract beyond
+  the existing observer/SSE, that requires a separate Publication Gate and
+  must not ride inside #90 presentation work.
+
 ## Completion Protocol
 
 ```text
