@@ -389,6 +389,55 @@ test('C5: last viewer leaving stops the loop within one wait timeout', async (t)
   assert.equal(settled, waitsBefore, 'wait-call count must not increase after the last viewer left');
 });
 
+test('reattach while a bounded wait is still in flight re-arms observation (no stranded viewer, no duplicate loop)', async (t) => {
+  const mcp = new ScriptedMcp();
+  const bus = new ConsoleEventBus();
+  const hub = makeHub(mcp, bus);
+  t.after(() => hub.close());
+
+  mcp.readQueue.push({ text: 'first' });
+  const detach1 = hub.addViewer(CHANNEL, () => undefined);
+  await waitFor(() => hub.status(CHANNEL).state === 'live');
+  // waitQueue is empty: the loop is now parked inside one gated bounded wait.
+  const waitsBefore = mcp.calls.filter((c) => c.tool === 'wait_channel_event').length;
+
+  // Last viewer detaches while that wait is in flight, then a new viewer
+  // reattaches before the wait settles — the race window.
+  detach1();
+  // One entry id may legitimately appear in both `appended` and `updated` of
+  // the same delta (new block then paused); distinct ids prove no duplicate
+  // event/output delivery to the reattached viewer.
+  const burstEntryIds = new Set<number>();
+  const detach2 = hub.addViewer(CHANNEL, (update) => {
+    for (const entry of [...(update.appended ?? []), ...(update.updated ?? [])]) {
+      if (entry.kind === 'output_block' && entry.text.includes('second burst')) burstEntryIds.add(entry.id);
+    }
+  });
+  t.after(detach2);
+
+  // Reattach must not spawn a second observation loop: still exactly one
+  // get_channel(observe:true) and no extra wait_channel_event yet.
+  assert.equal(mcp.calls.filter((c) => c.tool === 'get_channel').length, 1, 'reattach must not re-observe / spawn a second loop');
+  assert.equal(
+    mcp.calls.filter((c) => c.tool === 'wait_channel_event').length,
+    waitsBefore,
+    'reattach must not stack an extra concurrent waiter',
+  );
+
+  // Now the old wait settles (heartbeat) and later output arrives.
+  mcp.readQueue.push({ text: 'first\nsecond burst' });
+  mcp.waitQueue.push({ reason: 'output_idle', channel_id: CHANNEL, next_cursor: 'c2' });
+  mcp.releaseWait();
+
+  await waitFor(() => {
+    const entries = hub.snapshot(CHANNEL).ring.entries;
+    return entries.some((e) => e.kind === 'output_block' && e.text.includes('second burst'));
+  });
+  assert.equal(hub.status(CHANNEL).state, 'live');
+  assert.equal(burstEntryIds.size, 1, 'the reattached viewer must receive the output exactly once');
+  assert.equal(mcp.calls.filter((c) => c.tool === 'get_channel').length, 1, 'no duplicate observer loop was spawned');
+});
+
 test('control sends record but do not close the output block', async (t) => {
   const mcp = new ScriptedMcp();
   const bus = new ConsoleEventBus();
