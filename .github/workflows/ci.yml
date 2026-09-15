@@ -316,14 +316,20 @@ jobs:
         shell: bash
         run: |
           # Guard A — lifecycle verbs are permitted ONLY in the declared
-          # adapter module; everything else under console/ stays clean.
+          # lifecycle adapter module; everything else under console/ stays clean.
           if git grep -n -E 'new-session|kill-session' -- console ':(exclude)console/src/session-lifecycle.ts'; then
             echo 'Console boundary violation detected under console/' >&2
             exit 1
           fi
-          # Guard B — attach/key-injection/shell-exec patterns have NO
-          # exception anywhere under console/, adapter included.
-          if git grep -n -E 'attach-session|pipe-pane|send-keys|shell:[[:space:]]*true' -- console; then
+          # Guard B — the terminal-attach verb is permitted ONLY in the
+          # declared terminal adapter module.
+          if git grep -n -E 'attach-session' -- console ':(exclude)console/src/terminal-attach.ts'; then
+            echo 'Console boundary violation detected under console/' >&2
+            exit 1
+          fi
+          # Guard C — key-injection/pane-piping/shell-exec patterns have NO
+          # exception anywhere under console/, adapters included.
+          if git grep -n -E 'pipe-pane|send-keys|shell:[[:space:]]*true' -- console; then
             echo 'Console boundary violation detected under console/' >&2
             exit 1
           fi

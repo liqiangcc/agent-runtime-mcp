@@ -624,6 +624,26 @@ h1 {
   flex: 1;
 }
 
+/* ---------- terminal page ---------- */
+
+.terminal-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.term-wrap {
+  flex: 1;
+  min-height: 0;
+  padding: 0.5rem;
+  background: #000;
+}
+
+.term-wrap .xterm {
+  height: 100%;
+}
+
 /* ---------- phone-width ---------- */
 
 @media (max-width: 700px) {

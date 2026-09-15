@@ -31,6 +31,10 @@ export interface ConsoleConfig {
     allowedCwdRoots: string[];
     protectedSessions: string[];
   };
+  terminal: {
+    enabled: boolean;
+    maxAttach: number;
+  };
 }
 
 const DEFAULT_BIND = '127.0.0.1';
@@ -79,12 +83,12 @@ function boundedInt(raw: string | undefined, name: string, fallback: number, min
   return value;
 }
 
-function parseLifecycleEnabled(raw: string | undefined): boolean {
+function parseEnabledFlag(raw: string | undefined, name: string): boolean {
   if (raw === undefined || raw.trim() === '') return false;
   const value = raw.trim();
   if (value === 'true' || value === '1') return true;
   if (value === 'false' || value === '0') return false;
-  throw new ConfigError(`CONSOLE_LIFECYCLE_ENABLED must be true/1 or false/0, got ${JSON.stringify(raw)}`);
+  throw new ConfigError(`${name} must be true/1 or false/0, got ${JSON.stringify(raw)}`);
 }
 
 function parseLifecycleProfiles(raw: string | undefined): Record<string, { argv: string[] }> {
@@ -167,10 +171,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConsoleConfig 
       tailBytes: boundedInt(env.CONSOLE_TAIL_BYTES, 'CONSOLE_TAIL_BYTES', 256 * 1024, 4_096, 1024 * 1024),
     },
     lifecycle: {
-      enabled: parseLifecycleEnabled(env.CONSOLE_LIFECYCLE_ENABLED),
+      enabled: parseEnabledFlag(env.CONSOLE_LIFECYCLE_ENABLED, 'CONSOLE_LIFECYCLE_ENABLED'),
       profiles: parseLifecycleProfiles(env.CONSOLE_LIFECYCLE_PROFILES),
       allowedCwdRoots: parseCwdRoots(env.CONSOLE_ALLOWED_CWD_ROOTS),
       protectedSessions: parseProtectedSessions(env.CONSOLE_PROTECTED_SESSIONS),
+    },
+    terminal: {
+      enabled: parseEnabledFlag(env.CONSOLE_TERMINAL_ENABLED, 'CONSOLE_TERMINAL_ENABLED'),
+      maxAttach: boundedInt(env.CONSOLE_MAX_ATTACH, 'CONSOLE_MAX_ATTACH', 4, 1, 16),
     },
   };
 }

@@ -344,6 +344,7 @@ async function refreshRaw() {
 function setSelected(channel) {
   selectedChannel = channel;
   updateLifecycleState();
+  updateTerminalLink();
   document.querySelectorAll('.channel').forEach((el) => {
     el.classList.toggle('selected', channel !== null && el.dataset.channelId === channel.channel_id);
   });
@@ -629,6 +630,36 @@ async function killSession() {
   }
 }
 
+/* ---- Terminal View capability (Advanced entry; enabled only by operator) ---- */
+
+let terminalEnabled = false;
+
+function updateTerminalLink() {
+  if (terminalEnabled && selectedChannel) {
+    terminalLink.href = `/terminal.html?channel=${encodeURIComponent(selectedChannel.channel_id)}`;
+    terminalLink.removeAttribute('aria-disabled');
+    terminalLink.title = 'open an interactive terminal on this pane';
+  } else {
+    terminalLink.href = '#';
+    terminalLink.setAttribute('aria-disabled', 'true');
+    terminalLink.title = 'Terminal View requires CONSOLE_TERMINAL_ENABLED';
+  }
+}
+
+async function loadTerminalCapability() {
+  try {
+    const res = await fetch('/api/terminal', { cache: 'no-store' });
+    if (!res.ok) return;
+    const body = await res.json().catch(() => null);
+    if (body && body.enabled === true) {
+      terminalEnabled = true;
+      updateTerminalLink();
+    }
+  } catch {
+    // probe failure keeps the entry disabled
+  }
+}
+
 function loadAll() {
   void loadHealth();
   void loadChannels();
@@ -671,8 +702,11 @@ messagesEl.addEventListener('scroll', () => {
 newOutputBtn.addEventListener('click', scrollToBottom);
 reobserveBtn.addEventListener('click', () => openStream());
 terminalLink.addEventListener('click', (event) => {
+  if (terminalEnabled && selectedChannel) return; // real navigation
   event.preventDefault();
-  observeBannerText.textContent = 'Terminal View is delivered by #64 — not part of this slice.';
+  observeBannerText.textContent = terminalEnabled
+    ? 'Select a session first — Terminal attaches to the selected pane.'
+    : 'Terminal View is disabled on this deployment (CONSOLE_TERMINAL_ENABLED).';
   observeBanner.hidden = false;
 });
 rawToggleBtn.addEventListener('click', () => {
@@ -703,4 +737,5 @@ bookmarksBtn.addEventListener('click', () => {
 
 loadAll();
 void loadLifecycle();
+void loadTerminalCapability();
 restartTimer();

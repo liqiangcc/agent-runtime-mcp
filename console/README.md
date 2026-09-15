@@ -6,12 +6,13 @@ coupling to the product is the public MCP contract (`docs/mcp-contract.md`):
 the Console spawns `node <repo>/dist/src/server.js` over stdio and calls the
 public tools through the official `@modelcontextprotocol/client`.
 
-Current slice (Tasks #61 + #63 + #62 + #65): chat-first conversation view —
-session list sidebar, backend health banner, a chat composer that sends
+Current slice (Tasks #61 + #63 + #62 + #65 + #64): chat-first conversation
+view — session list sidebar, backend health banner, a chat composer that sends
 `write_text` / `send_control` through the same adapter, a Console-owned bounded
 history ring observed per Channel and pushed to the browser over read-only
-SSE, and an opt-in deployment-layer session lifecycle (create/kill) that is
-off by default and absent unless the operator enables it.
+SSE, an opt-in deployment-layer session lifecycle (create/kill), and an opt-in
+Advanced terminal attach view — both off by default and absent unless the
+operator enables them.
 
 ```text
 browser ──HTTP──▶ Console server ──stdio MCP──▶ agent-runtime-mcp ──▶ existing tmux panes
@@ -30,9 +31,10 @@ browser ──HTTP──▶ Console server ──stdio MCP──▶ agent-runtim
   local network interface**. `0.0.0.0`, `::`, hostnames, and every other
   address exit non-zero. There is no override flag.
 - **Origin/Host check.** Every request — including the read-only SSE history
-  stream — must carry a `Host` equal to the bound `address:port`; a present
-  `Origin` must resolve to the same authority. Upgrade requests are refused:
-  there is no WebSocket endpoint.
+  stream and the terminal WebSocket upgrade — must carry a `Host` equal to the
+  bound `address:port`; a present `Origin` must resolve to the same authority.
+  With terminal attach disabled (the default) every upgrade request is
+  refused: no WebSocket endpoint exists.
 - **No terminal payloads in logs.** Structured JSON logs on stderr contain only
   operation, path, status and timing fields; non-scalar fields collapse to a
   type tag. Request and response bodies are never logged.
@@ -54,8 +56,29 @@ browser ──HTTP──▶ Console server ──stdio MCP──▶ agent-runtim
   metadata only — `actor` (the socket peer address, derived mechanically at the
   HTTP boundary and never accepted from the request body), `action`, `session`,
   `result`/`reason` — never argv, output, or secrets.
-  A CI guard rejects tmux lifecycle/attach/key-injection invocations anywhere
-  under `console/` outside that single adapter.
+- **Terminal attach is opt-in, Advanced-only, and deployment-layer.** With
+  `CONSOLE_TERMINAL_ENABLED` unset there is no attach surface at all (probe
+  `404`, every upgrade refused). When enabled, exactly one module —
+  `console/src/terminal-attach.ts` — runs the tmux attach verb through a
+  `node-pty` server-side PTY as executable + argv (never a shell). The browser
+  supplies only a `channel_id`; the Console resolves the target through the
+  public `get_channel` `backend_metadata.tmux` (session name + window/pane
+  IDs) — user-typed tmux target grammar is never accepted. Attach runs on the
+  same configured tmux socket and inside the same `TMUX_ALLOWED_SESSIONS`
+  scope as the MCP; `CONSOLE_MAX_ATTACH` is a hard concurrent cap; each
+  viewer gets its own PTY; resize frames propagate; and closing the
+  WebSocket/page kills the PTY and its tmux client within a bounded time.
+  Audit log records metadata only — `actor` (socket peer address, derived at
+  the HTTP boundary), `action`, `session`, `result`/`reason` — never terminal
+  bytes or secrets. The browser renderer is vendored `@xterm/xterm`; the
+  Terminal view stays behind the Advanced link and never becomes the default
+  chat flow.
+
+  A CI guard rejects the tmux session create/kill verbs anywhere under
+  `console/` outside `console/src/session-lifecycle.ts`, the tmux attach verb
+  anywhere outside `console/src/terminal-attach.ts`, and key-injection,
+  pane-piping, and forced-shell execution everywhere under `console/` with no
+  exceptions.
 - **No persistence.** Nothing is written to disk by the Console; conversation
   history lives only in bounded in-process rings (below) and disappears on
   restart. Terminal output is stored and rendered verbatim — no role, prompt,
@@ -82,7 +105,9 @@ browser ──HTTP──▶ Console server ──stdio MCP──▶ agent-runtim
 | `CONSOLE_LIFECYCLE_PROFILES` | `{}` | JSON object `label → {"argv": [...]}`. **The repository ships an empty default profile set — enabling lifecycle with no profiles exposes no start command.** Each `argv` is a non-empty string array; `{name}` and `{cwd}` are the only substituted placeholders. |
 | `CONSOLE_ALLOWED_CWD_ROOTS` | `[]` | JSON array of absolute paths; session creation `cwd` must resolve (via `realpath`) inside one of these resolved roots. |
 | `CONSOLE_PROTECTED_SESSIONS` | `agent-runtime-keeper` | Comma-separated session names that can never be killed through the Console; `agent-runtime-keeper` is always protected. |
-| `TMUX_*` | — | Passed through to the MCP child unchanged (e.g. `TMUX_SOCKET_NAME`, `TMUX_SOCKET_PATH`, `TMUX_ALLOWED_SESSIONS`, `TMUX_TIMEOUT_MS`). The lifecycle adapter additionally reads only the socket selection (`TMUX_SOCKET_NAME`/`TMUX_SOCKET_PATH`) and `TMUX_ALLOWED_SESSIONS` to enforce the same scope — this mirrors MCP scope without changing MCP semantics. |
+| `CONSOLE_TERMINAL_ENABLED` | *(unset = off)* | `true`/`1` enables the Advanced terminal attach view; anything else fails closed — the probe `404`s and every WebSocket upgrade is refused. |
+| `CONSOLE_MAX_ATTACH` | `4` | Hard cap on concurrent attached terminal viewers (1–16); a refused attach spawns nothing. |
+| `TMUX_*` | — | Passed through to the MCP child unchanged (e.g. `TMUX_SOCKET_NAME`, `TMUX_SOCKET_PATH`, `TMUX_ALLOWED_SESSIONS`, `TMUX_TIMEOUT_MS`). The lifecycle and terminal adapters additionally read only the socket selection (`TMUX_SOCKET_NAME`/`TMUX_SOCKET_PATH`) and `TMUX_ALLOWED_SESSIONS` to enforce the same scope — this mirrors MCP scope without changing MCP semantics. |
 
 Reconnect policy: when the MCP child is unreachable the adapter retries with
 bounded backoff (3 attempts, 250 ms doubling), then reports `MCP_UNAVAILABLE`
@@ -137,6 +162,26 @@ When `CONSOLE_LIFECYCLE_ENABLED` is on (otherwise every route below is `404`):
 - `POST /api/lifecycle/kill` → `{name, confirm: true}` — the explicit
   `confirm: true` is required (`400` without it); protected or out-of-scope
   sessions are refused `422` before tmux runs.
+
+When `CONSOLE_TERMINAL_ENABLED` is on (otherwise every surface below is
+`404`/refused):
+
+- `GET /api/terminal` → `{enabled: true, maxAttach}` capability probe the UI
+  uses to reveal the Advanced → Terminal link.
+- `GET /api/channels/:id/terminal` (WebSocket upgrade) → resolves `:id` through
+  the public `get_channel`, validates the Channel's own
+  `backend_metadata.tmux` target against `TMUX_ALLOWED_SESSIONS`, and reserves
+  one `CONSOLE_MAX_ATTACH` slot — all before the handshake, so a malformed
+  upgrade can never spawn a PTY. `403` on authority failure, refused target,
+  or out-of-scope session; `404` unknown channel; `429` when `active +
+  reserved` reaches the cap. Only after a successful `101` does the
+  reservation commit spawn exactly one `node-pty` tmux client; a native PTY
+  load/spawn failure at that point closes the fresh WebSocket with `1011` and
+  releases the slot — no orphan. Client→server frames are JSON only —
+  `{type:'input',data}` keystrokes (≤16 KiB) and `{type:'resize',cols,rows}`
+  (clamped to 20–400 × 5–120); the parser additionally hard-rejects any frame
+  over 64 KiB. Server→client frames are raw PTY output text. The PTY and its
+  tmux client die with the socket.
 
 All mutation routes run the same Origin/Host authority check before touching
 the adapter: `Host` must equal the bound `address:port` and a present `Origin`
@@ -214,7 +259,8 @@ servers; it runs in the `console` CI job after both packages are built.
 
 `console/` imports nothing from `src/`; the runtime deployment bundle
 (`npm run package:runtime`) must not contain `console/` paths — both are
-asserted in CI. Terminal attach (#64) remains a later Task and is intentionally
-absent here. Session lifecycle (#65) exists only as the isolated
-deployment-layer adapter described above — it never routes through the MCP,
-which stays at exactly seven public tools.
+asserted in CI. Session lifecycle (#65) and terminal attach (#64) exist only
+as the isolated deployment-layer adapters described above — they never route
+through the MCP, which stays at exactly seven public tools. The `node-pty`,
+`ws`, and `@xterm/*` dependencies are Console-only and never enter the
+runtime/MCP bundle.
