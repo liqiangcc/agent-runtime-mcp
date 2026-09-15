@@ -12,4 +12,3 @@ The Issue body holds the live state block and reproduction evidence.
 - Regression must fail on the base commit first, then pass.
 - Do not touch `send_control`, the seven-tool surface, or `console/`.
 - No main hotfix: branch → PR → exact-SHA Actions → report.
-EOF
