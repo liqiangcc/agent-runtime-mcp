@@ -151,6 +151,7 @@ button:disabled { opacity: 0.45; cursor: default; }
   inset: 0;
   background: rgba(0,0,0,0.5);
   z-index: 54;
+  transition: opacity 0.2s ease;
 }
 #modal-scrim { z-index: 64; }
 .drawer-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }

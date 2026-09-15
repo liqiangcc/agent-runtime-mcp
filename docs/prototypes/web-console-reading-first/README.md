@@ -64,7 +64,15 @@ shared Reading-first shell (app.js, index.html, style.css)
 ## Covered by the mock
 
 - minimal header: session name + compact state chip + overflow menu
-- sessions drawer (off-canvas on narrow screens, static sidebar ≥900px)
+- sessions drawer (off-canvas on narrow screens, static sidebar ≥900px);
+  swipe-right on the reading area opens it with drag-follow, swipe-left on
+  the open drawer closes it, and the explicit ☰ button remains as the
+  accessibility fallback. Gestures require clear horizontal intent
+  (|dx| > 14px and > 1.6×|dy|); vertical scroll, code/table horizontal
+  scroll, text selection and interactive elements always win, and the
+  outermost 28px left edge is a guard zone so the browser's back gesture
+  is never fought. Drawer open/close never rebuilds the transcript or
+  disturbs stream/recovery state.
 - reading-first conversation flow (generic: reading/translation scenario;
   devin: mock code-review conversation with Thinking / Running command /
   Read shell / Tool result cards)

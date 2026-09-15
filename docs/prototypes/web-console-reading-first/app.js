@@ -275,6 +275,81 @@ $('focus-toggle').addEventListener('click', () => {
   $('focus-toggle').textContent = document.body.classList.contains('focus') ? 'Full trace' : 'Focus';
 });
 
+// ---- swipe session navigation ----
+// Swipe-right on the reading area opens the drawer; swipe-left on the open
+// drawer closes it. Clear horizontal intent only; vertical scroll and
+// locally scrollable/interactive surfaces always win. The extreme left edge
+// is a guard zone (iOS back gesture lives there — we don't fight it).
+const drawerEl = $('drawer'), scrimEl = $('drawer-scrim');
+const EDGE_GUARD = 28;   // px — stay out of the browser edge-gesture zone
+const INTENT_PX = 14;    // horizontal intent distance
+const INTENT_RATIO = 1.6;
+let swipe = null;
+
+function drawerW() { return drawerEl.getBoundingClientRect().width || 300; }
+
+document.addEventListener('pointerdown', (e) => {
+  if (swipe || !e.isPrimary || (e.pointerType === 'mouse' && e.button !== 0)) return;
+  if (window.getSelection()?.toString()) return;
+  if (drawerEl.classList.contains('open')) {
+    if (e.target.closest('#drawer') || e.target.closest('#drawer-scrim'))
+      swipe = { x0: e.clientX, y0: e.clientY, mode: 'maybe', dir: 'close' };
+    return;
+  }
+  if (!e.target.closest('#main')) return;
+  if (e.clientX < EDGE_GUARD) return;
+  if (e.target.closest('pre, .md-table, #raw-view, textarea, input, select, a, button, summary, #terminal-sheet')) return;
+  swipe = { x0: e.clientX, y0: e.clientY, mode: 'maybe', dir: 'open' };
+});
+
+document.addEventListener('pointermove', (e) => {
+  if (!swipe || !e.isPrimary) return;
+  const dx = e.clientX - swipe.x0, dy = e.clientY - swipe.y0;
+  if (swipe.mode === 'maybe') {
+    if (Math.abs(dy) > 12 && Math.abs(dy) >= Math.abs(dx)) { swipe = null; return; }
+    if (swipe.dir === 'open' && dx > INTENT_PX && dx > INTENT_RATIO * Math.abs(dy)) swipe.mode = 'drag';
+    else if (swipe.dir === 'close' && dx < -INTENT_PX && -dx > INTENT_RATIO * Math.abs(dy)) swipe.mode = 'drag';
+    else if (Math.abs(dx) > 14 || Math.abs(dy) > 14) { swipe = null; return; } // wrong-direction gesture
+    else return;
+    drawerEl.style.transition = 'none';
+    scrimEl.style.transition = 'none';
+  }
+  const W = drawerW();
+  if (swipe.dir === 'open') {
+    drawerEl.style.transform = `translateX(${Math.min(0, -W + dx)}px)`;
+    scrimEl.hidden = false;
+    scrimEl.style.opacity = Math.min(1, Math.max(0, dx / W));
+  } else {
+    const t = Math.max(-W, Math.min(0, dx));
+    drawerEl.style.transform = `translateX(${t}px)`;
+    scrimEl.style.opacity = Math.max(0, 1 + dx / W);
+  }
+});
+
+function endSwipe(e, cancelled) {
+  if (!swipe) return;
+  const s = swipe;
+  swipe = null;
+  drawerEl.style.transition = '';
+  scrimEl.style.transition = '';
+  drawerEl.style.transform = '';
+  scrimEl.style.opacity = '';
+  if (s.mode !== 'drag') return;
+  const dx = cancelled ? 0 : e.clientX - s.x0;
+  const W = drawerW();
+  if (s.dir === 'open') {
+    const open = dx > W * 0.35;
+    drawerEl.classList.toggle('open', open);
+    scrimEl.hidden = !open;
+  } else {
+    const closed = dx < -W * 0.25;
+    drawerEl.classList.toggle('open', !closed);
+    scrimEl.hidden = closed;
+  }
+}
+document.addEventListener('pointerup', (e) => endSwipe(e, false));
+document.addEventListener('pointercancel', (e) => endSwipe(e, true));
+
 // drawer
 $('drawer-btn').addEventListener('click', () => {
   $('drawer').classList.add('open');
