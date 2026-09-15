@@ -424,6 +424,24 @@ the Coordinator has completed an independent visual diff/measurement pass.
 User approval remains mandatory; production implementation stays BLOCKED
 until explicit approval.
 
+## Amendment — Mobile swipe session navigation (FINAL GATE DECISION)
+
+- Clear horizontal swipe right on the main reading area opens the Sessions
+  drawer; swipe left on the open drawer closes it. The explicit button entry
+  remains as discoverability/accessibility fallback.
+- Gesture fires only on clear horizontal intent (|dx| ≫ |dy| with
+  distance/velocity thresholds); vertical reading scroll always wins; never
+  steal gestures from code/table/raw/terminal local horizontal scrollers,
+  text selection, or the composer.
+- Do not fight the iOS browser left-edge back gesture: use a safe app-level
+  activation region (e.g. avoid the extreme left edge); record unavoidable
+  residuals honestly rather than faking parity.
+- Opening/closing the drawer must not rebuild the transcript, reset scroll,
+  reset an in-progress stream, or disturb recovery/adapter state.
+- Evidence: touch/pointer gesture smoke (open, close, vertical non-trigger,
+  code/table non-trigger) plus the standard 420×912 primary + 390/375 sanity
+  screenshot set.
+
 ## Completion Protocol
 
 ```text
