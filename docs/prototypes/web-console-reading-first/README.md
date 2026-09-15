@@ -37,6 +37,16 @@ shared Reading-first shell (app.js, index.html, style.css)
   content is never dropped and no state is fabricated.
 - **Profile switching is explicit only**: `?agent=devin` query param or
   overflow → "Demo profile". Nothing is inferred from terminal text.
+- **Mock streaming**: reply deltas arrive on timers as discrete events.
+  Adapter `createLive()` updates segments IN PLACE — cards and answer text
+  are never re-appended or duplicated. Scroll auto-follows only when the
+  view is pinned to the bottom. A scripted CURSOR_EXPIRED interrupts the
+  stream mid-answer and requires explicit Re-observe to resume — gaps are
+  never presented as seamless. Composer typing is local-only; Send is the
+  only mutation boundary and each user turn shows a state machine:
+  `sending → delivered`, or `failed`, or `timeout — ambiguous` (no
+  auto-retry). Per-keystroke streaming exists only inside the Advanced
+  Terminal sheet.
 
 ## Production boundary note (frozen rule for any future implementation)
 
@@ -47,6 +57,9 @@ shared Reading-first shell (app.js, index.html, style.css)
   may need a separate Publication Gate if it touches the backend or public
   contract.
 - Adapter parse failure must fall back to raw/generic rendering.
+- If production real streaming ever needs a backend/public event contract
+  beyond the existing observer/SSE path, that requires a separate
+  Publication Gate and must not be smuggled into #90 presentation work.
 
 ## Covered by the mock
 

@@ -37,6 +37,10 @@
       <button data-act="state-reobserve">State: cursor expired</button>
       <button data-act="state-error">State: error</button>
       <button data-act="state-closed">State: closed</button>
+      <div class="menu-group">Demo stream</div>
+      <button data-act="stream-expire">Inject CURSOR_EXPIRED mid-stream</button>
+      <button data-act="send-fail">Next send: fail</button>
+      <button data-act="send-ambiguous">Next send: ambiguous (timeout)</button>
       <div class="menu-group">Demo profile</div>
       <button data-act="profile-devin">Agent: devin</button>
       <button data-act="profile-generic">Agent: generic</button>
@@ -122,6 +126,15 @@
       <button id="transfer-confirm" class="btn-primary" disabled>Confirm send</button>
     </div>
     <div id="transfer-status"></div>
+  </div>
+</div>
+
+<div id="terminal-sheet" role="dialog" aria-modal="true" hidden>
+  <div class="modal-card">
+    <div class="modal-head"><strong>Terminal <span class="adv-tag">Advanced</span></strong><button id="terminal-close">✕</button></div>
+    <p class="modal-note">Mock bidirectional per-keystroke stream. This is the ONLY place keystrokes stream — the normal chat composer never writes per keystroke.</p>
+    <pre id="term-pane">$ </pre>
+    <input id="term-input" placeholder="type here — each keystroke is a separate frame" autocomplete="off">
   </div>
 </div>
 
