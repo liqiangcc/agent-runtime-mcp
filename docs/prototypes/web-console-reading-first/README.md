@@ -81,7 +81,10 @@ shared Reading-first shell (app.js, index.html, style.css)
   recovery or composer-draft state.
 - reading-first conversation flow (generic: reading/translation scenario;
   devin: mock code-review conversation with Thinking / Running command /
-  Read shell / Tool result cards)
+  Read shell / Tool result activity rows — light single-line headers by
+  default (no card chrome); only the expanded body is a restrained dark
+  surface. In-progress state is an accent icon, never a loud pulse/border.
+  Markdown answers are never wrapped inside a tool card)
 - sticky bottom composer; Send primary; no-submit + Stop/Enter/Escape under
   an "Advanced input" disclosure
 - compact observation-recovery UI for needs_reobserve / error / closed with a
