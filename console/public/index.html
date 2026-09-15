@@ -25,6 +25,23 @@
     <p class="sidebar-title">Sessions</p>
     <p id="empty" class="empty" hidden>No channels in scope.</p>
     <ul id="channels" class="channel-list"></ul>
+    <details id="lifecycle" class="lifecycle" hidden>
+      <summary>Session lifecycle</summary>
+      <div class="lifecycle-body">
+        <label class="lc-field">profile
+          <select id="lc-profile"></select>
+        </label>
+        <label class="lc-field">session name
+          <input id="lc-name" autocomplete="off" spellcheck="false" placeholder="my-session">
+        </label>
+        <label class="lc-field">working dir
+          <input id="lc-cwd" autocomplete="off" spellcheck="false" placeholder="/path/under/allowed/root">
+        </label>
+        <button id="lc-create" type="button">Create session</button>
+        <button id="lc-kill" type="button" class="danger" disabled>Kill selected session</button>
+        <p id="lc-status" class="lc-status" hidden></p>
+      </div>
+    </details>
   </aside>
   <main id="chat" class="chat">
     <div id="chat-empty" class="chat-empty">Select a session to open the conversation.</div>

@@ -36,6 +36,13 @@ const sendResultEl = document.getElementById('send-result');
 const stopBtn = document.getElementById('control-stop');
 const enterBtn = document.getElementById('control-enter');
 const escapeBtn = document.getElementById('control-escape');
+const lifecycleEl = document.getElementById('lifecycle');
+const lcProfileEl = document.getElementById('lc-profile');
+const lcNameEl = document.getElementById('lc-name');
+const lcCwdEl = document.getElementById('lc-cwd');
+const lcCreateBtn = document.getElementById('lc-create');
+const lcKillBtn = document.getElementById('lc-kill');
+const lcStatusEl = document.getElementById('lc-status');
 
 const TEXT_BYTE_HINT = 1024 * 1024;
 const BOTTOM_PIN_PX = 48;
@@ -336,6 +343,7 @@ async function refreshRaw() {
 
 function setSelected(channel) {
   selectedChannel = channel;
+  updateLifecycleState();
   document.querySelectorAll('.channel').forEach((el) => {
     el.classList.toggle('selected', channel !== null && el.dataset.channelId === channel.channel_id);
   });
@@ -525,6 +533,102 @@ async function sendControl(control) {
   }
 }
 
+/* ---- operator lifecycle controls (enabled only by deployment config) ---- */
+
+function lcStatus(kind, message) {
+  lcStatusEl.textContent = message;
+  lcStatusEl.className = `lc-status ${kind}`;
+  lcStatusEl.hidden = message === '';
+}
+
+function updateLifecycleState() {
+  lcKillBtn.disabled = !selectedChannel;
+}
+
+async function loadLifecycle() {
+  let body = null;
+  try {
+    const res = await fetch('/api/lifecycle', { cache: 'no-store' });
+    if (!res.ok) return;
+    body = await res.json().catch(() => null);
+  } catch {
+    return;
+  }
+  if (!body || body.enabled !== true || !Array.isArray(body.profiles)) return;
+  lifecycleEl.hidden = false;
+  lcProfileEl.textContent = '';
+  for (const label of body.profiles) {
+    const option = document.createElement('option');
+    option.value = label;
+    option.textContent = label;
+    lcProfileEl.append(option);
+  }
+  if (body.profiles.length === 0) {
+    lcCreateBtn.disabled = true;
+    lcStatus('warn', 'lifecycle is enabled but no profiles are configured — no start command is exposed');
+  }
+}
+
+async function createSession() {
+  const name = lcNameEl.value.trim();
+  const cwd = lcCwdEl.value.trim();
+  const profile = lcProfileEl.value;
+  if (!name || !cwd || !profile) {
+    lcStatus('err', 'name, working dir and profile are required');
+    return;
+  }
+  lcCreateBtn.disabled = true;
+  try {
+    const res = await fetch('/api/lifecycle/sessions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name, cwd, profile }),
+    });
+    const body = await res.json().catch(() => null);
+    if (res.ok) {
+      lcStatus('ok', `created ${name}`);
+      lcNameEl.value = '';
+      void loadChannels();
+    } else {
+      const message = body && body.error && body.error.message ? body.error.message : `http ${res.status}`;
+      lcStatus('err', `create refused: ${message}`);
+    }
+  } catch (error) {
+    lcStatus('err', `create failed: ${error.message}`);
+  } finally {
+    lcCreateBtn.disabled = false;
+  }
+}
+
+async function killSession() {
+  if (!selectedChannel) return;
+  const tmux = selectedChannel.backend_metadata && selectedChannel.backend_metadata.tmux;
+  const name = (tmux && tmux.session_name) || selectedChannel.channel_id || '';
+  const ok = window.confirm(`Kill session ${name}? This destroys the tmux session and cannot be undone.`);
+  if (!ok) return;
+  lcKillBtn.disabled = true;
+  try {
+    const res = await fetch('/api/lifecycle/kill', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name, confirm: true }),
+    });
+    const body = await res.json().catch(() => null);
+    if (res.ok) {
+      lcStatus('ok', `killed ${name}`);
+      setSelected(null);
+      void loadChannels();
+    } else {
+      const message = body && body.error && body.error.message ? body.error.message : `http ${res.status}`;
+      lcStatus('err', `kill refused: ${message}`);
+    }
+  } catch (error) {
+    lcStatus('err', `kill failed: ${error.message}`);
+  } finally {
+    updateLifecycleState();
+  }
+}
+
 function loadAll() {
   void loadHealth();
   void loadChannels();
@@ -557,6 +661,8 @@ composerCloseBtn.addEventListener('click', () => setSelected(null));
 stopBtn.addEventListener('click', () => void sendControl('INTERRUPT'));
 enterBtn.addEventListener('click', () => void sendControl('ENTER'));
 escapeBtn.addEventListener('click', () => void sendControl('ESCAPE'));
+lcCreateBtn.addEventListener('click', () => void createSession());
+lcKillBtn.addEventListener('click', () => void killSession());
 
 searchEl.addEventListener('input', applySearch);
 messagesEl.addEventListener('scroll', () => {
@@ -596,4 +702,5 @@ bookmarksBtn.addEventListener('click', () => {
 });
 
 loadAll();
+void loadLifecycle();
 restartTimer();

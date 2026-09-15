@@ -6,6 +6,7 @@ import { createRequestHandler, expectedAuthority, rejectUpgrade } from './http-a
 import { createLogger } from './logger.js';
 import { StdioMcpClient } from './mcp-client.js';
 import { HistoryHub } from './observer.js';
+import { SessionLifecycle } from './session-lifecycle.js';
 
 function fatal(message: string): never {
   process.stderr.write(`agent-runtime-mcp-console: ${message}\n`);
@@ -51,7 +52,10 @@ const history = new HistoryHub({
     ring: { maxLines: config.history.maxLines, maxBytes: config.history.maxBytes },
   },
 });
-const server = createServer(createRequestHandler({ mcp, events, history, expectedHost, publicDir: config.publicDir, logger }));
+const lifecycle = config.lifecycle.enabled ? new SessionLifecycle({ config, logger }) : undefined;
+const server = createServer(
+  createRequestHandler({ mcp, events, history, expectedHost, publicDir: config.publicDir, logger, lifecycle }),
+);
 
 server.on('upgrade', (req, socket) => rejectUpgrade(req, socket, expectedHost, logger));
 
