@@ -58,8 +58,18 @@ window.Adapters = window.Adapters || {};
   function makeTextNode(seg) {
     const p = document.createElement('div');
     p.className = 'seg-text';
-    p.textContent = seg.text;
+    // Answer/content segments get the Markdown reading surface.
+    if (window.Md) window.Md.renderInto(p, seg.text);
+    else p.textContent = seg.text;
     return p;
+  }
+
+  function makeLiveTextNode(seg) {
+    const p = document.createElement('div');
+    p.className = 'seg-text';
+    const md = window.Md ? window.Md.createLive(p) : null;
+    if (md) md.setText(seg.text); else p.textContent = seg.text;
+    return { el: p, md };
   }
 
   function makeCardNode(seg) {
@@ -138,11 +148,18 @@ window.Adapters = window.Adapters || {};
           const seg = segs[i];
           const isLast = i === segs.length - 1;
           if (i < rendered.length && rendered[i].type === seg.type) {
-            updateNode(rendered[i].el, seg);
+            if (seg.type === 'text' && rendered[i].md) rendered[i].md.setText(seg.text);
+            else updateNode(rendered[i].el, seg);
           } else if (i >= rendered.length) {
-            const el = seg.type === 'text' ? makeTextNode(seg) : makeCardNode(seg);
+            let el, md = null;
+            if (seg.type === 'text') {
+              const t = makeLiveTextNode(seg);
+              el = t.el; md = t.md;
+            } else {
+              el = makeCardNode(seg);
+            }
             if (note) bodyEl.insertBefore(el, note); else bodyEl.appendChild(el);
-            rendered.push({ type: seg.type, el });
+            rendered.push({ type: seg.type, el, md });
           } else {
             // earlier segment changed type — should not happen with
             // append-only buffered input; rebuild tail defensively.

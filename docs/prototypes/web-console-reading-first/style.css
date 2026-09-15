@@ -463,6 +463,58 @@ body.focus .tool-card { display: none; }
 body.focus .trace-note { display: block; }
 body.focus .entry-body { font-size: 17.5px; }
 
+/* ---- Markdown reading surface (.md inside .seg-text) ---- */
+.md { font-size: 16px; line-height: 1.7; overflow-wrap: break-word; }
+.md > *:first-child { margin-top: 0; }
+.md > *:last-child { margin-bottom: 0; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+  line-height: 1.3;
+  margin: 18px 0 8px;
+  font-weight: 700;
+}
+.md h1 { font-size: 1.45em; } .md h2 { font-size: 1.3em; } .md h3 { font-size: 1.15em; }
+.md h4, .md h5, .md h6 { font-size: 1.05em; color: var(--text-dim); }
+.md p { margin: 0 0 12px; }
+.md blockquote {
+  margin: 12px 0;
+  padding: 2px 14px;
+  border-left: 3px solid var(--accent);
+  color: var(--text-dim);
+}
+.md ul, .md ol { margin: 8px 0 12px; padding-left: 22px; }
+.md li { margin: 3px 0; }
+.md li.task { list-style: none; margin-left: -20px; }
+.md li.task input { accent-color: var(--accent); }
+.md hr { border: none; border-top: 1px solid var(--line); margin: 16px 0; }
+.md a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); overflow-wrap: anywhere; }
+.md-code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 1px 5px;
+  overflow-wrap: anywhere;
+}
+.md-pre {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  margin: 12px 0;
+  overflow-x: auto;            /* code scrolls locally, page never does */
+  white-space: pre;
+}
+.md-pre.streaming { border-style: dashed; border-color: var(--accent); }
+.md-pre code { font-family: inherit; }
+.md-table { overflow-x: auto; margin: 12px 0; }
+.md table { border-collapse: collapse; font-size: 14px; min-width: 100%; }
+.md th, .md td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; }
+.md th { background: var(--bg-card); }
+
 #toast {
   position: fixed;
   bottom: 90px;

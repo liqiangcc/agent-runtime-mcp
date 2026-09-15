@@ -49,6 +49,51 @@ grep -n "refresh" src/auth/tokens.ts
 18:   } catch { return session; }
 
 The refresh path is tokens.ts:12-18 — the catch on line 18 discards the refresh error and returns the stale session object unchanged.` },
+  { kind: 'user', time: '09:47', text: 'Write it up as a formatted report.' },
+  { kind: 'output', time: '09:47', text:
+`«thinking»
+I'll write the report with headings, a findings table, and a short fix list — keeping it readable on mobile.
+
+# Auth Module Review 认证模块审查
+
+## Summary 概述
+
+The **auth module** (~540 LOC) centers on \`session.ts\`. 验证逻辑正确拒绝过期 token, but the *refresh path* silently degrades.
+
+> Token expiry is enforced; refresh failures are swallowed — the caller cannot tell a stale session from a fresh one.
+
+## Findings 发现
+
+| Area | Status | Note |
+| --- | --- | --- |
+| Expiry check | pass | rejects expired tokens |
+| Refresh path | issue | swallows errors at \`tokens.ts:18\` |
+| Middleware | pass | thin delegation, clean |
+
+### Details
+
+1. Verify path is correct — \`verifySession()\` returns null on expiry.
+2. Refresh path returns the **stale session** on error.
+   - nested: the catch discards the original error
+   - nested: no metric or log line is emitted
+3. See [tokens.ts on GitHub](https://github.com/example/repo/blob/main/src/auth/tokens.ts) for the exact code.
+
+#### Suggested fix
+
+\`\`\`ts
+} catch (err) {
+  log.warn('refresh failed', { err });
+  return null;
+}
+\`\`\`
+
+- [x] Document the silent-refresh behavior
+- [ ] Fix \`tokens.ts:18\` error swallowing
+- [ ] Add a refresh-failure metric
+
+---
+
+A deliberately long token for wrap testing: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c and a long link https://example.com/some/very/long/path/with/many/segments/and?query=params&more=stuff to verify safe wrapping.` },
 ];
 
 // ---- mock reply streams (deltas arrive like real events; timers only) ----
@@ -62,13 +107,19 @@ const DEVIN_REPLY = [
   { d: '  auth.refresh › keeps session on transient error\n', ms: 380 },
   { d: '  14 passing, 0 failing\n', ms: 380 },
   { d: '\n\n', ms: 260 },
-  { d: 'The refresh path ', ms: 120 }, { d: 'swallows errors ', ms: 120 },
-  { d: 'at tokens.ts:18. ', ms: 120 }, { d: 'A transient failure ', ms: 120 },
-  { d: 'returns the stale ', ms: 120 },
-  { expire: true }, // CURSOR_EXPIRED interrupts mid-stream; Re-observe resumes
-  { d: 'session ', ms: 120 }, { d: 'unchanged — ', ms: 120 },
-  { d: 'confirmed by the test above. ', ms: 120 },
-  { d: 'Recommend logging the error and returning null.', ms: 160 },
+  // markdown answer streams in; constructs are unclosed mid-flight
+  { d: '## Test Report\n\n', ms: 130 },
+  { d: 'All **14 tests** pass ', ms: 130 }, { d: '— 全部通过。\n\n', ms: 130 },
+  { d: '- `auth.refresh` keeps the session\n', ms: 130 },
+  { d: '- `session.verify` rejects expiry\n\n', ms: 130 },
+  { d: '```\n$ npm test -- auth\n', ms: 200 },
+  { d: '  14 passing, 0 failing\n', ms: 250 },
+  { expire: true }, // CURSOR_EXPIRED interrupts mid-stream (fence still unclosed); Re-observe resumes
+  { d: '```\n\n', ms: 130 },
+  { d: '| Check | Result |\n| --- | --- |\n', ms: 160 },
+  { d: '| refresh | pass |\n', ms: 160 },
+  { d: '| verify | pass |\n\n', ms: 160 },
+  { d: 'Recommend logging the refresh error before returning `null`.', ms: 160 },
 ];
 
 const GENERIC_REPLY = [
