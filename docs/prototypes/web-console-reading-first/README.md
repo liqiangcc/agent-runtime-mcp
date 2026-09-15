@@ -62,20 +62,33 @@ shared Reading-first shell (app.js, index.html, style.css)
 - `viewport-fit=cover` + `env(safe-area-inset-*)` are applied to the
   topbar, prototype badge, drawer (top+bottom), composer and bottom
   sheets, so the notch/Dynamic Island/Home Indicator never cover content.
-- Structural viewport model (v13): the app shell height is the STABLE
-  layout viewport — `--app-vh` = max(innerHeight, clientHeight) and
-  NEVER tracks a keyboard-shrunken visualViewport. Keyboard occlusion is
-  a separate `--kb-inset` = innerHeight - (vv.height + vv.offsetTop),
-  clamped >=0, applied ONLY to the composer padding (lifts the pill
-  above the keyboard) and the conversation scroll padding. Keyboard
-  close simply clears the inset — no self-heal timers, no blur/tap
-  dependency. Recomputed on boot/pageshow(bfcache)/visibilitychange/
-  vv.resize/vv.scroll/resize/orientationchange/blur with rAF + 240ms
-  debounced settle; stale vars cleared first on pageshow/visible/
-  orientation. Safe-area applied exactly once via env() padding. CSS
-  fallback: `var(--app-vh, 100dvh)` -> `100dvh` -> `100vh` ->
-  `-webkit-fill-available`. Conversation is the only flexible region;
-  collapsed Advanced panel reserves zero height ("+" button).
+- Canonical shell model (v15): in standalone, `--app-vh` commits
+  ASYMMETRICALLY — grows freely, but a smaller innerHeight/clientHeight
+  is adopted ONLY on explicit lifecycle resets (pageshow /
+  orientationchange / visibilitychange→visible). Keyboard-path events
+  (vv.resize/vv.scroll/resize/blur/interaction) can never shrink the
+  shell — iOS standalone shrinks AND restores all layout metrics
+  silently, so a smaller live value is never trusted on those paths.
+  Browser (non-standalone) keeps natural both-direction tracking.
+- Keyboard occlusion is a separate `--kb-inset` =
+  committedShell − (vv.height + vv.offsetTop), clamped ≥0, applied ONLY
+  to composer padding and conversation scroll padding. It commits only
+  while an editable is focused or a shrink transition is observed;
+  editable blur/focusout suppresses it immediately (no focused editable
+  = no keyboard). While the inset is committed a bounded 300ms watcher
+  re-samples vv and clears+stops when it reads ~0 — zero cost when the
+  keyboard is closed.
+- Interaction-flush reconciliation: ANY pointerdown/touchstart/scroll
+  (debounced) schedules bounded re-samples (rAF/250ms/600ms) that
+  re-read all metrics and re-commit — iOS flushes stale viewport state
+  on user interaction, so post-interaction samples heal stale commits
+  of EITHER variable. Not gated on keyboard state; zero cost between
+  interactions. All lifecycle listeners (pageshow/visibility/orientation/
+  resize/vv.resize/vv.scroll/blur) retained. Safe-area applied exactly
+  once via env() padding. CSS fallback: `var(--app-vh, 100dvh)` ->
+  `100dvh` -> `100vh` -> `-webkit-fill-available`. Conversation is the
+  only flexible region; collapsed Advanced panel reserves zero height
+  ("+" button).
 - Diagnostics: `?debug=viewport` adds a live readout
   (src/innerHeight/deadBottom); overflow → Debug → "Copy viewport/input
   diagnostics" copies a bounded 120-entry ring buffer (timestamps,

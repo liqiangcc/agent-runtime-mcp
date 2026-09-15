@@ -194,60 +194,97 @@ function diagPush(ev, extra = {}) {
   });
 }
 
-// Structural model: the app shell height is the STABLE layout viewport
-// (innerHeight/clientHeight) and never tracks a keyboard-shrunken
-// visualViewport. Keyboard occlusion is a separate --kb-inset applied
-// only to the composer position + conversation scroll padding, so the
-// composer lifts above the keyboard and content stays reachable.
-// Keyboard close = inset goes to 0; no self-heal timers, no blur needed.
+// Canonical shell model (v15):
+// - --app-vh commits ASYMMETRICALLY in standalone: grows freely, shrinks
+//   ONLY on explicit lifecycle resets (pageshow / orientationchange /
+//   visibility→visible). Keyboard-path events can never shrink the
+//   shell — iOS standalone shrinks AND restores innerHeight/clientHeight
+//   silently, so a smaller live value is never trusted on those paths.
+//   Non-standalone (browser) keeps natural both-direction tracking.
+// - --kb-inset = max(0, canonicalShell − (vv.height + vv.offsetTop)),
+//   committed only while an editable is focused OR a shrink transition
+//   is observed; focusout of the editable clears it immediately.
+// - Interaction-flush: any pointerdown/touchstart/scroll (debounced)
+//   schedules bounded re-samples (rAF/250ms/600ms) — iOS flushes stale
+//   viewport metrics on user interaction, healing stale commits without
+//   needing a specific event. Not gated on kbOpen.
+const isStandalone = () =>
+  matchMedia('(display-mode: standalone)').matches ||
+  navigator.standalone === true ||
+  document.body.classList.contains('standalone-sim');
 let vpDebug = null;
-function kbInset() {
-  const vv = window.visualViewport;
-  return vv ? Math.max(0, window.innerHeight - (vv.height + vv.offsetTop)) : 0;
-}
-let vhTimer = 0, vhRaf = 0, kbOpen = false, kbWatch = 0;
+let committedVh = 0;                 // canonical shell height
+let kbOpen = false, kbWatch = 0;
 function stopKbWatch() { clearInterval(kbWatch); kbWatch = 0; }
 function startKbWatch() {
-  // state-owned polling tied to keyboard-open lifetime only — NOT a
-  // blind timer on the root model. iOS standalone emits no event on
-  // keyboard close, so while the inset is committed we re-sample vv at
-  // low frequency and on any pointer/scroll activity; the moment the
-  // inset reads ~0 it is cleared and the watcher stops entirely.
+  // state-owned polling while the inset is committed only; clears the
+  // moment vv reads restored, then stops (zero cost when closed).
   if (kbWatch) return;
   kbWatch = setInterval(() => {
     if (kbInset() <= 2) { kbOpen = false; applyViewport('kbwatch:clear'); stopKbWatch(); }
   }, 300);
 }
-function applyViewport(ev) {
-  const layout = Math.max(window.innerHeight, document.documentElement.clientHeight);
-  const kb = Math.round(kbInset());
-  document.documentElement.style.setProperty('--app-vh', `${layout}px`);
+function kbInset() {
+  const vv = window.visualViewport;
+  return vv ? Math.max(0, committedVh - (vv.height + vv.offsetTop)) : 0;
+}
+function editableFocused() {
+  const ae = document.activeElement;
+  return ae === $('composer-text') || ae === $('term-input');
+}
+let kbSuppressed = false;            // editable blured → no keyboard, even if vv still reports shrunk
+function applyViewport(ev, { allowShrink = false, dismissKb = false } = {}) {
+  if (editableFocused()) kbSuppressed = false;
+  else if (dismissKb) kbSuppressed = true;
+  const live = Math.max(window.innerHeight, document.documentElement.clientHeight);
+  if (!isStandalone() || allowShrink || live > committedVh || !committedVh)
+    committedVh = live;
+  const rawKb = kbInset();
+  // inset commits only while an editable is focused or a real shrink
+  // transition is visible in vv; an explicit editable blur suppresses it
+  const kb = Math.round(
+    kbSuppressed ? 0 : (editableFocused() || rawKb > 40 ? Math.max(0, rawKb) : 0));
+  document.documentElement.style.setProperty('--app-vh', `${committedVh}px`);
   document.documentElement.style.setProperty('--kb-inset', `${kb}px`);
   kbOpen = kb > 2;
   if (kbOpen) startKbWatch(); else stopKbWatch();
-  diagPush(ev, { src: 'layout', kbInset: kb });
+  diagPush(ev, { src: isStandalone() ? 'layout-asym' : 'layout', kbInset: kb, committedVh });
   if (vpDebug) vpDebug.textContent =
-    `layout=${layout} kb=${kb} dead=${Math.round(window.innerHeight - document.getElementById('composer').getBoundingClientRect().bottom)}`;
+    `vh=${committedVh} kb=${kb} dead=${Math.round(committedVh - document.getElementById('composer').getBoundingClientRect().bottom)}`;
 }
-// instant re-sample on user activity while the keyboard is believed open
-// (covers close paths that emit no event at all); zero cost when closed.
-document.addEventListener('pointerdown', () => { if (kbOpen) syncAppVh('pointerdown:reconcile'); }, { passive: true, capture: true });
-document.getElementById('main').addEventListener('scroll', () => { if (kbOpen) syncAppVh('scroll:reconcile'); }, { passive: true });
-function syncAppVh(ev, { clear = false } = {}) {
-  if (clear) { // drop stale values, recompute fresh
+let vhTimer = 0, vhRaf = 0;
+function syncAppVh(ev, { reset = false, dismissKb = false } = {}) {
+  if (reset) { // explicit lifecycle reset — shrink IS allowed here
     document.documentElement.style.removeProperty('--app-vh');
     document.documentElement.style.removeProperty('--kb-inset');
+    committedVh = 0;
   }
   clearTimeout(vhTimer);
-  if (!vhRaf) vhRaf = requestAnimationFrame(() => { vhRaf = 0; applyViewport(ev + ':raf'); });
-  vhTimer = setTimeout(() => applyViewport(ev + ':settle'), 240);
+  const opts = { allowShrink: reset, dismissKb };
+  if (!vhRaf) vhRaf = requestAnimationFrame(() => { vhRaf = 0; applyViewport(ev + ':raf', opts); });
+  vhTimer = setTimeout(() => applyViewport(ev + ':settle', opts), 240);
 }
-window.addEventListener('pageshow', () => syncAppVh('pageshow', { clear: true }));
+// interaction-flush: iOS flushes stale viewport metrics on interaction;
+// debounced delayed samples re-read everything — heals stale commits
+// whether or not the keyboard was ever believed open.
+let flushTimer = 0;
+function flushReconcile(ev) {
+  clearTimeout(flushTimer);
+  flushTimer = setTimeout(() => {
+    applyViewport(ev + ':rAF');
+    setTimeout(() => applyViewport(ev + ':+250'), 250);
+    setTimeout(() => applyViewport(ev + ':+600'), 600);
+  }, 60);
+}
+document.addEventListener('pointerdown', () => flushReconcile('pointerdown'), { passive: true, capture: true });
+document.addEventListener('touchstart', () => flushReconcile('touchstart'), { passive: true, capture: true });
+document.getElementById('main').addEventListener('scroll', () => flushReconcile('scroll'), { passive: true });
+window.addEventListener('pageshow', () => syncAppVh('pageshow', { reset: true }));
 window.addEventListener('resize', () => syncAppVh('resize'));
-window.addEventListener('orientationchange', () => syncAppVh('orientation', { clear: true }));
+window.addEventListener('orientationchange', () => syncAppVh('orientation', { reset: true }));
 window.visualViewport?.addEventListener('resize', () => syncAppVh('vv.resize'));
 window.visualViewport?.addEventListener('scroll', () => syncAppVh('vv.scroll'));
-document.addEventListener('visibilitychange', () => { if (!document.hidden) syncAppVh('visible', { clear: true }); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) syncAppVh('visible', { reset: true }); });
 // ?debug=viewport — live measurement readout for real-device capture
 if (params.get('debug')) {
   vpDebug = document.createElement('div');
@@ -563,7 +600,7 @@ ta.addEventListener('compositionend', () => {
   ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
 });
 ta.addEventListener('focus', () => diagPush('focus'));
-ta.addEventListener('blur', () => { diagPush('blur'); syncAppVh('blur'); });
+ta.addEventListener('blur', () => { diagPush('blur'); syncAppVh('blur', { dismissKb: true }); });
 ta.addEventListener('input', () => {
   if (composing) return;
   ta.style.height = 'auto';
@@ -626,6 +663,7 @@ function closeTerminal() {
   $('modal-scrim').hidden = true;
 }
 $('terminal-close').addEventListener('click', closeTerminal);
+$('term-input').addEventListener('blur', () => { diagPush('blur'); syncAppVh('blur', { dismissKb: true }); });
 $('term-input').addEventListener('input', (e) => {
   // each keystroke is its own mock frame
   $('term-pane').textContent = '$ ' + e.target.value;
