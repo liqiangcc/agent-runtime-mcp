@@ -64,15 +64,21 @@ shared Reading-first shell (app.js, index.html, style.css)
 ## Covered by the mock
 
 - minimal header: session name + compact state chip + overflow menu
-- sessions drawer (off-canvas on narrow screens, static sidebar ≥900px);
-  swipe-right on the reading area opens it with drag-follow, swipe-left on
-  the open drawer closes it, and the explicit ☰ button remains as the
-  accessibility fallback. Gestures require clear horizontal intent
-  (|dx| > 14px and > 1.6×|dy|); vertical scroll, code/table horizontal
-  scroll, text selection and interactive elements always win, and the
-  outermost 28px left edge is a guard zone so the browser's back gesture
-  is never fought. Drawer open/close never rebuilds the transcript or
-  disturbs stream/recovery state.
+- sessions drawer (ChatGPT-style canvas-translation model on narrow
+  screens, static sidebar ≥900px): the drawer is a fixed dark surface
+  (~72vw / ~302px at 420) beneath the app; opening translates the whole
+  conversation canvas right as one continuous surface with a 28px rounded
+  leading corner — the active conversation stays visible on the right and
+  is never rebuilt. Swipe-right on the reading area tracks the finger
+  progressively and settles open/closed on distance (35%/25%) + velocity
+  (0.45px/ms) thresholds; swipe-left on the drawer or the exposed canvas
+  strip closes it; the explicit ☰ button remains the accessibility
+  fallback. Gestures require clear horizontal intent (|dx| > 14px and >
+  1.6×|dy|); vertical scroll, code/table horizontal scroll, text selection
+  and interactive elements always win, and the outermost 28px left edge is
+  a guard zone so the browser's back gesture is never fought. Drawer
+  open/close never rebuilds the transcript or disturbs scroll, stream,
+  recovery or composer-draft state.
 - reading-first conversation flow (generic: reading/translation scenario;
   devin: mock code-review conversation with Thinking / Running command /
   Read shell / Tool result cards)

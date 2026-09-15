@@ -275,98 +275,95 @@ $('focus-toggle').addEventListener('click', () => {
   $('focus-toggle').textContent = document.body.classList.contains('focus') ? 'Full trace' : 'Focus';
 });
 
-// ---- swipe session navigation ----
-// Swipe-right on the reading area opens the drawer; swipe-left on the open
-// drawer closes it. Clear horizontal intent only; vertical scroll and
-// locally scrollable/interactive surfaces always win. The extreme left edge
-// is a guard zone (iOS back gesture lives there — we don't fight it).
-const drawerEl = $('drawer'), scrimEl = $('drawer-scrim');
-const EDGE_GUARD = 28;   // px — stay out of the browser edge-gesture zone
-const INTENT_PX = 14;    // horizontal intent distance
-const INTENT_RATIO = 1.6;
-let swipe = null;
+// ---- sessions drawer (canvas-translation model) ----
+// The drawer is a fixed surface beneath the app; opening translates the
+// whole conversation canvas right with a rounded leading corner — the
+// transcript is never rebuilt or disturbed.
+const drawerEl = $('drawer'), scrimEl = $('drawer-scrim'), canvasEl = $('canvas');
 
+function drawerOpen() { return document.body.classList.contains('drawer-open'); }
+function setDrawer(open) {
+  document.body.classList.toggle('drawer-open', open);
+  scrimEl.hidden = !open;
+}
 function drawerW() { return drawerEl.getBoundingClientRect().width || 300; }
+
+// ---- swipe session navigation ----
+// Swipe-right on the reading area slides the canvas open; swipe-left on the
+// drawer or exposed canvas strip closes it. Clear horizontal intent only;
+// vertical scroll, local scrollers and interactive surfaces always win.
+// The outermost 28px of the left edge is a guard zone (iOS back gesture).
+const EDGE_GUARD = 28;
+const INTENT_PX = 14;
+const INTENT_RATIO = 1.6;
+const VELOCITY = 0.45; // px/ms flick threshold
+let swipe = null;
 
 document.addEventListener('pointerdown', (e) => {
   if (swipe || !e.isPrimary || (e.pointerType === 'mouse' && e.button !== 0)) return;
   if (window.getSelection()?.toString()) return;
-  if (drawerEl.classList.contains('open')) {
+  if (drawerOpen()) {
     if (e.target.closest('#drawer') || e.target.closest('#drawer-scrim'))
-      swipe = { x0: e.clientX, y0: e.clientY, mode: 'maybe', dir: 'close' };
+      swipe = { x0: e.clientX, y0: e.clientY, t0: e.timeStamp, lx: e.clientX, lt: e.timeStamp, mode: 'maybe', dir: 'close' };
     return;
   }
   if (!e.target.closest('#main')) return;
   if (e.clientX < EDGE_GUARD) return;
   if (e.target.closest('pre, .md-table, #raw-view, textarea, input, select, a, button, summary, #terminal-sheet')) return;
-  swipe = { x0: e.clientX, y0: e.clientY, mode: 'maybe', dir: 'open' };
+  swipe = { x0: e.clientX, y0: e.clientY, t0: e.timeStamp, lx: e.clientX, lt: e.timeStamp, mode: 'maybe', dir: 'open' };
 });
 
 document.addEventListener('pointermove', (e) => {
   if (!swipe || !e.isPrimary) return;
   const dx = e.clientX - swipe.x0, dy = e.clientY - swipe.y0;
+  swipe.vx = (e.clientX - swipe.lx) / Math.max(1, e.timeStamp - swipe.lt);
+  swipe.lx = e.clientX; swipe.lt = e.timeStamp;
   if (swipe.mode === 'maybe') {
     if (Math.abs(dy) > 12 && Math.abs(dy) >= Math.abs(dx)) { swipe = null; return; }
     if (swipe.dir === 'open' && dx > INTENT_PX && dx > INTENT_RATIO * Math.abs(dy)) swipe.mode = 'drag';
     else if (swipe.dir === 'close' && dx < -INTENT_PX && -dx > INTENT_RATIO * Math.abs(dy)) swipe.mode = 'drag';
-    else if (Math.abs(dx) > 14 || Math.abs(dy) > 14) { swipe = null; return; } // wrong-direction gesture
+    else if (Math.abs(dx) > 14 || Math.abs(dy) > 14) { swipe = null; return; }
     else return;
-    drawerEl.style.transition = 'none';
-    scrimEl.style.transition = 'none';
+    canvasEl.classList.add('dragging');
+    drawerEl.classList.add('dragging');
+    canvasEl.style.transition = 'none';
   }
   const W = drawerW();
-  if (swipe.dir === 'open') {
-    drawerEl.style.transform = `translateX(${Math.min(0, -W + dx)}px)`;
-    scrimEl.hidden = false;
-    scrimEl.style.opacity = Math.min(1, Math.max(0, dx / W));
-  } else {
-    const t = Math.max(-W, Math.min(0, dx));
-    drawerEl.style.transform = `translateX(${t}px)`;
-    scrimEl.style.opacity = Math.max(0, 1 + dx / W);
-  }
+  const t = swipe.dir === 'open'
+    ? Math.max(0, Math.min(W, dx))
+    : Math.max(0, Math.min(W, W + dx));
+  canvasEl.style.transform = `translateX(${t}px)`;
 });
 
 function endSwipe(e, cancelled) {
   if (!swipe) return;
   const s = swipe;
   swipe = null;
-  drawerEl.style.transition = '';
-  scrimEl.style.transition = '';
-  drawerEl.style.transform = '';
-  scrimEl.style.opacity = '';
+  canvasEl.classList.remove('dragging');
+  drawerEl.classList.remove('dragging');
+  canvasEl.style.transition = '';
+  canvasEl.style.transform = '';
   if (s.mode !== 'drag') return;
   const dx = cancelled ? 0 : e.clientX - s.x0;
+  const v = cancelled ? 0 : (s.vx || 0);
   const W = drawerW();
-  if (s.dir === 'open') {
-    const open = dx > W * 0.35;
-    drawerEl.classList.toggle('open', open);
-    scrimEl.hidden = !open;
-  } else {
-    const closed = dx < -W * 0.25;
-    drawerEl.classList.toggle('open', !closed);
-    scrimEl.hidden = closed;
-  }
+  if (s.dir === 'open') setDrawer(dx > W * 0.35 || v > VELOCITY);
+  else setDrawer(!(dx < -W * 0.25 || v < -VELOCITY));
 }
 document.addEventListener('pointerup', (e) => endSwipe(e, false));
 document.addEventListener('pointercancel', (e) => endSwipe(e, true));
 
-// drawer
-$('drawer-btn').addEventListener('click', () => {
-  $('drawer').classList.add('open');
-  $('drawer-scrim').hidden = false;
-});
-$('drawer-scrim').addEventListener('click', () => {
-  $('drawer').classList.remove('open');
-  $('drawer-scrim').hidden = true;
-});
+$('drawer-btn').addEventListener('click', () => setDrawer(true));
+$('drawer-scrim').addEventListener('click', () => setDrawer(false));
+$('drawer-search').addEventListener('click', () => toast('session search — mock affordance only'));
+$('new-session').addEventListener('click', () => toast('new session — mock affordance only'));
 $('session-list').addEventListener('click', (ev) => {
   const li = ev.target.closest('.session');
   if (!li) return;
   document.querySelectorAll('.session').forEach(s => s.classList.remove('active'));
   li.classList.add('active');
   $('session-name').textContent = li.querySelector('.s-name').textContent;
-  $('drawer').classList.remove('open');
-  $('drawer-scrim').hidden = true;
+  setDrawer(false);
 });
 
 // overflow menu

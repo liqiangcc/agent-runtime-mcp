@@ -30,4 +30,23 @@ table{border-collapse:collapse}
 <tr><td>Status bar</td><td>iOS chrome (17:59, battery) not part of the web surface</td></tr>
 <tr><td>Chrome extras</td><td>prototype adds state chip + profile label + Focus toggle (product needs)</td></tr>
 </table></div>
+</div>
+<h1 style="margin-top:28px">Drawer geometry — ChatGPT drawer reference vs prototype (420×912)</h1>
+<div class="board">
+<div class="col"><h2>Drawer reference (PR #98, 420×912)</h2><img src="screenshots/ref-chatgpt-drawer-420.png"></div>
+<div class="col"><h2>Prototype — drawer open via swipe</h2><img src="screenshots/v5-5-drawer-open.png"></div>
+<div class="notes"><h2>Drawer deltas (target → actual, CSS px)</h2><table>
+<tr><td>Drawer width</td><td>~295–302 (70–72%) → 302 (min(72vw,320px))</td></tr>
+<tr><td>Canvas translation</td><td>continuous surface shifts right → translateX = drawer width, measured 302.4</td></tr>
+<tr><td>Leading corner</td><td>large rounded → border-radius 28px + shadow, applied while open/dragging</td></tr>
+<tr><td>Drawer surface</td><td>dark restrained → #0b0d11</td></tr>
+<tr><td>Top region</td><td>identity + search affordance → "Sessions" + ⌕ (mock)</td></tr>
+<tr><td>List rows</td><td>grouped, large tap targets → "Current" group, 44px rows, radio-style markers</td></tr>
+<tr><td>Bottom region</td><td>primary action + profile → "✎ New session" pill + avatar (mock)</td></tr>
+<tr><td>Motion</td><td>finger-tracking drag, distance/velocity settle → 0.22s transform transition, 35%/0.45px·ms⁻¹ thresholds</td></tr>
+</table>
+<h2 style="margin-top:14px">Residual differences</h2><table>
+<tr><td>iOS edge back gesture</td><td>outermost 28px is a guard zone — edge-swipe-to-open intentionally not replicated</td></tr>
+<tr><td>ChatGPT semantics</td><td>Library/Projects/Plugins rows not copied; our list maps to sessions only</td></tr>
+</table></div>
 </div></body></html>
