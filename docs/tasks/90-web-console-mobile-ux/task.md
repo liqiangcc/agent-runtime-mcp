@@ -400,6 +400,30 @@ prototype and the later production contract:
   to prove the approach; the production dependency choice is frozen by the
   Coordinator after prototype approval.
 
+## Amendment — ChatGPT-mobile pixel-level visual fidelity (FINAL GATE DECISION)
+
+The approved UX direction is measurable visual fidelity against the pinned
+user reference (`docs/assets/issues/90/chatgpt-reading-reference.svg`,
+original 1260×2736 → primary CSS target ~420×912, with 390/375px sanity).
+"Similar style" is insufficient; the visual-review package must include:
+
+- exact 420×912 CSS-px screenshots of the default Devin Reading view plus
+  tool-collapsed, streaming partial answer, Markdown demo, recovery, drawer,
+  and composer-advanced states;
+- side-by-side or overlay/diff board: ChatGPT reference | prototype |
+  annotated deltas;
+- annotated geometry measurements (header height, content gutters, composer
+  bounds, paragraph/heading spacing) — target vs actual, major layout deltas
+  within a few CSS px where practical;
+- residual differences that cannot be pixel-identical (system fonts, safe
+  areas) recorded explicitly.
+
+A prototype is not READY merely because functionality exists: it is ready
+only when the comparison visibly resembles the reference at first glance and
+the Coordinator has completed an independent visual diff/measurement pass.
+User approval remains mandatory; production implementation stays BLOCKED
+until explicit approval.
+
 ## Completion Protocol
 
 ```text
