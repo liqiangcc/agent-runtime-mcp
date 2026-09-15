@@ -1,5 +1,7 @@
 'use strict';
 
+import { TRANSFER_MAX_BYTES, buildTransferPayload, utf8Bytes, validateTransfer } from './transfer.js';
+
 const channelsEl = document.getElementById('channels');
 const healthEl = document.getElementById('health');
 const errorEl = document.getElementById('error');
@@ -43,6 +45,15 @@ const lcCwdEl = document.getElementById('lc-cwd');
 const lcCreateBtn = document.getElementById('lc-create');
 const lcKillBtn = document.getElementById('lc-kill');
 const lcStatusEl = document.getElementById('lc-status');
+const transferModal = document.getElementById('transfer-modal');
+const transferSourceEl = document.getElementById('transfer-source');
+const transferTargetEl = document.getElementById('transfer-target');
+const transferPreviewEl = document.getElementById('transfer-preview');
+const transferSizeEl = document.getElementById('transfer-size');
+const transferErrorEl = document.getElementById('transfer-error');
+const transferNoSubmitChk = document.getElementById('transfer-nosubmit');
+const transferConfirmBtn = document.getElementById('transfer-confirm');
+const transferCancelBtn = document.getElementById('transfer-cancel');
 
 const TEXT_BYTE_HINT = 1024 * 1024;
 const BOTTOM_PIN_PX = 48;
@@ -161,6 +172,16 @@ function buildBubble(entry) {
     void navigator.clipboard.writeText(entry.text ?? '').catch(() => undefined);
   });
   actions.append(star, copy);
+
+  if (entry.kind === 'earlier_output' || entry.kind === 'output_block') {
+    const sendTo = document.createElement('button');
+    sendTo.type = 'button';
+    sendTo.className = 'send-to';
+    sendTo.textContent = 'send to…';
+    sendTo.title = 'transfer selected output to another session';
+    sendTo.addEventListener('click', () => void openTransfer(entry, body));
+    actions.append(sendTo);
+  }
 
   const body = document.createElement('pre');
   body.className = 'entry-body';
@@ -447,6 +468,163 @@ async function loadHealth() {
   }
   updateComposerState();
 }
+
+// ---------- explicit context transfer (#84) ----------
+// selection → explicit target → preview → explicit confirm → exactly one
+// ordinary text write on the target via POST /api/channels/:id/text.
+// Nothing mutates until Confirm; Cancel and preview never touch a target.
+// Transfer state is in-memory only and is cleared when the modal closes.
+
+let transferState = null;
+let transferChannels = [];
+
+function selectionWithin(el) {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
+  if (!el.contains(sel.getRangeAt(0).commonAncestorContainer)) return null;
+  const text = sel.toString();
+  return text === '' ? null : text;
+}
+
+async function openTransfer(entry, bodyEl) {
+  transferErrorEl.hidden = true;
+  transferErrorEl.textContent = '';
+  const sourceChannel = selectedChannel;
+  const text = selectionWithin(bodyEl) ?? (entry.text ?? '');
+  transferState = {
+    text,
+    sourceChannelId: sourceChannel.channel_id,
+    sourceLabel: sourceChannel.backend_metadata?.tmux?.session_name || sourceChannel.channel_id,
+  };
+  transferSourceEl.textContent = `${transferState.sourceLabel} (${transferState.sourceChannelId})`;
+
+  await refreshTransferTargets();
+  renderTransferPreview();
+  transferModal.hidden = false;
+}
+
+// Rebuild the target list from the currently visible Channels and clear any
+// prior selection — a vanished/stale target must never be re-confirmed without
+// a fresh explicit choice.
+async function refreshTransferTargets() {
+  try {
+    const res = await fetch('/api/channels', { cache: 'no-store' });
+    if (!res.ok) throw new Error(`channel list failed: ${res.status}`);
+    transferChannels = (await res.json()).channels ?? [];
+  } catch {
+    transferChannels = [];
+  }
+
+  transferTargetEl.textContent = '';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'choose target…';
+  transferTargetEl.append(placeholder);
+  for (const ch of transferChannels) {
+    if (ch.channel_id === transferState?.sourceChannelId) continue;
+    const opt = document.createElement('option');
+    opt.value = ch.channel_id;
+    opt.textContent = ch.backend_metadata?.tmux?.session_name || ch.channel_id || 'unknown';
+    transferTargetEl.append(opt);
+  }
+  transferTargetEl.value = '';
+}
+
+function renderTransferPreview() {
+  if (!transferState) return;
+  const payload = buildTransferPayload({
+    sourceLabel: transferState.sourceLabel,
+    sourceChannelId: transferState.sourceChannelId,
+    text: transferState.text,
+  });
+  transferPreviewEl.textContent = payload;
+  const bytes = utf8Bytes(payload);
+  transferSizeEl.textContent = `payload ${bytes} bytes (limit ${TRANSFER_MAX_BYTES})`;
+  const check = validateTransfer({
+    text: payload,
+    targetChannelId: transferTargetEl.value,
+    sourceChannelId: transferState.sourceChannelId,
+    channels: transferChannels,
+  });
+  transferConfirmBtn.disabled = !check.ok;
+  if (!check.ok && check.code !== 'no-target') {
+    transferErrorEl.textContent = check.message;
+    transferErrorEl.hidden = false;
+  } else {
+    transferErrorEl.hidden = true;
+  }
+}
+
+function closeTransfer() {
+  transferModal.hidden = true;
+  transferState = null;
+  transferChannels = [];
+}
+
+async function confirmTransfer() {
+  if (!transferState || transferConfirmBtn.disabled) return;
+  const payload = buildTransferPayload({
+    sourceLabel: transferState.sourceLabel,
+    sourceChannelId: transferState.sourceChannelId,
+    text: transferState.text,
+  });
+  const check = validateTransfer({
+    text: payload,
+    targetChannelId: transferTargetEl.value,
+    sourceChannelId: transferState.sourceChannelId,
+    channels: transferChannels,
+  });
+  if (!check.ok) {
+    transferErrorEl.textContent = check.message;
+    transferErrorEl.hidden = false;
+    return;
+  }
+  const targetId = transferTargetEl.value;
+  transferConfirmBtn.disabled = true;
+  transferErrorEl.hidden = true;
+  try {
+    const res = await fetch(`/api/channels/${encodeURIComponent(targetId)}/text`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: payload, submit: !transferNoSubmitChk.checked }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (res.ok) {
+      const targetLabel = transferTargetEl.selectedOptions[0]?.textContent || targetId;
+      closeTransfer();
+      showSendResult('ok', `sent ${body.bytes_sent ?? check.bytes} bytes to ${targetLabel}${body.submit ? ' (+ Enter)' : ''}`);
+      return;
+    }
+    if (body.error?.code === 'TIMEOUT') {
+      transferErrorEl.textContent = `TIMEOUT: delivery ambiguous — ${targetId} may have received the text. Not retried automatically.`;
+      transferErrorEl.hidden = false;
+      transferConfirmBtn.disabled = false;
+      return;
+    }
+    await invalidateTargetChoice(body.error?.message || `send failed: ${res.status}`);
+  } catch {
+    await invalidateTargetChoice('network error — not retried automatically');
+  }
+}
+
+// A failed (non-TIMEOUT) send means the chosen target may be gone or stale:
+// invalidate the prior choice, rebuild the list from currently visible
+// Channels, and keep Confirm disabled until the operator makes a fresh
+// explicit selection. Nothing is re-sent automatically.
+async function invalidateTargetChoice(message) {
+  transferErrorEl.textContent = message;
+  transferErrorEl.hidden = false;
+  await refreshTransferTargets();
+  transferConfirmBtn.disabled = true;
+}
+
+transferTargetEl.addEventListener('change', renderTransferPreview);
+transferNoSubmitChk.addEventListener('change', renderTransferPreview);
+transferCancelBtn.addEventListener('click', closeTransfer);
+transferConfirmBtn.addEventListener('click', () => void confirmTransfer());
+transferModal.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeTransfer();
+});
 
 async function loadChannels() {
   try {

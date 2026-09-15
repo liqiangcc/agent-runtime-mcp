@@ -6,13 +6,16 @@ coupling to the product is the public MCP contract (`docs/mcp-contract.md`):
 the Console spawns `node <repo>/dist/src/server.js` over stdio and calls the
 public tools through the official `@modelcontextprotocol/client`.
 
-Current slice (Tasks #61 + #63 + #62 + #65 + #64): chat-first conversation
+Current slice (Tasks #61 + #63 + #62 + #65 + #64 + #84): chat-first conversation
 view — session list sidebar, backend health banner, a chat composer that sends
 `write_text` / `send_control` through the same adapter, a Console-owned bounded
 history ring observed per Channel and pushed to the browser over read-only
 SSE, an opt-in deployment-layer session lifecycle (create/kill), and an opt-in
 Advanced terminal attach view — both off by default and absent unless the
-operator enables them.
+operator enables them — plus an explicit human-driven context transfer: copy
+selected output from one visible Channel's rendered history to another visible
+Channel, with preview and explicit confirm before exactly one ordinary
+`write_text` send.
 
 ```text
 browser ──HTTP──▶ Console server ──stdio MCP──▶ agent-runtime-mcp ──▶ existing tmux panes
@@ -79,6 +82,23 @@ browser ──HTTP──▶ Console server ──stdio MCP──▶ agent-runtim
   anywhere outside `console/src/terminal-attach.ts`, and key-injection,
   pane-piping, and forced-shell execution everywhere under `console/` with no
   exceptions.
+- **Context transfer is manual-only.** The `send to…` action on output entries
+  never triggers automatically: the operator picks a target from the current
+  visible Channel list (raw tmux targets are never accepted), previews the
+  exact payload, and confirms. Preview and Cancel perform zero mutations;
+  Confirm issues exactly one ordinary `write_text` through the existing
+  `/api/channels/:id/text` route and the target history records a normal
+  `user_turn`. The envelope is a single mechanical provenance line
+  (source session + channel id) followed by the selected text verbatim —
+  no semantic interpretation, no role inference, no summarization, no
+  auto-forwarding, no routing rules, no persistence of payloads. A 256 KiB
+  UI bound rejects oversize selections before any send (never truncated);
+  a `TIMEOUT` stays ambiguous and is never auto-retried; a vanished or stale
+  target fails with an explicit error, the prior target choice is discarded
+  and the list is rebuilt from currently visible Channels — a fresh explicit
+  selection is required before anything can be sent again. **Terminal output
+  may contain secrets or untrusted instructions — it is transferred only
+  by explicit human action, never automatically.**
 - **No persistence.** Nothing is written to disk by the Console; conversation
   history lives only in bounded in-process rings (below) and disappears on
   restart. Terminal output is stored and rendered verbatim — no role, prompt,
