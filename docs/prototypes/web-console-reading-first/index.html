@@ -15,7 +15,9 @@
   <div class="topbar-id">
     <div id="session-name">reader-cn</div>
     <button id="state-chip" class="chip chip-live" title="Observation state">live</button>
+    <span id="profile-label" title="UI adapter profile (mock)">generic</span>
   </div>
+  <button id="focus-toggle" hidden title="Reading / Focus mode">Focus</button>
   <div class="topbar-spacer"></div>
   <div class="menu-wrap">
     <button id="overflow-btn" aria-label="More actions" title="More">⋯</button>
@@ -35,6 +37,9 @@
       <button data-act="state-reobserve">State: cursor expired</button>
       <button data-act="state-error">State: error</button>
       <button data-act="state-closed">State: closed</button>
+      <div class="menu-group">Demo profile</div>
+      <button data-act="profile-devin">Agent: devin</button>
+      <button data-act="profile-generic">Agent: generic</button>
     </div>
   </div>
 </header>
@@ -122,6 +127,8 @@
 
 <div id="toast" hidden></div>
 
+<script src="adapters/generic.js"></script>
+<script src="adapters/devin.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

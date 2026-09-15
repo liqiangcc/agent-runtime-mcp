@@ -1,6 +1,7 @@
 // Static prototype for Issue #90 — mock data only, no backend calls.
+// Shared Reading-first shell + per-agent UI adapter + generic fallback.
 
-const MOCK_ENTRIES = [
+const GENERIC_ENTRIES = [
   { kind: 'user', time: '10:14', text: 'Read the next paragraph and translate each sentence, one at a time.' },
   { kind: 'output', time: '10:14', text: 'Le renard brun rapide saute par-dessus le chien paresseux.\n敏捷的棕色狐狸跳过了懒狗。\n\nThe quick brown fox jumps over the lazy dog.' },
   { kind: 'user', time: '10:15', text: 'Next sentence.' },
@@ -9,6 +10,44 @@ const MOCK_ENTRIES = [
   { kind: 'output', time: '10:15', text: '(paused — 2 of 9 sentences delivered)' },
   { kind: 'user', time: '10:16', text: 'Continue reading.' },
   { kind: 'output', time: '10:16', text: 'Les oiseaux chantent doucement dans les branches au-dessus de lui.\n鸟儿在它头顶的树枝上轻声歌唱。\n\nBirds sing softly in the branches above it.' },
+];
+
+// Mock Devin-format conversation. Activity blocks use the stable mock
+// markers parsed by adapters/devin.js; everything else is agent content.
+const DEVIN_ENTRIES = [
+  { kind: 'user', time: '09:41', text: 'Summarize the auth module and flag any obvious issues.' },
+  { kind: 'output', time: '09:41', agent: true, text:
+`«thinking»
+I should map the module layout first, then read the session and token files before summarizing.
+«run»
+ls src/auth && wc -l src/auth/*.ts
+«result»
+middleware.ts  session.ts  tokens.ts  index.ts
+ 214 src/auth/middleware.ts
+ 188 src/auth/session.ts
+  96 src/auth/tokens.ts
+  40 src/auth/index.ts
+«read»
+src/auth/session.ts
+«result»
+export function verifySession(token) {
+  const claims = decode(token);
+  if (claims.exp < now()) return null;
+  ...
+}
+«thinking»
+Token expiry is enforced in session.ts, but the refresh path in tokens.ts swallows refresh errors and returns the stale session — that is the main issue worth flagging.
+
+The auth module is small (~540 LOC) and centered on session.ts. Verification correctly rejects expired tokens, but tokens.ts swallows refresh failures and silently returns the stale session — an obvious issue worth fixing. middleware.ts is thin and delegates cleanly.` },
+  { kind: 'user', time: '09:44', text: 'Show me the exact refresh path.' },
+  { kind: 'output', time: '09:44', agent: true, text:
+`«run»
+grep -n "refresh" src/auth/tokens.ts
+«result»
+12: export async function refresh(session) {
+18:   } catch { return session; }
+
+The refresh path is tokens.ts:12-18 — the catch on line 18 discards the refresh error and returns the stale session object unchanged.` },
 ];
 
 const RECOVERY = {
@@ -32,17 +71,36 @@ const RECOVERY = {
 const $ = (id) => document.getElementById(id);
 const messages = $('messages');
 
+// ---- profile / adapter selection (explicit mock switch, never inferred) ----
+const profile = new URLSearchParams(location.search).get('agent') || 'generic';
+const adapter = window.Adapters[profile] || window.Adapters.generic;
+const entries = profile === 'devin' ? DEVIN_ENTRIES : GENERIC_ENTRIES;
+$('profile-label').textContent = adapter.label;
+$('focus-toggle').hidden = profile !== 'devin';
+if (profile === 'devin') $('session-name').textContent = 'devin-auth-review';
+$('composer-text').placeholder = `Message ${$('session-name').textContent}…`;
+
 function renderEntries() {
   messages.innerHTML = '';
-  for (const e of MOCK_ENTRIES) {
+  for (const e of entries) {
     const div = document.createElement('article');
     div.className = `entry ${e.kind}`;
-    const label = e.kind === 'user' ? 'you' : e.kind === 'control' ? 'control' : 'reader-cn';
-    div.innerHTML = `<div class="entry-meta"><span class="sent-label">${label}</span><span>${e.time}</span></div>` +
-      `<div class="entry-body"></div>`;
-    div.querySelector('.entry-body').textContent = e.text;
+    const label = e.kind === 'user' ? 'you' : e.kind === 'control' ? 'control' : $('session-name').textContent;
+    div.innerHTML = `<div class="entry-meta"><span class="sent-label">${label}</span><span>${e.time}</span></div>`;
+    const body = document.createElement('div');
+    body.className = 'entry-body';
+    // Adapter parse failure must fall back to generic — never drop content.
+    const handled = e.kind === 'output' && adapter.renderBody
+      ? safeRender(adapter, e, body)
+      : false;
+    if (!handled) window.Adapters.generic.renderBody(e, body);
+    div.appendChild(body);
     messages.appendChild(div);
   }
+}
+
+function safeRender(ad, e, body) {
+  try { return ad.renderBody(e, body) === true; } catch { return false; }
 }
 
 function setState(state) {
@@ -66,6 +124,12 @@ function toast(msg) {
   clearTimeout(t._h);
   t._h = setTimeout(() => { t.hidden = true; }, 1800);
 }
+
+// focus mode (devin adapter only)
+$('focus-toggle').addEventListener('click', () => {
+  document.body.classList.toggle('focus');
+  $('focus-toggle').textContent = document.body.classList.contains('focus') ? 'Full trace' : 'Focus';
+});
 
 // drawer
 $('drawer-btn').addEventListener('click', () => {
@@ -104,6 +168,8 @@ $('overflow-menu').addEventListener('click', (e) => {
   else if (act === 'state-reobserve') setState('needs_reobserve');
   else if (act === 'state-error') setState('error');
   else if (act === 'state-closed') setState('closed');
+  else if (act === 'profile-devin') location.search = '?agent=devin';
+  else if (act === 'profile-generic') location.search = '?agent=generic';
   else toast(`${act} — mock affordance only`);
 });
 
@@ -113,9 +179,9 @@ $('reobserve').addEventListener('click', () => {
   setTimeout(() => { setState('live'); toast('re-observed (mock)'); }, 900);
 });
 
-// raw transcript
+// raw transcript — always the unmodified source text
 function showRaw() {
-  $('raw-pre').textContent = MOCK_ENTRIES.map(e => `[${e.time}] <${e.kind}> ${e.text}`).join('\n\n');
+  $('raw-pre').textContent = entries.map(e => `[${e.time}] <${e.kind}> ${e.text}`).join('\n\n');
   $('raw-view').hidden = false;
 }
 $('raw-close').addEventListener('click', () => { $('raw-view').hidden = true; });
@@ -129,7 +195,7 @@ ta.addEventListener('input', () => {
 $('send').addEventListener('click', () => {
   const text = ta.value.trim();
   if (!text) return;
-  MOCK_ENTRIES.push({ kind: 'user', time: new Date().toTimeString().slice(0, 5), text });
+  entries.push({ kind: 'user', time: new Date().toTimeString().slice(0, 5), text });
   renderEntries();
   $('main').scrollTop = $('main').scrollHeight;
   ta.value = '';
@@ -164,7 +230,7 @@ $('transfer-target').addEventListener('change', (e) => {
 $('transfer-preview-btn').addEventListener('click', () => {
   const p = $('transfer-preview');
   p.hidden = false;
-  p.textContent = `Preview → ${$('transfer-target').value}\nfrom reader-cn @ selection\n\n${$('transfer-src').value}`;
+  p.textContent = `Preview → ${$('transfer-target').value}\nfrom ${$('session-name').textContent} @ selection\n\n${$('transfer-src').value}`;
   $('transfer-confirm').disabled = false;
 });
 $('transfer-confirm').addEventListener('click', () => {
