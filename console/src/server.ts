@@ -2,11 +2,12 @@ import { createServer } from 'node:http';
 import { collectInterfaceAddresses, evaluateBindAddress } from './bind-guard.js';
 import { ConfigError, loadConfig } from './config.js';
 import { ConsoleEventBus } from './events.js';
-import { createRequestHandler, expectedAuthority, rejectUpgrade } from './http-app.js';
+import { createRequestHandler, createUpgradeHandler, expectedAuthority } from './http-app.js';
 import { createLogger } from './logger.js';
 import { StdioMcpClient } from './mcp-client.js';
 import { HistoryHub } from './observer.js';
 import { SessionLifecycle } from './session-lifecycle.js';
+import { TerminalAttach } from './terminal-attach.js';
 
 function fatal(message: string): never {
   process.stderr.write(`agent-runtime-mcp-console: ${message}\n`);
@@ -53,11 +54,11 @@ const history = new HistoryHub({
   },
 });
 const lifecycle = config.lifecycle.enabled ? new SessionLifecycle({ config, logger }) : undefined;
-const server = createServer(
-  createRequestHandler({ mcp, events, history, expectedHost, publicDir: config.publicDir, logger, lifecycle }),
-);
+const terminal = config.terminal.enabled ? new TerminalAttach({ config, logger }) : undefined;
+const handlerDeps = { mcp, events, history, expectedHost, publicDir: config.publicDir, logger, lifecycle, terminal };
+const server = createServer(createRequestHandler(handlerDeps));
 
-server.on('upgrade', (req, socket) => rejectUpgrade(req, socket, expectedHost, logger));
+server.on('upgrade', createUpgradeHandler(handlerDeps));
 
 server.on('error', (error) => {
   fatal(`unable to listen on ${config.bind}:${config.port}: ${error.message}`);

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terminal — Web Console</title>
+<link rel="stylesheet" href="/vendor/xterm.css">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="terminal-page">
+<header class="topbar">
+  <h1>Terminal</h1>
+  <span id="term-title" class="chat-title"></span>
+  <span id="term-status" class="banner">connecting…</span>
+  <span class="spacer"></span>
+  <a href="/" class="advanced-link">← back to sessions</a>
+</header>
+<div id="term" class="term-wrap"></div>
+<script src="/vendor/xterm.js"></script>
+<script src="/vendor/addon-fit.js"></script>
+<script src="/terminal.js" defer></script>
+</body>
+</html>

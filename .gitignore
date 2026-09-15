@@ -4,3 +4,4 @@ artifacts/
 coverage/
 *.log
 .DS_Store
+console/public/vendor/

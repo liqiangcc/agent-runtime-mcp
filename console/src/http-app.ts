@@ -6,14 +6,30 @@ import { isIP } from 'node:net';
 import type { ConsoleEventBus } from './events.js';
 import type { HistoryHub, HubUpdate } from './observer.js';
 import type { Logger } from './logger.js';
+import type { Duplex } from 'node:stream';
+import { WebSocketServer, type WebSocket } from 'ws';
 import { McpToolError, McpUnavailableError, type ConsoleMcp, type TerminalControl } from './mcp-client.js';
 import { LifecycleRefusal, LifecycleTmuxError, type CreateInput, type KillInput, type LifecycleResult } from './session-lifecycle.js';
+import {
+  TerminalRefusal,
+  clampGeometry,
+  type AttachInput,
+  type AttachedTerminal,
+  type AttachReservation,
+} from './terminal-attach.js';
 
 /** Narrow deployment-layer port the HTTP surface needs from the adapter. */
 export interface LifecyclePort {
   createSession(input: CreateInput): Promise<LifecycleResult>;
   killSession(input: KillInput): Promise<LifecycleResult>;
   profileLabels(): string[];
+}
+
+/** Narrow deployment-layer port for the terminal attach adapter. */
+export interface TerminalPort {
+  /** Validates enabled/scope/cap/target and holds a cap slot — never spawns. */
+  reserve(input: AttachInput): AttachReservation;
+  maxAttach: number;
 }
 
 export interface HttpAppDeps {
@@ -24,9 +40,19 @@ export interface HttpAppDeps {
   publicDir: string;
   logger: Logger;
   lifecycle?: LifecyclePort;
+  terminal?: TerminalPort;
 }
 
-const STATIC_FILES = new Set(['/index.html', '/app.js', '/style.css']);
+const STATIC_FILES = new Set([
+  '/index.html',
+  '/app.js',
+  '/style.css',
+  '/terminal.html',
+  '/terminal.js',
+  '/vendor/xterm.js',
+  '/vendor/xterm.css',
+  '/vendor/addon-fit.js',
+]);
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -39,7 +65,17 @@ const HISTORY_ROUTE = /^\/api\/channels\/([^/]+)\/(history|events)$/;
 const LIFECYCLE_ROUTE = /^\/api\/lifecycle\/(sessions|kill)$/;
 const LIFECYCLE_CREATE_KEYS = new Set(['name', 'cwd', 'profile']);
 const LIFECYCLE_KILL_KEYS = new Set(['name', 'confirm']);
+const TERMINAL_ROUTE = /^\/api\/channels\/([^/]+)\/terminal$/;
 const SSE_HEARTBEAT_MS = 15_000;
+// Terminal WS bounds: the ws layer already enforces a 64 KiB frame bound
+// (maxPayload); single input messages are additionally capped well below it —
+// terminal traffic is keystrokes, not bulk transfer. Oversized input is
+// dropped, never logged.
+const MAX_INPUT_DATA = 16 * 1024;
+// The upgrade query may carry geometry only — target identity comes solely
+// from channel_id -> get_channel backend_metadata.tmux; any other key
+// (session/pane/target/tmux-shaped or not) is refused outright.
+const TERMINAL_QUERY_KEYS = new Set(['cols', 'rows']);
 
 export function expectedAuthority(bind: string, port: number): string {
   return isIP(bind) === 6 ? `[${bind}]:${port}` : `${bind}:${port}`;
@@ -466,6 +502,17 @@ export function createRequestHandler(deps: HttpAppDeps) {
         sendJson(res, status, { enabled: true, profiles: lifecycle.profileLabels() });
         return;
       }
+      if (path === '/api/terminal') {
+        const terminal = deps.terminal;
+        if (!terminal) {
+          status = 404;
+          sendError(res, status, 'NOT_FOUND', 'not found');
+          return;
+        }
+        status = 200;
+        sendJson(res, status, { enabled: true, maxAttach: terminal.maxAttach });
+        return;
+      }
 
       const historyMatch = HISTORY_ROUTE.exec(path);
       if (historyMatch) {
@@ -530,19 +577,159 @@ function safePath(rawUrl: string | undefined): string {
 }
 
 /**
- * There are no WebSocket endpoints in this slice; every upgrade attempt is
- * refused after the same Origin/Host authority check.
+ * Upgrade requests are refused after the same Origin/Host authority check.
+ * With terminal attach enabled, exactly one path upgrades —
+ * GET /api/channels/:id/terminal — resolved to a tmux pane only through the
+ * public get_channel backend_metadata. Everything else gets a plain 403.
  */
 export function rejectUpgrade(
   req: IncomingMessage,
   socket: { end(data: string): void },
   expectedHost: string,
   logger: Logger,
+  reason = 'no websocket endpoints in this build',
 ): void {
   const check = checkRequestAuthority(req, expectedHost);
   logger('upgrade_rejected', {
     path: typeof req.url === 'string' ? req.url : '/',
-    reason: check.ok ? 'no websocket endpoints in this build' : check.reason,
+    reason: check.ok ? reason : check.reason,
   });
   socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+}
+
+function endUpgrade(socket: Duplex, status: number, text: string): void {
+  const reason = text.replace(/[^\w -]/g, '_').slice(0, 64) || 'error';
+  socket.end(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\n\r\n`);
+}
+
+/**
+ * Bridges one WebSocket to one pty-attached tmux client. Client→server frames
+ * are JSON control messages only: {type:'input',data} and
+ * {type:'resize',cols,rows}. Server→client frames are raw pty output text.
+ * The pty dies with the socket (and vice versa) — never outliving it.
+ */
+function bridgeTerminal(ws: WebSocket, attached: AttachedTerminal): void {
+  attached.onData((data) => {
+    if (ws.readyState === ws.OPEN) ws.send(data);
+  });
+  attached.onExit(() => {
+    try {
+      ws.close();
+    } catch {
+      // already closing
+    }
+  });
+  ws.on('message', (raw: Buffer, isBinary: boolean) => {
+    void isBinary;
+    let msg: { type?: unknown; data?: unknown; cols?: unknown; rows?: unknown };
+    try {
+      msg = JSON.parse(raw.toString('utf8'));
+    } catch {
+      return;
+    }
+    if (msg?.type === 'input' && typeof msg.data === 'string') {
+      if (msg.data.length <= MAX_INPUT_DATA) attached.write(msg.data);
+    } else if (msg?.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number') {
+      attached.resize(msg.cols, msg.rows);
+    }
+  });
+  ws.on('close', () => attached.dispose());
+  ws.on('error', () => attached.dispose());
+}
+
+export function createUpgradeHandler(deps: HttpAppDeps) {
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+  return async (req: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> => {
+    const path = safePath(req.url);
+    const check = checkRequestAuthority(req, deps.expectedHost);
+    const match = TERMINAL_ROUTE.exec(path);
+    if (!check.ok) {
+      rejectUpgrade(req, socket, deps.expectedHost, deps.logger);
+      return;
+    }
+    if (!match) {
+      rejectUpgrade(req, socket, deps.expectedHost, deps.logger, 'unsupported upgrade path');
+      return;
+    }
+    const terminal = deps.terminal;
+    if (!terminal) {
+      rejectUpgrade(req, socket, deps.expectedHost, deps.logger, 'terminal attach is disabled');
+      return;
+    }
+    let channelId: string;
+    try {
+      channelId = decodeURIComponent(match[1]);
+    } catch {
+      deps.logger('upgrade_rejected', { path, reason: 'invalid channel id encoding' });
+      endUpgrade(socket, 400, 'Bad Request');
+      return;
+    }
+    const url = new URL(req.url ?? '/', 'http://console.internal');
+    if ([...url.searchParams.keys()].some((key) => !TERMINAL_QUERY_KEYS.has(key))) {
+      deps.logger('upgrade_rejected', { path, reason: 'unexpected query key' });
+      endUpgrade(socket, 400, 'only cols/rows query keys are accepted');
+      return;
+    }
+    let tmux: unknown;
+    try {
+      const payload = await deps.mcp.getChannel(channelId);
+      tmux = (payload?.channel as Record<string, unknown> | undefined)?.backend_metadata;
+      tmux = (tmux as Record<string, unknown> | undefined)?.tmux;
+    } catch (error) {
+      const mapped = mapError(error);
+      deps.logger('upgrade_rejected', { path, reason: `get_channel: ${mapped.code}` });
+      endUpgrade(socket, mapped.status, mapped.code);
+      return;
+    }
+    const { cols, rows } = clampGeometry(
+      Number(url.searchParams.get('cols')) || 80,
+      Number(url.searchParams.get('rows')) || 24,
+    );
+    const actor = req.socket.remoteAddress ?? 'unknown';
+    // Preflight reserves a cap slot WITHOUT spawning — refusal statuses stay
+    // plain HTTP (403 target/scope, 429 cap) because the socket has not
+    // upgraded yet.
+    let reservation: AttachReservation;
+    try {
+      reservation = terminal.reserve({ tmux: tmux as AttachInput['tmux'], cols, rows, actor });
+    } catch (error) {
+      if (error instanceof TerminalRefusal) {
+        const status = error.reason === 'attach_cap' ? 429 : 403;
+        deps.logger('upgrade_rejected', { path, reason: error.reason });
+        endUpgrade(socket, status, error.reason);
+      } else {
+        deps.logger('upgrade_rejected', { path, reason: 'attach check failed' });
+        endUpgrade(socket, 500, 'attach check failed');
+      }
+      return;
+    }
+    // The PTY spawns only inside the successful-upgrade callback. If ws aborts
+    // the handshake it destroys the socket — the reservation is released and
+    // pty count stays exactly zero: no spawn, no orphan, cap slot freed.
+    let upgraded = false;
+    const release = (): void => {
+      if (!upgraded) reservation.dispose();
+    };
+    socket.once('close', release);
+    try {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        upgraded = true;
+        socket.removeListener('close', release);
+        let attached: AttachedTerminal;
+        try {
+          attached = reservation.commit();
+        } catch {
+          // native-pty load/spawn failure after a good handshake — the slot was
+          // already released by commit; close the fresh socket, no orphan.
+          deps.logger('upgrade_rejected', { path, reason: 'pty_unavailable' });
+          ws.close(1011, 'attach failed');
+          return;
+        }
+        bridgeTerminal(ws, attached);
+      });
+    } catch {
+      release();
+      socket.destroy();
+    }
+  };
 }
