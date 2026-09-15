@@ -46,6 +46,7 @@ export interface HttpAppDeps {
 const STATIC_FILES = new Set([
   '/index.html',
   '/app.js',
+  '/transfer.js',
   '/style.css',
   '/terminal.html',
   '/terminal.js',

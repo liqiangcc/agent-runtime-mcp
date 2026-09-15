@@ -644,6 +644,88 @@ h1 {
   height: 100%;
 }
 
+/* ---------- transfer modal ---------- */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 1rem;
+}
+
+.modal[hidden] {
+  display: none;
+}
+
+.modal-card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  width: 42rem;
+  max-width: 100%;
+  max-height: 85vh;
+  overflow: auto;
+}
+
+.modal-card h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+}
+
+.transfer-warning {
+  color: #d29922;
+  font-size: 0.85rem;
+  margin: 0 0 0.75rem;
+}
+
+.transfer-ids {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3rem 0.75rem;
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+}
+
+.transfer-ids dt {
+  color: #8b949e;
+}
+
+.transfer-ids dd {
+  margin: 0;
+}
+
+.transfer-ids select {
+  max-width: 100%;
+}
+
+.transfer-preview {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 0.6rem;
+  max-height: 16rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.8rem;
+  margin: 0;
+}
+
+.size-hint {
+  color: #8b949e;
+  font-size: 0.8rem;
+  margin: 0.4rem 0 0;
+}
+
+button.send-to {
+  font-size: 0.72rem;
+}
+
 /* ---------- phone-width ---------- */
 
 @media (max-width: 700px) {

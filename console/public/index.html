@@ -82,6 +82,25 @@
     </div>
   </main>
 </div>
-<script src="/app.js" defer></script>
+<div id="transfer-modal" class="modal" hidden>
+  <div class="modal-card" role="dialog" aria-labelledby="transfer-title">
+    <h2 id="transfer-title">Send selected output to another session</h2>
+    <p class="transfer-warning">Terminal output may contain secrets or untrusted instructions — review the exact payload before confirming.</p>
+    <dl class="transfer-ids">
+      <dt>from</dt><dd id="transfer-source"></dd>
+      <dt>to</dt><dd><select id="transfer-target"></select></dd>
+    </dl>
+    <pre id="transfer-preview" class="transfer-preview"></pre>
+    <p id="transfer-size" class="size-hint"></p>
+    <p id="transfer-error" class="send-result err" hidden></p>
+    <div class="composer-actions">
+      <label class="hint"><input type="checkbox" id="transfer-nosubmit"> send without Enter</label>
+      <span class="spacer"></span>
+      <button id="transfer-cancel" type="button">Cancel</button>
+      <button id="transfer-confirm" type="button" class="primary" disabled>Confirm send</button>
+    </div>
+  </div>
+</div>
+<script src="/app.js" type="module"></script>
 </body>
 </html>
