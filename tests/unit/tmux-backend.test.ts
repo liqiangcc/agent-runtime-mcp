@@ -177,7 +177,8 @@ describe('TmuxBackend', () => {
     assert.match(loadName, /^agent-runtime-mcp-write-/);
     assert.equal(pasteName, loadName);
     assert.equal(paste.args[3], 'paste-buffer');
-    assert.ok(paste.args.includes('-p'));
+    assert.equal(paste.args.includes('-p'), false);
+    assert.ok(paste.args.includes('-r'));
     assert.ok(paste.args.includes('-d'));
     assert.equal(paste.args[paste.args.indexOf('-t') + 1], '%1');
     assert.equal(paste.args.includes(text), false);

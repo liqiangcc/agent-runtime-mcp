@@ -235,7 +235,7 @@ export class TmuxBackend implements ChannelBackend {
     try {
       await this.runTmux(['load-buffer', '-b', bufferName, '-'], 'load-buffer', 64 * 1024, { stdin: text });
       await this.runTmux(
-        ['paste-buffer', '-p', '-r', '-d', '-b', bufferName, '-t', paneId],
+        ['paste-buffer', '-r', '-d', '-b', bufferName, '-t', paneId],
         'paste-buffer',
         64 * 1024,
         { terminalMutation: true },
