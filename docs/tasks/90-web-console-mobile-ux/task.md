@@ -507,6 +507,14 @@ mode is compatibility fallback only:
   side-by-side vs the ChatGPT reference; browser-mode sanity retained;
   measured content-height/safe-area geometry; honest residual notes for any
   install-path limits (e.g. tailnet HTTPS availability).
+- Standalone full-height layout: the app shell must fill the real dynamic
+  standalone viewport (`100dvh` with fallbacks); conversation is the
+  flexible/scrolling region; the composer sits at the bottom safe area; a
+  collapsed Advanced input reserves no height; no large dead region may
+  remain top or bottom; keyboard open/close and orientation changes must not
+  destabilize the layout. Real iPhone Home Screen standalone screenshots with
+  safe-area/header/content/composer/dead-zone measurements are required
+  before READY.
 
 ## Completion Protocol
 
