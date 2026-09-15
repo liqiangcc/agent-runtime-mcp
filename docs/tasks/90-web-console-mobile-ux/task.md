@@ -457,6 +457,31 @@ Drawer geometry (reference `docs/assets/issues/90/chatgpt-drawer-reference-420.s
   recorded drawer-width/canvas-translation/radius/gutter/typography
   measurements.
 
+## Amendment — Tool/activity card refinement (FINAL GATE DECISION)
+
+Tool steps must exist but recede — first glance goes to the answer/reading
+content:
+
+- Thinking / Running command / Read shell / Tool result default to a light
+  single-row header (small icon + title + status/chevron); collapsed state is
+  not a big background card.
+- Only expanded command/code/result bodies get a dark content surface: no
+  thick borders, strong shadows, highlighted outlines, or card-on-card
+  nesting.
+- Surface radius/padding/step gap/title-to-body gap/row height/icon
+  size/gutters are unified and measured against the reference's restrained
+  density.
+- Proportional typography for headers/titles; monospace only for
+  code/raw/output values; secondary metadata muted.
+- Streaming activity updates in place with a light in-progress indicator and
+  settles back to a clean header row — no loud pulse/border.
+- Output/result labels are present but de-emphasized; the value is the
+  content. A Markdown answer is never wrapped inside a tool card.
+- Evidence: collapsed rows, expanded surfaces, consecutive tools + final
+  Markdown answer on one screen, in-place streaming update, Focus/Reading
+  mode — plus reference overlay/diff. If it still reads as an engineering
+  dashboard/card-stack at first glance, it is not READY.
+
 ## Completion Protocol
 
 ```text
