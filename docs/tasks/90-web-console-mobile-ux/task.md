@@ -442,6 +442,72 @@ until explicit approval.
   code/table non-trigger) plus the standard 420×912 primary + 390/375 sanity
   screenshot set.
 
+Drawer geometry (reference `docs/assets/issues/90/chatgpt-drawer-reference-420.svg`):
+
+- Drawer occupies ~70–72% of viewport (~295–302 CSS px at 420px); the active
+  conversation canvas stays visible on the right and translates right as one
+  continuous surface with large rounded leading corners — not a plain overlay;
+  the canvas must not disappear/rebuild.
+- Gesture tracks the finger progressively and settles on distance/velocity
+  thresholds — no touch-end jump.
+- Do not copy ChatGPT product semantics (Library/Projects/Plugins); the pixel
+  target applies to geometry, hierarchy, spacing, typography and motion only.
+- Pre-READY evidence must include closed / ~50% drag / fully open / closing
+  drag screenshots at 420×912 plus an overlay/diff against the reference and
+  recorded drawer-width/canvas-translation/radius/gutter/typography
+  measurements.
+
+## Amendment — Tool/activity card refinement (FINAL GATE DECISION)
+
+Tool steps must exist but recede — first glance goes to the answer/reading
+content:
+
+- Thinking / Running command / Read shell / Tool result default to a light
+  single-row header (small icon + title + status/chevron); collapsed state is
+  not a big background card.
+- Only expanded command/code/result bodies get a dark content surface: no
+  thick borders, strong shadows, highlighted outlines, or card-on-card
+  nesting.
+- Surface radius/padding/step gap/title-to-body gap/row height/icon
+  size/gutters are unified and measured against the reference's restrained
+  density.
+- Proportional typography for headers/titles; monospace only for
+  code/raw/output values; secondary metadata muted.
+- Streaming activity updates in place with a light in-progress indicator and
+  settles back to a clean header row — no loud pulse/border.
+- Output/result labels are present but de-emphasized; the value is the
+  content. A Markdown answer is never wrapped inside a tool card.
+- Evidence: collapsed rows, expanded surfaces, consecutive tools + final
+  Markdown answer on one screen, in-place streaming update, Focus/Reading
+  mode — plus reference overlay/diff. If it still reads as an engineering
+  dashboard/card-stack at first glance, it is not READY.
+
+## Amendment — Installable PWA / standalone mobile mode (FINAL GATE DECISION)
+
+Standalone/installed mode is the PRIMARY mobile acceptance surface; browser
+mode is compatibility fallback only:
+
+- Web App Manifest with `display: standalone` preferred; `fullscreen` only as
+  compatible fallback. The Fullscreen API is an optional user-triggered
+  enhancement, never the sole mechanism; never script-hide browser chrome.
+- iOS legacy path (`apple-mobile-web-app-capable`, status-bar style,
+  touch icon) is a documented fallback while no valid-HTTPS tailnet endpoint
+  exists for proper PWA install.
+- `viewport-fit=cover` + `env(safe-area-inset-*)` for header/drawer/composer/
+  sheets; system status bar/safe areas follow platform rules; the composer
+  hugs the bottom safe area in standalone.
+- `@media (display-mode: standalone)` removes browser-compensation chrome;
+  browser mode stays fully usable.
+- Drawer swipe, streaming Markdown, adapter folding, recovery, and composer
+  draft must survive standalone; no MCP/transport/mutation/cursor semantic
+  changes; no default caching of API/Channel data (any service worker is
+  static-asset-only).
+- Evidence: standalone screenshots (Reading, folded tools, Markdown,
+  streaming partial, drawer open/drag, composer, recovery) as the primary
+  side-by-side vs the ChatGPT reference; browser-mode sanity retained;
+  measured content-height/safe-area geometry; honest residual notes for any
+  install-path limits (e.g. tailnet HTTPS availability).
+
 ## Completion Protocol
 
 ```text
