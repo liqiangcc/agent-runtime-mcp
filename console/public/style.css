@@ -184,6 +184,84 @@ h1 {
   font-size: 0.85rem;
 }
 
+/* ---------- operator lifecycle controls ---------- */
+
+.lifecycle {
+  margin-top: 0.8rem;
+  border-top: 1px solid #2d3743;
+  padding-top: 0.5rem;
+}
+
+.lifecycle summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #9ca3af;
+}
+
+.lifecycle-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: 0.5rem;
+}
+
+.lc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+  color: #9ca3af;
+}
+
+.lc-field input,
+.lc-field select {
+  font: inherit;
+  padding: 0.3rem 0.45rem;
+  border-radius: 0.35rem;
+  border: 1px solid #4b5563;
+  background: #0f1319;
+  color: inherit;
+}
+
+.lifecycle-body button {
+  font: inherit;
+  padding: 0.3rem 0.7rem;
+  border-radius: 0.35rem;
+  border: 1px solid #4b5563;
+  background: #1f2937;
+  color: inherit;
+  cursor: pointer;
+}
+
+.lifecycle-body button.danger {
+  background: #7f1d1d;
+  border-color: #991b1b;
+}
+
+.lifecycle-body button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.lc-status {
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+.lc-status.ok {
+  color: #4ade80;
+}
+
+.lc-status.warn {
+  color: #fbbf24;
+}
+
+.lc-status.err {
+  color: #f87171;
+}
+
 /* ---------- chat pane ---------- */
 
 .chat {

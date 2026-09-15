@@ -6,10 +6,12 @@ coupling to the product is the public MCP contract (`docs/mcp-contract.md`):
 the Console spawns `node <repo>/dist/src/server.js` over stdio and calls the
 public tools through the official `@modelcontextprotocol/client`.
 
-Current slice (Tasks #61 + #63 + #62): chat-first conversation view — session
-list sidebar, backend health banner, a chat composer that sends `write_text` /
-`send_control` through the same adapter, and a Console-owned bounded history
-ring observed per Channel and pushed to the browser over read-only SSE.
+Current slice (Tasks #61 + #63 + #62 + #65): chat-first conversation view —
+session list sidebar, backend health banner, a chat composer that sends
+`write_text` / `send_control` through the same adapter, a Console-owned bounded
+history ring observed per Channel and pushed to the browser over read-only
+SSE, and an opt-in deployment-layer session lifecycle (create/kill) that is
+off by default and absent unless the operator enables it.
 
 ```text
 browser ──HTTP──▶ Console server ──stdio MCP──▶ agent-runtime-mcp ──▶ existing tmux panes
@@ -38,10 +40,22 @@ browser ──HTTP──▶ Console server ──stdio MCP──▶ agent-runtim
   `backend_metadata.tmux.session_name`, `title`, `cwd`, `state`,
   `last_activity` and `capabilities`. Missing fields show `unknown`; nothing is
   inferred from terminal content.
-- **No tmux execution.** In this slice `console/` executes no tmux command at
-  all — endpoint lifecycle stays outside; failure never creates, restarts or
-  destroys endpoints. A CI guard rejects tmux lifecycle/attach/key-injection
-  invocations anywhere under `console/`.
+- **Lifecycle is opt-in and deployment-layer only.** With
+  `CONSOLE_LIFECYCLE_ENABLED` unset the Console exposes no lifecycle surface at
+  all (routes `404`). When enabled, exactly one module —
+  `console/src/session-lifecycle.ts` — invokes the tmux session create/kill
+  verbs as executable + argv (`execFile`, never a shell, no free-form
+  command). Session names are validated, creation cwd is canonicalized and
+  must live under `CONSOLE_ALLOWED_CWD_ROOTS`, the profile argv comes only
+  from the operator-configured `CONSOLE_LIFECYCLE_PROFILES` allowlist, kill
+  requires explicit confirmation and refuses `CONSOLE_PROTECTED_SESSIONS`
+  (always including `agent-runtime-keeper`), and names must be inside
+  `TMUX_ALLOWED_SESSIONS` when that scope is configured. Audit log records
+  metadata only — `actor` (the socket peer address, derived mechanically at the
+  HTTP boundary and never accepted from the request body), `action`, `session`,
+  `result`/`reason` — never argv, output, or secrets.
+  A CI guard rejects tmux lifecycle/attach/key-injection invocations anywhere
+  under `console/` outside that single adapter.
 - **No persistence.** Nothing is written to disk by the Console; conversation
   history lives only in bounded in-process rings (below) and disappears on
   restart. Terminal output is stored and rendered verbatim — no role, prompt,
@@ -64,7 +78,11 @@ browser ──HTTP──▶ Console server ──stdio MCP──▶ agent-runtim
 | `CONSOLE_OBSERVE_POLL_MS` | `2500` | Fallback poll interval when observation is unavailable (500–60000). |
 | `CONSOLE_TAIL_LINES` | `400` | Lines requested per bounded `read_channel` tail (10–2000). |
 | `CONSOLE_TAIL_BYTES` | `262144` | Bytes requested per `read_channel` tail (4 KiB–**1 MiB**, the MCP's public per-read bound — independent of the ring's total byte ceiling). |
-| `TMUX_*` | — | Passed through to the MCP child unchanged (e.g. `TMUX_SOCKET_NAME`, `TMUX_SOCKET_PATH`, `TMUX_ALLOWED_SESSIONS`, `TMUX_TIMEOUT_MS`). The Console itself never interprets them. |
+| `CONSOLE_LIFECYCLE_ENABLED` | *(unset = off)* | `true`/`1` enables the deployment-layer lifecycle routes; anything else fails closed. |
+| `CONSOLE_LIFECYCLE_PROFILES` | `{}` | JSON object `label → {"argv": [...]}`. **The repository ships an empty default profile set — enabling lifecycle with no profiles exposes no start command.** Each `argv` is a non-empty string array; `{name}` and `{cwd}` are the only substituted placeholders. |
+| `CONSOLE_ALLOWED_CWD_ROOTS` | `[]` | JSON array of absolute paths; session creation `cwd` must resolve (via `realpath`) inside one of these resolved roots. |
+| `CONSOLE_PROTECTED_SESSIONS` | `agent-runtime-keeper` | Comma-separated session names that can never be killed through the Console; `agent-runtime-keeper` is always protected. |
+| `TMUX_*` | — | Passed through to the MCP child unchanged (e.g. `TMUX_SOCKET_NAME`, `TMUX_SOCKET_PATH`, `TMUX_ALLOWED_SESSIONS`, `TMUX_TIMEOUT_MS`). The lifecycle adapter additionally reads only the socket selection (`TMUX_SOCKET_NAME`/`TMUX_SOCKET_PATH`) and `TMUX_ALLOWED_SESSIONS` to enforce the same scope — this mirrors MCP scope without changing MCP semantics. |
 
 Reconnect policy: when the MCP child is unreachable the adapter retries with
 bounded backoff (3 attempts, 250 ms doubling), then reports `MCP_UNAVAILABLE`
@@ -108,7 +126,19 @@ address instead.
   of `ENTER|INTERRUPT|ESCAPE` (the same closed enum as the MCP; anything else is
   rejected `400 INVALID_ARGUMENT` before the adapter is called).
 
-Both mutation routes run the same Origin/Host authority check before touching
+When `CONSOLE_LIFECYCLE_ENABLED` is on (otherwise every route below is `404`):
+
+- `GET /api/lifecycle` → `{enabled: true, profiles: [...]}` capability probe the
+  UI uses to reveal the operator controls.
+- `POST /api/lifecycle/sessions` → `{name, cwd, profile}` — whitelisted keys
+  only; there is no free-form command field. `200 {session, created:true}`,
+  `422 LIFECYCLE_REFUSED` for bad name/profile/cwd/scope, `502 TMUX_ERROR` when
+  tmux itself fails.
+- `POST /api/lifecycle/kill` → `{name, confirm: true}` — the explicit
+  `confirm: true` is required (`400` without it); protected or out-of-scope
+  sessions are refused `422` before tmux runs.
+
+All mutation routes run the same Origin/Host authority check before touching
 the adapter: `Host` must equal the bound `address:port` and a present `Origin`
 must match it — **anyone who can reach the Console on the tailnet can write and
 send controls**; that is the documented trust model, there is no per-user
@@ -184,5 +214,7 @@ servers; it runs in the `console` CI job after both packages are built.
 
 `console/` imports nothing from `src/`; the runtime deployment bundle
 (`npm run package:runtime`) must not contain `console/` paths — both are
-asserted in CI. Terminal attach and session lifecycle are later Tasks
-(#64–#65) and are intentionally absent here.
+asserted in CI. Terminal attach (#64) remains a later Task and is intentionally
+absent here. Session lifecycle (#65) exists only as the isolated
+deployment-layer adapter described above — it never routes through the MCP,
+which stays at exactly seven public tools.

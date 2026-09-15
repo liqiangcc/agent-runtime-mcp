@@ -7,6 +7,14 @@ import type { ConsoleEventBus } from './events.js';
 import type { HistoryHub, HubUpdate } from './observer.js';
 import type { Logger } from './logger.js';
 import { McpToolError, McpUnavailableError, type ConsoleMcp, type TerminalControl } from './mcp-client.js';
+import { LifecycleRefusal, LifecycleTmuxError, type CreateInput, type KillInput, type LifecycleResult } from './session-lifecycle.js';
+
+/** Narrow deployment-layer port the HTTP surface needs from the adapter. */
+export interface LifecyclePort {
+  createSession(input: CreateInput): Promise<LifecycleResult>;
+  killSession(input: KillInput): Promise<LifecycleResult>;
+  profileLabels(): string[];
+}
 
 export interface HttpAppDeps {
   mcp: ConsoleMcp;
@@ -15,6 +23,7 @@ export interface HttpAppDeps {
   expectedHost: string;
   publicDir: string;
   logger: Logger;
+  lifecycle?: LifecyclePort;
 }
 
 const STATIC_FILES = new Set(['/index.html', '/app.js', '/style.css']);
@@ -27,6 +36,9 @@ const CONTROLS: ReadonlySet<string> = new Set(['ENTER', 'INTERRUPT', 'ESCAPE']);
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const MUTATION_ROUTE = /^\/api\/channels\/([^/]+)\/(text|control)$/;
 const HISTORY_ROUTE = /^\/api\/channels\/([^/]+)\/(history|events)$/;
+const LIFECYCLE_ROUTE = /^\/api\/lifecycle\/(sessions|kill)$/;
+const LIFECYCLE_CREATE_KEYS = new Set(['name', 'cwd', 'profile']);
+const LIFECYCLE_KILL_KEYS = new Set(['name', 'confirm']);
 const SSE_HEARTBEAT_MS = 15_000;
 
 export function expectedAuthority(bind: string, port: number): string {
@@ -261,6 +273,71 @@ export function createRequestHandler(deps: HttpAppDeps) {
     }
   }
 
+  /**
+   * Deployment-layer session lifecycle. Present only when the operator opted
+   * in; with lifecycle disabled every route below 404s — no surface exists.
+   * Bodies are strictly whitelisted: create takes name/cwd/profile only
+   * (no free-form command), kill takes name + explicit confirm:true.
+   */
+  async function handleLifecycle(
+    req: IncomingMessage,
+    res: ServerResponse,
+    action: 'sessions' | 'kill',
+  ): Promise<number> {
+    const lifecycle = deps.lifecycle;
+    if (!lifecycle) {
+      sendError(res, 404, 'NOT_FOUND', 'not found');
+      return 404;
+    }
+    const body = await readJsonBody(req);
+    if (!body.ok) {
+      sendError(res, body.status, 'INVALID_ARGUMENT', body.message);
+      return body.status;
+    }
+    const value = body.value;
+    if (!isRecord(value)) {
+      sendError(res, 400, 'INVALID_ARGUMENT', 'request body must be a JSON object');
+      return 400;
+    }
+    const allowed = action === 'sessions' ? LIFECYCLE_CREATE_KEYS : LIFECYCLE_KILL_KEYS;
+    if (Object.keys(value).some((key) => !allowed.has(key))) {
+      sendError(res, 400, 'INVALID_ARGUMENT', `body may only contain: ${[...allowed].join(', ')}`);
+      return 400;
+    }
+    // Audit actor is mechanical: the socket peer address, never a body field.
+    const actor = req.socket.remoteAddress ?? 'unknown';
+    try {
+      if (action === 'sessions') {
+        const { name, cwd, profile } = value;
+        if (typeof name !== 'string' || typeof cwd !== 'string' || typeof profile !== 'string') {
+          sendError(res, 400, 'INVALID_ARGUMENT', 'body must contain "name", "cwd" and "profile" strings');
+          return 400;
+        }
+        const result = await lifecycle.createSession({ name, cwd, profile, actor });
+        sendJson(res, 200, { session: result.session, created: true });
+        return 200;
+      }
+      const { name, confirm } = value;
+      if (typeof name !== 'string' || confirm !== true) {
+        sendError(res, 400, 'INVALID_ARGUMENT', 'body must contain "name": string and "confirm": true');
+        return 400;
+      }
+      const result = await lifecycle.killSession({ name, actor });
+      sendJson(res, 200, { session: result.session, killed: true });
+      return 200;
+    } catch (error) {
+      if (error instanceof LifecycleRefusal) {
+        sendError(res, 422, 'LIFECYCLE_REFUSED', error.message);
+        return 422;
+      }
+      if (error instanceof LifecycleTmuxError) {
+        sendError(res, 502, 'TMUX_ERROR', 'session operation failed');
+        return 502;
+      }
+      throw error;
+    }
+  }
+
   function handleHistory(req: IncomingMessage, res: ServerResponse, channelId: string): number {
     let format: string | null = null;
     try {
@@ -356,6 +433,12 @@ export function createRequestHandler(deps: HttpAppDeps) {
         status = await handleMutation(req, res, mutationMatch[2] as 'text' | 'control', channelId);
         return;
       }
+
+      const lifecycleMatch = method === 'POST' ? LIFECYCLE_ROUTE.exec(path) : null;
+      if (lifecycleMatch) {
+        status = await handleLifecycle(req, res, lifecycleMatch[1] as 'sessions' | 'kill');
+        return;
+      }
       if (method !== 'GET' && method !== 'HEAD') {
         status = 405;
         sendError(res, status, 'METHOD_NOT_ALLOWED', 'unsupported method');
@@ -370,6 +453,17 @@ export function createRequestHandler(deps: HttpAppDeps) {
       if (path === '/api/channels') {
         status = 200;
         sendJson(res, status, await deps.mcp.listChannels());
+        return;
+      }
+      if (path === '/api/lifecycle') {
+        const lifecycle = deps.lifecycle;
+        if (!lifecycle) {
+          status = 404;
+          sendError(res, status, 'NOT_FOUND', 'not found');
+          return;
+        }
+        status = 200;
+        sendJson(res, status, { enabled: true, profiles: lifecycle.profileLabels() });
         return;
       }
 

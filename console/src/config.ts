@@ -25,6 +25,12 @@ export interface ConsoleConfig {
     tailLines: number;
     tailBytes: number;
   };
+  lifecycle: {
+    enabled: boolean;
+    profiles: Record<string, { argv: string[] }>;
+    allowedCwdRoots: string[];
+    protectedSessions: string[];
+  };
 }
 
 const DEFAULT_BIND = '127.0.0.1';
@@ -73,6 +79,66 @@ function boundedInt(raw: string | undefined, name: string, fallback: number, min
   return value;
 }
 
+function parseLifecycleEnabled(raw: string | undefined): boolean {
+  if (raw === undefined || raw.trim() === '') return false;
+  const value = raw.trim();
+  if (value === 'true' || value === '1') return true;
+  if (value === 'false' || value === '0') return false;
+  throw new ConfigError(`CONSOLE_LIFECYCLE_ENABLED must be true/1 or false/0, got ${JSON.stringify(raw)}`);
+}
+
+function parseLifecycleProfiles(raw: string | undefined): Record<string, { argv: string[] }> {
+  // Frozen Coordinator decision: the repository default profile set is EMPTY —
+  // operators must configure CONSOLE_LIFECYCLE_PROFILES explicitly.
+  if (raw === undefined || raw.trim() === '') return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new ConfigError('CONSOLE_LIFECYCLE_PROFILES must be a JSON object of label -> {argv: string[]}');
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new ConfigError('CONSOLE_LIFECYCLE_PROFILES must be a JSON object of label -> {argv: string[]}');
+  }
+  const profiles: Record<string, { argv: string[] }> = {};
+  for (const [label, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (label.trim() === '' || value === null || typeof value !== 'object' || Array.isArray(value)) {
+      throw new ConfigError(`CONSOLE_LIFECYCLE_PROFILES entry ${JSON.stringify(label)} must be {argv: string[]}`);
+    }
+    const argv = (value as Record<string, unknown>).argv;
+    if (!Array.isArray(argv) || argv.length === 0 || argv.some((a) => typeof a !== 'string' || a === '')) {
+      throw new ConfigError(`CONSOLE_LIFECYCLE_PROFILES entry ${JSON.stringify(label)} must have a non-empty argv string array`);
+    }
+    profiles[label] = { argv: [...(argv as string[])] };
+  }
+  return profiles;
+}
+
+function parseCwdRoots(raw: string | undefined): string[] {
+  if (raw === undefined || raw.trim() === '') return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new ConfigError('CONSOLE_ALLOWED_CWD_ROOTS must be a JSON array of absolute paths');
+  }
+  if (!Array.isArray(parsed) || parsed.some((p) => typeof p !== 'string' || !p.startsWith('/'))) {
+    throw new ConfigError('CONSOLE_ALLOWED_CWD_ROOTS must be a JSON array of absolute paths');
+  }
+  return parsed.map((p) => resolve(p as string));
+}
+
+function parseProtectedSessions(raw: string | undefined): string[] {
+  const sessions = new Set<string>(['agent-runtime-keeper']);
+  if (raw !== undefined && raw.trim() !== '') {
+    for (const name of raw.split(',')) {
+      const trimmed = name.trim();
+      if (trimmed !== '') sessions.add(trimmed);
+    }
+  }
+  return [...sessions];
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConsoleConfig {
   const consoleDir = consolePackageDir();
   const bind = env.CONSOLE_BIND?.trim() || DEFAULT_BIND;
@@ -99,6 +165,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConsoleConfig 
       // Single read_channel request bound: the MCP's public per-read bytes
       // limit is 1 MiB (HARD_MAX_READ_BYTES); the ring total stays separate.
       tailBytes: boundedInt(env.CONSOLE_TAIL_BYTES, 'CONSOLE_TAIL_BYTES', 256 * 1024, 4_096, 1024 * 1024),
+    },
+    lifecycle: {
+      enabled: parseLifecycleEnabled(env.CONSOLE_LIFECYCLE_ENABLED),
+      profiles: parseLifecycleProfiles(env.CONSOLE_LIFECYCLE_PROFILES),
+      allowedCwdRoots: parseCwdRoots(env.CONSOLE_ALLOWED_CWD_ROOTS),
+      protectedSessions: parseProtectedSessions(env.CONSOLE_PROTECTED_SESSIONS),
     },
   };
 }
