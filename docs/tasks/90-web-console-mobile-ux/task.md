@@ -538,6 +538,16 @@ mode is compatibility fallback only:
   switches, ≥10 keyboard open/close cycles, ≥1 orientation/viewport
   transition — each recording viewport/app-shell/composer/deadBottom, with
   deadBottom settling to intentional safe-area only.
+- Compact recovery interaction: CURSOR_EXPIRED/GAP remain fail-closed, but
+  recovery is a compact strip/banner — short interrupted status plus a single
+  Re-observe action, with gap detail collapsed; the header carries only a
+  lightweight interrupted indicator, no duplicate action. Re-observe
+  transitions in place (attaching/re-observing → live) with no scroll jump,
+  no transcript rebuild, no content occlusion, and no loss of streaming/
+  Markdown/activity/drawer/composer-draft state. Write/control/mutation
+  semantics unchanged. Evidence: real iPhone standalone five-state
+  screenshots (live/interrupted/details/attaching/restored) plus
+  no-scroll-jump and no-duplicate-action proof.
 
 ## Completion Protocol
 
