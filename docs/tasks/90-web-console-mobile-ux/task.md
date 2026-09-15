@@ -581,6 +581,15 @@ mode is compatibility fallback only:
   headless measurements — is the authority for the corrected selection/
   layout rule. No `PROTOTYPE READY` may be published on headless/synthetic
   evidence alone.
+- Structural viewport model: the root app shell is pinned to the stable
+  layout viewport and must never adopt the keyboard-shrunken
+  `visualViewport.height`. Soft-keyboard occlusion is a separate inset
+  (`innerHeight − (vv.height + vv.offsetTop)`, clamped ≥0) applied only to
+  composer position and conversation scroll padding; clearing the inset on
+  keyboard close restores the layout immediately — no timers, blur, or menu
+  taps. Timer/threshold self-heal heuristics around the root-height model are
+  falsified and removed from the approach. First real-device gate:
+  focus→type→dismiss keyboard without any overflow tap → no dead zone.
 
 ## Completion Protocol
 
