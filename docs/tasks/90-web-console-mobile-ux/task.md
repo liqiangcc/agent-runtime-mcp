@@ -590,6 +590,14 @@ mode is compatibility fallback only:
   taps. Timer/threshold self-heal heuristics around the root-height model are
   falsified and removed from the approach. First real-device gate:
   focus→type→dismiss keyboard without any overflow tap → no dead zone.
+- Keyboard-inset lifecycle ownership: on iOS standalone the keyboard-close
+  event may never reach the page while `visualViewport` has already
+  recovered, leaving a committed `--kb-inset` stale. While the inset is
+  nonzero the app must own its lifecycle — bounded low-frequency re-sampling
+  plus any pointer/scroll interaction re-reads `vv` and clears the inset as
+  soon as the keyboard is truly gone; the watcher stops entirely once closed.
+  Diagnostics record which trigger cleared the inset. Recovery must never
+  depend on blur/menu taps.
 
 ## Completion Protocol
 
