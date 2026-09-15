@@ -574,6 +574,13 @@ mode is compatibility fallback only:
   real iPhone standalone evidence: ≥10 cold launches, ≥10 bg-fg switches,
   ≥10 keyboard cycles including Chinese input, ≥5 type→send identity checks,
   ≥1 orientation transition; any large dead zone or input corruption fails.
+- Diagnostics-gated fixes: after any real-device FAIL, speculative viewport/
+  CSS tuning is suspended. The next fix must be evidence-driven from the
+  failing real-device diagnostics trace (copied via overflow → Debug → Copy
+  viewport/input diagnostics while the defect is visible); the trace — not
+  headless measurements — is the authority for the corrected selection/
+  layout rule. No `PROTOTYPE READY` may be published on headless/synthetic
+  evidence alone.
 
 ## Completion Protocol
 
