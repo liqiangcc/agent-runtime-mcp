@@ -160,11 +160,45 @@ const params = new URLSearchParams(location.search);
 // ?display=standalone — preview shim for reviewers (real standalone is
 // detected via the display-mode media query; this only mirrors its CSS).
 if (params.get('display') === 'standalone') document.body.classList.add('standalone-sim');
+
+// ---- runtime viewport reconciliation ----
+// iOS standalone miscomputes 100%/vh against a stale browser-chrome
+// height. Measure the real viewport (visualViewport, falling back to
+// innerHeight) and publish it as --app-vh; CSS consumes it with the
+// 100dvh/fill-available chain as fallback. Re-measure on every lifecycle
+// event that can change it. rAF-coalesced; pure style write — never
+// touches transcript DOM, scroll, stream, drawer, or composer state.
+let vhRaf = 0, vpDebug = null;
+function syncAppVh() {
+  if (vhRaf) return;
+  vhRaf = requestAnimationFrame(() => {
+    vhRaf = 0;
+    const vvh = window.visualViewport ? window.visualViewport.height : 0;
+    const h = vvh || window.innerHeight;
+    document.documentElement.style.setProperty('--app-vh', `${h}px`);
+    if (vpDebug) {
+      const dead = window.innerHeight - document.getElementById('composer').getBoundingClientRect().bottom;
+      vpDebug.textContent = `vv=${Math.round(vvh)} ih=${window.innerHeight} app=${Math.round(h)} dead=${Math.round(dead)}`;
+    }
+  });
+}
+window.addEventListener('pageshow', syncAppVh);
+window.addEventListener('resize', syncAppVh);
+window.addEventListener('orientationchange', syncAppVh);
+window.visualViewport?.addEventListener('resize', syncAppVh);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) syncAppVh(); });
+// ?debug=viewport — live measurement readout for real-device capture
+if (params.get('debug')) {
+  vpDebug = document.createElement('div');
+  vpDebug.id = 'vp-debug';
+  document.body.appendChild(vpDebug);
+}
+syncAppVh();
 const profile = params.get('agent') || 'generic';
 const adapter = window.Adapters[profile] || window.Adapters.generic;
 const entries = profile === 'devin' ? DEVIN_ENTRIES : GENERIC_ENTRIES;
 $('profile-label').textContent = adapter.label;
-$('focus-toggle').hidden = profile !== 'devin';
+$('focus-item').hidden = profile !== 'devin';
 if (profile === 'devin') $('session-name').textContent = 'devin-auth-review';
 $('composer-text').placeholder = `Message ${$('session-name').textContent}…`;
 
@@ -273,11 +307,11 @@ function toast(msg) {
   t._h = setTimeout(() => { t.hidden = true; }, 1800);
 }
 
-// focus mode (devin adapter only)
-$('focus-toggle').addEventListener('click', () => {
+// focus mode (devin adapter only) — secondary affordance in overflow menu
+function toggleFocus() {
   document.body.classList.toggle('focus');
-  $('focus-toggle').textContent = document.body.classList.contains('focus') ? 'Full trace' : 'Focus';
-});
+  $('focus-item').textContent = document.body.classList.contains('focus') ? 'Exit focus mode' : 'Focus mode';
+}
 
 // ---- sessions drawer (canvas-translation model) ----
 // The drawer is a fixed surface beneath the app; opening translates the
@@ -382,7 +416,8 @@ $('overflow-menu').addEventListener('click', (e) => {
   const act = e.target.closest('button')?.dataset.act;
   if (!act) return;
   $('overflow-menu').hidden = true;
-  if (act === 'raw') showRaw();
+  if (act === 'focus') toggleFocus();
+  else if (act === 'raw') showRaw();
   else if (act === 'transfer') openTransfer();
   else if (act === 'terminal') openTerminal();
   else if (act === 'state-live') setState('live');

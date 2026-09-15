@@ -37,6 +37,8 @@ body {
   height: 100vh;
   height: -webkit-fill-available;
   height: 100dvh;
+  /* runtime-measured viewport wins when JS has published it */
+  height: var(--app-vh, 100dvh);
 }
 
 button {
@@ -57,21 +59,12 @@ button:disabled { opacity: 0.45; cursor: default; }
   font-weight: 600;
 }
 
-/* prototype badge — overlay only, does not inflate header */
-#proto-badge {
-  position: fixed;
-  top: calc(4px + env(safe-area-inset-top));
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 60;
-  font-size: 9px;
-  letter-spacing: 0.08em;
+/* prototype marker — lives in the overflow menu, never overlays content */
+.menu-note {
+  font-size: 10px;
+  letter-spacing: 0.06em;
   color: var(--text-dim);
-  border: 1px dashed var(--line);
-  border-radius: 999px;
-  padding: 1px 8px;
-  background: rgba(15,17,21,0.85);
-  pointer-events: auto;
+  padding: 8px 10px 4px;
 }
 
 /* ---- header: minimal (tracks ChatGPT mobile chrome) ---- */
@@ -80,7 +73,7 @@ button:disabled { opacity: 0.45; cursor: default; }
   align-items: center;
   gap: 8px;
   height: calc(56px + env(safe-area-inset-top));
-  padding: calc(20px + env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 8px max(14px, env(safe-area-inset-left)); /* top incl. badge room */
+  padding: calc(14px + env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 8px max(14px, env(safe-area-inset-left));
   border-bottom: none;
   background: var(--bg);
 }
@@ -254,6 +247,8 @@ body.drawer-open #drawer, #drawer.dragging { visibility: visible; transition-del
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
+  /* the sticky recovery banner must never cover scrolled-to content */
+  scroll-padding-top: 8px;
 }
 
 #messages {
@@ -461,15 +456,7 @@ body.drawer-open #drawer, #drawer.dragging { visibility: visible; transition-del
   padding: 1px 8px;
   white-space: nowrap;
 }
-#focus-toggle {
-  white-space: nowrap;
-  font-size: 12px !important;
-  border: 1px solid var(--accent) !important;
-  color: var(--accent);
-  border-radius: 999px !important;
-  padding: 4px 12px !important;
-}
-body.focus #focus-toggle { background: var(--accent) !important; color: var(--accent-ink); }
+body.focus #focus-item { color: var(--accent); }
 
 .seg-text { margin: 10px 0; }
 .seg-text:first-child { margin-top: 0; }
@@ -634,17 +621,32 @@ body.focus .entry-body { font-size: 17.5px; }
   z-index: 70;
 }
 
+/* viewport diagnostics (?debug=viewport) — real-device capture aid */
+#vp-debug {
+  position: fixed;
+  left: 6px;
+  bottom: calc(2px + env(safe-area-inset-bottom));
+  z-index: 70;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  background: rgba(15,17,21,0.8);
+  padding: 1px 6px;
+  border-radius: 6px;
+  pointer-events: none;
+}
+
 /* ---- installed / standalone display mode ----
    When launched from the home screen the browser chrome is gone: the
    viewport already includes the safe areas, so chrome-compensation is
    removed and the badge marks the mode honestly. */
 @media (display-mode: standalone) {
-  #proto-badge::after { content: " · standalone"; }
+  #proto-note::after { content: " · standalone"; }
   #fs-item { display: none; } /* Fullscreen API is redundant in standalone */
 }
 /* ?display=standalone preview shim — review aid only, real standalone uses
    the media query above. Mirrors the same rules. */
-body.standalone-sim #proto-badge::after { content: " · standalone"; }
+body.standalone-sim #proto-note::after { content: " · standalone"; }
 body.standalone-sim #fs-item { display: none; }
 
 /* ---- desktop fallback ---- */
@@ -665,7 +667,6 @@ body.standalone-sim #fs-item { display: none; }
   #drawer-btn { display: none; }
   #canvas { transition: none; }
   body.drawer-open #canvas { transform: none; pointer-events: auto; border-radius: 0; box-shadow: none; }
-  #proto-badge { left: auto; right: 12px; transform: none; top: 10px; }
   #transfer-modal { align-items: center; }
   .modal-card { border-radius: 16px; }
 }

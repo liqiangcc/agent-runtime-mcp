@@ -62,12 +62,18 @@ shared Reading-first shell (app.js, index.html, style.css)
 - `viewport-fit=cover` + `env(safe-area-inset-*)` are applied to the
   topbar, prototype badge, drawer (top+bottom), composer and bottom
   sheets, so the notch/Dynamic Island/Home Indicator never cover content.
-- The app shell fills the real dynamic viewport: `body` uses
-  `100dvh` with `100vh`/`-webkit-fill-available` fallbacks — iOS
-  standalone miscomputes `height:100%` and leaves a dead gap at the
-  bottom. Conversation is the only flexible region; header and composer
-  take only required height; the collapsed Advanced panel reserves zero
-  height (opened via the composer "+" button).
+- The app shell fills the real dynamic viewport via TWO mechanisms:
+  JS runtime reconciliation measures `visualViewport.height`
+  (fallback `window.innerHeight`) and publishes `--app-vh` on
+  `<html>`, re-measured on boot/pageshow/visibilitychange/
+  visualViewport.resize/window.resize/orientation change (rAF-coalesced,
+  style-write only — never touches transcript/scroll/stream/drawer/
+  composer state); CSS falls back through `var(--app-vh, 100dvh)` →
+  `100dvh` → `100vh` → `-webkit-fill-available`. Conversation is the
+  only flexible region; header and composer take only required height;
+  the collapsed Advanced panel reserves zero height (opened via the
+  composer "+" button). `?debug=viewport` adds a live readout
+  (vv/innerHeight/app-vh/deadBottom) for real-device capture.
 - `@media (display-mode: standalone)` marks the badge and hides the
   optional "Enter fullscreen" menu item. The Fullscreen API remains a
   user-triggered enhancement in browser mode only; browser chrome is
@@ -96,7 +102,10 @@ shared Reading-first shell (app.js, index.html, style.css)
 
 ## Covered by the mock
 
-- minimal header: session name + compact state chip + overflow menu
+- minimal header: menu + session name + ultra-light status chip +
+  overflow only (prototype marker, agent profile, Focus toggle and all
+  secondary affordances live inside the overflow menu — no overlay
+  chrome, first content baseline is never under the header)
 - sessions drawer (ChatGPT-style canvas-translation model on narrow
   screens, static sidebar ≥900px): the drawer is a fixed dark surface
   (~72vw / ~302px at 420) beneath the app; opening translates the whole

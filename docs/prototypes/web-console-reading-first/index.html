@@ -14,8 +14,6 @@
 </head>
 <body>
 
-<div id="proto-badge" title="Static mock. No backend, no real terminal, no MCP calls.">PROTOTYPE · mock data</div>
-
 <aside id="drawer" aria-label="Sessions">
   <div class="drawer-head">
     <strong>Sessions</strong>
@@ -41,14 +39,14 @@
   <div class="topbar-id">
     <div id="session-name">reader-cn</div>
     <button id="state-chip" class="chip chip-live" title="Observation state">live</button>
-    <span id="profile-label" title="UI adapter profile (mock)">generic</span>
   </div>
-  <button id="focus-toggle" hidden title="Reading / Focus mode">Focus</button>
   <div class="topbar-spacer"></div>
   <div class="menu-wrap">
     <button id="overflow-btn" aria-label="More actions" title="More">⋯</button>
     <div id="overflow-menu" class="menu" hidden>
+      <div class="menu-note" id="proto-note">PROTOTYPE · mock data · profile: <b id="profile-label">generic</b></div>
       <div class="menu-group">View</div>
+      <button data-act="focus" id="focus-item" hidden>Focus mode</button>
       <button data-act="search">Search transcript</button>
       <button data-act="bookmarks">Bookmarks</button>
       <button data-act="raw">Raw transcript</button>
