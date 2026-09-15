@@ -383,6 +383,7 @@ $('send').addEventListener('click', () => {
     playStream(profile === 'devin' ? DEVIN_REPLY.slice() : GENERIC_REPLY.slice());
   }, 450);
 });
+$('composer-plus').addEventListener('click', () => toast('attach — mock affordance only'));
 document.querySelectorAll('[data-ctl]').forEach(b =>
   b.addEventListener('click', () => toast(`${b.dataset.ctl} — mock control only`)));
 
