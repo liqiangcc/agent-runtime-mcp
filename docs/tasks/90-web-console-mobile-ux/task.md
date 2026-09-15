@@ -303,6 +303,25 @@ Box predeploy real-device dogfood: post-merge Final Gate step, not part of
 this Attempt's merge evidence.
 ```
 
+## Amendment — Prototype Gate (FINAL GATE DECISION)
+
+The Publication above remains the frozen production Contract, but it does NOT
+authorize implementation yet. Per the Final Gate decision on Issue #90
+(`[FINAL GATE DECISION — PROTOTYPE FIRST / IMPLEMENTATION BLOCKED]`):
+
+1. A static, mock-data prototype of the target UX must first be built under a
+   prototype-only path (e.g. `docs/prototypes/web-console-reading-first/**`)
+   and deployed on Box side-by-side with the existing predeploy.
+2. The user reviews the deployed prototype; only explicit user approval lifts
+   the gate.
+3. Until approval: no `console/public/**`, `console/src/**`, root `src/**`, or
+   any production-path change may be committed for this Task; the formal
+   Attempt is PAUSED, not failed.
+4. The prototype is presentation evidence only — mock interactions do not
+   validate real MCP/observer semantics.
+5. After approval, the Coordinator may revise/freeze the Contract against the
+   approved prototype and then re-dispatch the formal Attempt.
+
 ## Completion Protocol
 
 ```text
