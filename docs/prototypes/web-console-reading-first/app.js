@@ -252,9 +252,11 @@ function applyViewport(ev, { allowShrink = false, dismissKb = false } = {}) {
   if (!isStandalone() || allowShrink || live > committedVh || !committedVh)
     committedVh = live;
   const rawKb = kbInset();
-  // the inset commits only for a real occlusion (> KB_MIN) — focus alone
-  // no longer keeps a small residual inset alive; blur suppresses it.
-  const kb = Math.round(kbSuppressed ? 0 : (rawKb > KB_MIN ? rawKb : 0));
+  // the inset commits only for a real occlusion (> KB_MIN) AND only while
+  // an editable is focused — a soft keyboard cannot be up otherwise, so a
+  // launch-time vv/innerHeight mismatch can never become a phantom inset
+  // (that phantom is one candidate for the cold-launch dead zone).
+  const kb = Math.round((kbSuppressed || !editableFocused()) ? 0 : (rawKb > KB_MIN ? rawKb : 0));
   document.documentElement.style.setProperty('--app-vh', `${committedVh}px`);
   document.documentElement.style.setProperty('--kb-inset', `${kb}px`);
   kbOpen = kb > 2;
@@ -266,8 +268,14 @@ function applyViewport(ev, { allowShrink = false, dismissKb = false } = {}) {
   if (!kbOpen && sy > 0) { window.scrollTo(0, 0); unscrolled = true; }
   if (kbOpen || editableFocused()) startKbWatch(); else stopKbWatch();
   diagPush(ev, { src: isStandalone() ? 'layout-asym' : 'layout', kbInset: kb, committedVh, sy, unscrolled });
-  if (vpDebug) vpDebug.textContent =
-    `vh=${committedVh} kb=${kb} sy=${sy} dead=${Math.round(committedVh - document.getElementById('composer').getBoundingClientRect().bottom)}`;
+  if (vpDebug) {
+    const vv = window.visualViewport;
+    const compBot = Math.round(document.getElementById('composer').getBoundingClientRect().bottom);
+    vpDebug.textContent =
+      `vh=${committedVh} ih=${window.innerHeight} ch=${document.documentElement.clientHeight} vvH=${Math.round(vv?.height ?? -1)} ` +
+      `kb=${kb} sy=${sy} compBot=${compBot} dead=${window.innerHeight - compBot} ` +
+      `focus=${document.activeElement?.id || '-'} ${ev}`;
+  }
 }
 let vhTimer = 0, vhRaf = 0;
 function syncAppVh(ev, { reset = false, dismissKb = false } = {}) {
@@ -302,14 +310,28 @@ window.addEventListener('orientationchange', () => syncAppVh('orientation', { re
 window.visualViewport?.addEventListener('resize', () => syncAppVh('vv.resize'));
 window.visualViewport?.addEventListener('scroll', () => syncAppVh('vv.scroll'));
 document.addEventListener('visibilitychange', () => { if (!document.hidden) syncAppVh('visible', { reset: true }); });
-// ?debug=viewport — live measurement readout for real-device capture
-if (params.get('debug')) {
-  vpDebug = document.createElement('div');
-  vpDebug.id = 'vp-debug';
-  document.body.appendChild(vpDebug);
+// viewport HUD — ?debug=viewport, or toggled from ⋯ → Debug (persisted per
+// tab so it survives the cold-launch you are trying to inspect)
+function setHud(on) {
+  if (on && !vpDebug) {
+    vpDebug = document.createElement('div');
+    vpDebug.id = 'vp-debug';
+    document.body.appendChild(vpDebug);
+    applyViewport('hud');
+  } else if (!on && vpDebug) { vpDebug.remove(); vpDebug = null; }
+  try { localStorage.setItem('vpHud', on ? '1' : ''); } catch { /* ignore */ }
 }
+let hudWanted = !!params.get('debug');
+try { hudWanted = hudWanted || localStorage.getItem('vpHud') === '1'; } catch { /* ignore */ }
+if (hudWanted) setHud(true);
 diagPush('boot');
 syncAppVh('boot');
+// launch settle (#111): iOS standalone can report a stale (smaller)
+// innerHeight / vv.height at first paint and correct it later WITHOUT any
+// event — the asymmetric model grows on the next sample, so give it
+// samples during the first seconds instead of waiting for a touch.
+for (const ms of [80, 200, 400, 700, 1000, 1500, 2200, 3000, 4500]) setTimeout(() => applyViewport(`launch+${ms}`), ms);
+window.addEventListener('load', () => syncAppVh('load'));
 const profile = params.get('agent') || 'generic';
 const adapter = window.Adapters[profile] || window.Adapters.generic;
 const entries = profile === 'devin' ? DEVIN_ENTRIES : GENERIC_ENTRIES;
@@ -595,6 +617,7 @@ $('overflow-menu').addEventListener('click', (e) => {
       document.documentElement.requestFullscreen().catch(() => toast('fullscreen not available here'));
     else toast('fullscreen not supported on this browser');
   }
+  else if (act === 'hud') { setHud(!vpDebug); toast(vpDebug ? 'viewport HUD on' : 'viewport HUD off'); }
   else if (act === 'diag-copy') {
     diagPush('diag-copy');
     const payload = JSON.stringify(DIAG, null, 1);

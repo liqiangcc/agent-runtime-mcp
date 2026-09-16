@@ -23,12 +23,13 @@
 
 * { box-sizing: border-box; }
 
-/* #111 — fixed root shell: the document itself can never scroll, so a
-   keyboard-induced layout-viewport scroll on iOS standalone has nothing
-   to leave behind; the shell always hugs the viewport edges. */
+/* #111 note: a position:fixed root was tried (af4c732) and made things
+   WORSE on the real device — the launch-time stale viewport no longer
+   healed on interaction (iOS appears to refresh stale metrics only when a
+   touch reaches a scrollable document). Keep the root in normal flow;
+   the scroll residue is handled in JS (applyViewport → scrollTo(0,0)). */
 html, body { height: 100%; }
-html { overflow: hidden; overscroll-behavior: none; }
-body { position: fixed; inset: 0; width: 100%; overscroll-behavior: none; }
+html { overscroll-behavior: none; }
 
 body {
   margin: 0;
@@ -747,15 +748,19 @@ body.focus .entry-body { font-size: 17.5px; }
 #vp-debug {
   position: fixed;
   left: 6px;
+  right: 6px;
   bottom: calc(2px + env(safe-area-inset-bottom));
   z-index: 70;
   font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--text-dim);
-  background: rgba(15,17,21,0.8);
-  padding: 1px 6px;
-  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #ececec;
+  background: rgba(40,40,40,0.92);
+  padding: 4px 8px;
+  border-radius: 8px;
   pointer-events: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* ---- installed / standalone display mode ----
