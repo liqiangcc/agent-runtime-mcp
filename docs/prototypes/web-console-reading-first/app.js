@@ -190,6 +190,7 @@ function diagPush(ev, extra = {}) {
     focus: document.activeElement?.id || document.activeElement?.tagName || '',
     composing, draftLen: $('composer-text') ? $('composer-text').value.length : 0,
     kbInset: Math.round(kbInset()),
+    sy: windowScrollY(),
     ...extra,
   });
 }
@@ -215,18 +216,29 @@ const isStandalone = () =>
 let vpDebug = null;
 let committedVh = 0;                 // canonical shell height
 let kbOpen = false, kbWatch = 0;
+// #111 — the keyboard threshold. Real soft keyboards occlude hundreds of
+// px; anything under this is accessory/rounding noise and means CLOSED.
+const KB_MIN = 40;
 function stopKbWatch() { clearInterval(kbWatch); kbWatch = 0; }
 function startKbWatch() {
-  // state-owned polling while the inset is committed only; clears the
-  // moment vv reads restored, then stops (zero cost when closed).
+  // state-owned polling while the keyboard is believed open OR an
+  // editable keeps focus (iOS standalone can hide the keyboard without
+  // blurring the field and without firing any viewport event). Each tick
+  // re-samples; applyViewport decides closed/open from live metrics.
   if (kbWatch) return;
   kbWatch = setInterval(() => {
-    if (kbInset() <= 2) { kbOpen = false; applyViewport('kbwatch:clear'); stopKbWatch(); }
+    applyViewport('kbwatch');
+    if (!kbOpen && !editableFocused()) stopKbWatch();
   }, 300);
 }
 function kbInset() {
   const vv = window.visualViewport;
   return vv ? Math.max(0, committedVh - (vv.height + vv.offsetTop)) : 0;
+}
+// keyboard-induced layout-viewport scroll (#111 root cause candidate):
+// iOS scrolls the window to reveal the caret and only unscrolls on blur.
+function windowScrollY() {
+  return Math.round(window.scrollY || window.visualViewport?.pageTop || document.scrollingElement?.scrollTop || 0);
 }
 function editableFocused() {
   const ae = document.activeElement;
@@ -240,17 +252,22 @@ function applyViewport(ev, { allowShrink = false, dismissKb = false } = {}) {
   if (!isStandalone() || allowShrink || live > committedVh || !committedVh)
     committedVh = live;
   const rawKb = kbInset();
-  // inset commits only while an editable is focused or a real shrink
-  // transition is visible in vv; an explicit editable blur suppresses it
-  const kb = Math.round(
-    kbSuppressed ? 0 : (editableFocused() || rawKb > 40 ? Math.max(0, rawKb) : 0));
+  // the inset commits only for a real occlusion (> KB_MIN) — focus alone
+  // no longer keeps a small residual inset alive; blur suppresses it.
+  const kb = Math.round(kbSuppressed ? 0 : (rawKb > KB_MIN ? rawKb : 0));
   document.documentElement.style.setProperty('--app-vh', `${committedVh}px`);
   document.documentElement.style.setProperty('--kb-inset', `${kb}px`);
   kbOpen = kb > 2;
-  if (kbOpen) startKbWatch(); else stopKbWatch();
-  diagPush(ev, { src: isStandalone() ? 'layout-asym' : 'layout', kbInset: kb, committedVh });
+  // keyboard closed (or nothing focused) but the window is still scrolled
+  // by the keyboard reveal → put the layout viewport back. Never while the
+  // keyboard is open: iOS owns that scroll to keep the caret visible.
+  const sy = windowScrollY();
+  let unscrolled = false;
+  if (!kbOpen && sy > 0) { window.scrollTo(0, 0); unscrolled = true; }
+  if (kbOpen || editableFocused()) startKbWatch(); else stopKbWatch();
+  diagPush(ev, { src: isStandalone() ? 'layout-asym' : 'layout', kbInset: kb, committedVh, sy, unscrolled });
   if (vpDebug) vpDebug.textContent =
-    `vh=${committedVh} kb=${kb} dead=${Math.round(committedVh - document.getElementById('composer').getBoundingClientRect().bottom)}`;
+    `vh=${committedVh} kb=${kb} sy=${sy} dead=${Math.round(committedVh - document.getElementById('composer').getBoundingClientRect().bottom)}`;
 }
 let vhTimer = 0, vhRaf = 0;
 function syncAppVh(ev, { reset = false, dismissKb = false } = {}) {
@@ -625,7 +642,7 @@ ta.addEventListener('compositionend', () => {
   ta.style.height = 'auto';
   ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
 });
-ta.addEventListener('focus', () => diagPush('focus'));
+ta.addEventListener('focus', () => { diagPush('focus'); startKbWatch(); });
 ta.addEventListener('blur', () => { diagPush('blur'); syncAppVh('blur', { dismissKb: true }); });
 // send disc rests dimmed until there is a draft (visual only — the click
 // handler still guards on the exact draft text)
@@ -697,6 +714,7 @@ function closeTerminal() {
   $('modal-scrim').hidden = true;
 }
 $('terminal-close').addEventListener('click', closeTerminal);
+$('term-input').addEventListener('focus', () => { diagPush('focus'); startKbWatch(); });
 $('term-input').addEventListener('blur', () => { diagPush('blur'); syncAppVh('blur', { dismissKb: true }); });
 $('term-input').addEventListener('input', (e) => {
   // each keystroke is its own mock frame

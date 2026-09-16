@@ -23,7 +23,12 @@
 
 * { box-sizing: border-box; }
 
+/* #111 — fixed root shell: the document itself can never scroll, so a
+   keyboard-induced layout-viewport scroll on iOS standalone has nothing
+   to leave behind; the shell always hugs the viewport edges. */
 html, body { height: 100%; }
+html { overflow: hidden; overscroll-behavior: none; }
+body { position: fixed; inset: 0; width: 100%; overscroll-behavior: none; }
 
 body {
   margin: 0;
