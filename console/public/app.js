@@ -1,6 +1,8 @@
 'use strict';
 
 import { TRANSFER_MAX_BYTES, buildTransferPayload, utf8Bytes, validateTransfer } from './transfer.js';
+import { createConversation, KNOWN_ADAPTERS } from './reading.js';
+import { initViewport, diagPush, copyDiag, setHud, startKbWatch, syncAppVh, setComposing } from './viewport.js';
 
 const channelsEl = document.getElementById('channels');
 const healthEl = document.getElementById('health');
@@ -110,37 +112,22 @@ function scrollToBottom() {
   newOutputBtn.hidden = true;
 }
 
-function fmtTime(iso) {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString();
-}
-
 function entryDomId(id) {
   return `entry-${id}`;
 }
 
-function buildBubble(entry) {
-  const wrap = document.createElement('div');
-  wrap.className = `entry entry-${entry.kind}`;
-  wrap.id = entryDomId(entry.id);
-  wrap.dataset.entryId = String(entry.id);
+/* ---- reading surface (Issue #128): conversation view driven by the
+   compiled projectConversation + the user-chosen adapter. The ring mirror
+   (chatById/chatOrder) stays a faithful copy of server state; this layer
+   only projects entries into turns and renders segments in place. ---- */
 
-  if (entry.kind === 'drop_marker') {
-    wrap.classList.add('marker');
-    wrap.textContent = `… ${entry.dropped_lines} earlier lines dropped from bounded history …`;
-    return wrap;
-  }
-  if (entry.kind === 'control') {
-    wrap.classList.add('control-line');
-    const label = entry.control === 'INTERRUPT' ? 'Stop' : entry.control === 'ENTER' ? 'Enter' : 'Escape';
-    wrap.textContent = `control: ${label} · ${entry.transport_result}${entry.transport_result === 'ambiguous' ? ' (may have been delivered)' : ''} · ${fmtTime(entry.sent_at)}`;
-    return wrap;
-  }
+function mirroredEntries() {
+  return chatOrder.map((id) => chatById.get(id)).filter(Boolean);
+}
 
-  const head = document.createElement('div');
-  head.className = 'entry-head';
-  const meta = document.createElement('span');
-  meta.className = 'entry-meta';
+// per-entry affordances preserved from the list view: bookmark star, copy,
+// send-to. Attached to the element that owns an entry's text.
+function attachEntryActions(container, entry) {
   const actions = document.createElement('span');
   actions.className = 'entry-actions';
 
@@ -149,69 +136,71 @@ function buildBubble(entry) {
   star.className = 'star';
   star.textContent = '☆';
   star.title = 'bookmark';
-  star.addEventListener('click', () => {
-    if (bookmarks.has(entry.id)) {
-      bookmarks.delete(entry.id);
-    } else {
-      bookmarks.add(entry.id);
-    }
+  const syncStar = () => {
     star.textContent = bookmarks.has(entry.id) ? '★' : '☆';
-    wrap.classList.toggle('bookmarked', bookmarks.has(entry.id));
+    container.classList.toggle('bookmarked', bookmarks.has(entry.id));
+  };
+  star.addEventListener('click', () => {
+    if (bookmarks.has(entry.id)) bookmarks.delete(entry.id); else bookmarks.add(entry.id);
+    syncStar();
     saveBookmarks();
   });
-  if (bookmarks.has(entry.id)) {
-    star.textContent = '★';
-    wrap.classList.add('bookmarked');
-  }
+  syncStar();
 
   const copy = document.createElement('button');
   copy.type = 'button';
   copy.className = 'copy';
   copy.textContent = 'copy';
   copy.addEventListener('click', () => {
-    void navigator.clipboard.writeText(entry.text ?? '').catch(() => undefined);
+    // live lookup: block entries are replaced by each delta, the captured
+    // object may be stale; _liveSurface proxies read their own current text
+    const live = entry._liveSurface ? entry : (chatById.get(entry.id) ?? entry);
+    const text = live.text ?? '';
+    const writer = window.copyText ?? ((t) => navigator.clipboard.writeText(t));
+    void Promise.resolve(writer(text)).catch(() => undefined);
   });
-  actions.append(star, copy);
 
-  if (entry.kind === 'earlier_output' || entry.kind === 'output_block') {
+  if (entry.kind === 'earlier_output' || entry.kind === 'output_block' || entry.kind === 'user_turn') {
     const sendTo = document.createElement('button');
     sendTo.type = 'button';
     sendTo.className = 'send-to';
     sendTo.textContent = 'send to…';
     sendTo.title = 'transfer selected output to another session';
-    sendTo.addEventListener('click', () => void openTransfer(entry, body));
+    // resolve the live ring copy at click time — the captured entry object
+    // is stale once a block has accumulated further deltas
+    sendTo.addEventListener('click', () => void openTransfer(chatById.get(entry.id) ?? entry, container));
     actions.append(sendTo);
   }
-
-  const body = document.createElement('pre');
-  body.className = 'entry-body';
-
-  if (entry.kind === 'user_turn') {
-    meta.textContent = `you · ${fmtTime(entry.sent_at)}${entry.submit ? '' : ' · no enter'}${entry.transport_result === 'ambiguous' ? ' · ambiguous (may have been delivered)' : ''}`;
-    body.textContent = entry.text;
-    wrap.classList.add('user');
-  } else {
-    const label = entry.kind === 'earlier_output' ? 'earlier output' : 'output';
-    const bits = [label];
-    if (entry.kind === 'output_block' && entry.state === 'paused') bits.push('output paused');
-    if (entry.truncated) bits.push('truncated by bound');
-    if (entry.kind === 'output_block' && entry.state === 'closed') bits.push(`closed ${fmtTime(entry.closed_at)}`);
-    meta.textContent = bits.join(' · ');
-    body.textContent = entry.text;
-    wrap.classList.add('output');
-  }
-  head.append(meta, actions);
-  wrap.append(head, body);
-  return wrap;
+  container.appendChild(actions);
 }
 
-function renderAll() {
-  const wasPinned = isPinned() || chatOrder.length === 0;
-  messagesEl.textContent = '';
-  for (const id of chatOrder) {
-    const entry = chatById.get(id);
-    if (entry) messagesEl.append(buildBubble(entry));
+const conversation = createConversation({
+  messagesEl,
+  entryDomId,
+  onEntryActions: attachEntryActions,
+  getTerminalHref: () => (terminalEnabled && selectedChannel
+    ? `/terminal.html?channel=${encodeURIComponent(selectedChannel.channel_id)}` : null),
+});
+
+// adapter chooser — per-Channel user selection, persisted in localStorage,
+// default generic, never inferred from terminal text
+const adapterSel = document.getElementById('adapter-sel');
+function adapterKey() {
+  return selectedChannel ? `console-adapter:${selectedChannel.channel_id}` : null;
+}
+function loadAdapter() {
+  let id = 'generic';
+  const key = adapterKey();
+  if (key) {
+    try { id = localStorage.getItem(key) || 'generic'; } catch { id = 'generic'; }
   }
+  conversation.setAdapter(id);
+  adapterSel.value = conversation.adapterId;
+}
+
+function renderConversation() {
+  const wasPinned = isPinned() || chatOrder.length === 0;
+  conversation.reconcile(mirroredEntries());
   applySearch();
   if (wasPinned) scrollToBottom();
 }
@@ -224,23 +213,23 @@ function applyDelta(update) {
     return;
   }
   const wasPinned = isPinned();
+  window.__consoleDiag && window.__consoleDiag.deltas++;
   if (update.appended) {
     for (const entry of update.appended) {
       if (entry.kind === 'drop_marker') continue;
       if (!chatById.has(entry.id)) {
         chatById.set(entry.id, entry);
         chatOrder.push(entry.id);
-        messagesEl.append(buildBubble(entry));
       }
     }
   }
   if (update.updated) {
+    window.__consoleDiag && (window.__consoleDiag.updated += update.updated.length);
     for (const entry of update.updated) {
       chatById.set(entry.id, entry);
-      const old = document.getElementById(entryDomId(entry.id));
-      if (old) old.replaceWith(buildBubble(entry));
     }
   }
+  conversation.reconcile(mirroredEntries());
   if (update.dropped_entries > 0) {
     upsertDropMarker(update.dropped_entries, update.dropped_lines);
   }
@@ -280,7 +269,8 @@ function applySnapshot(update) {
     }
   }
   if (prunedBookmarks) saveBookmarks();
-  renderAll();
+  conversation.reset();
+  renderConversation();
   if (update.snapshot.dropped_entries > 0) {
     upsertDropMarker(update.snapshot.dropped_entries, update.snapshot.dropped_lines);
   }
@@ -322,7 +312,7 @@ function setObserveState(state, detail) {
 
 function applySearch() {
   const q = searchEl.value.trim().toLowerCase();
-  messagesEl.querySelectorAll('.entry').forEach((el) => {
+  messagesEl.querySelectorAll('.turn, .earlier, .control-line').forEach((el) => {
     if (el.classList.contains('marker')) return;
     el.hidden = q !== '' && !el.textContent.toLowerCase().includes(q);
   });
@@ -384,6 +374,8 @@ function setSelected(channel) {
     chatTitleEl.textContent = name;
     composerTargetEl.textContent = name;
     loadBookmarks();
+    loadAdapter();
+    conversation.reset();
     openStream();
     updateComposerState();
     composerText.focus();
@@ -858,9 +850,33 @@ autoChk.addEventListener('change', restartTimer);
 intervalSel.addEventListener('change', restartTimer);
 sidebarToggle.addEventListener('click', () => sidebarEl.classList.toggle('open'));
 
+// adapter chooser — user choice only, persisted per channel_id
+for (const id of KNOWN_ADAPTERS) {
+  const opt = document.createElement('option');
+  opt.value = id;
+  opt.textContent = id;
+  adapterSel.append(opt);
+}
+adapterSel.addEventListener('change', () => {
+  const key = adapterKey();
+  if (key) {
+    try { localStorage.setItem(key, adapterSel.value); } catch { /* ignore */ }
+  }
+  conversation.setAdapter(adapterSel.value);
+  renderConversation();
+});
+
+// IME safety: never mutate the field (height, value) while a composition
+// session is active — iOS Safari can drop/duplicate composed characters
+// when layout shifts mid-composition.
+composerText.addEventListener('compositionstart', () => { setComposing(true); diagPush('compositionstart'); });
+composerText.addEventListener('compositionend', () => { setComposing(false); diagPush('compositionend'); });
+composerText.addEventListener('focus', () => { diagPush('focus'); startKbWatch(); });
+composerText.addEventListener('blur', () => { diagPush('blur'); syncAppVh('blur', { dismissKb: true }); });
 composerText.addEventListener('input', updateSizeHint);
 composerText.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter' && !event.shiftKey) {
+  // an Enter inside an active IME composition must never send
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     void sendText();
   }
@@ -912,6 +928,33 @@ bookmarksBtn.addEventListener('click', () => {
   const el = document.getElementById(entryDomId(marked[bookmarkCursor]));
   if (el) el.scrollIntoView({ block: 'center' });
 });
+
+// overflow menu — debug affordances only (viewport HUD, diagnostics copy)
+const overflowBtn = document.getElementById('overflow-btn');
+const overflowMenu = document.getElementById('overflow-menu');
+overflowBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  overflowMenu.hidden = !overflowMenu.hidden;
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.menu-wrap')) overflowMenu.hidden = true;
+});
+overflowMenu.addEventListener('click', (e) => {
+  const act = e.target.closest('button')?.dataset.act;
+  if (!act) return;
+  overflowMenu.hidden = true;
+  if (act === 'hud') setHud(!document.getElementById('vp-debug'));
+  else if (act === 'diag-copy') {
+    const payload = copyDiag();
+    void (window.copyText ?? navigator.clipboard.writeText.bind(navigator.clipboard))(payload).then((ok) => {
+      if (!ok) { rawViewEl.textContent = payload; rawViewEl.hidden = false; rawMode = true; }
+    }).catch(() => { rawViewEl.textContent = payload; rawViewEl.hidden = false; });
+  }
+});
+
+// diag counters for e2e evidence (delta/updated delivery is incremental)
+window.__consoleDiag = { deltas: 0, updated: 0 };
+initViewport({ composer: composerEl, text: composerText, scroll: messagesEl });
 
 loadAll();
 void loadLifecycle();

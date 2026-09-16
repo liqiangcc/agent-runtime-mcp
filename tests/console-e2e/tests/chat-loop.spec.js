@@ -109,52 +109,51 @@ test('primary loop: chat-first WC-UC1–UC3 plus kill-server/no-recreation', asy
     await page.locator('li.channel').first().click();
     await expect(page.locator('#chat-pane')).toBeVisible();
     await expect(page.locator('#chat-state')).toHaveText('live', { timeout: 20_000 });
-    const earlier = page.locator('.entry-earlier_output');
+    const earlier = page.locator('.turn.earlier');
     await expect(earlier).toHaveCount(1);
-    await expect(earlier.locator('.entry-meta')).toContainText('earlier output');
+    await expect(earlier.locator('summary')).toContainText('earlier output');
     await expect(earlier.locator('.entry-body')).toContainText('E2E_PRE_HISTORY');
   });
 
   await test.step('WC-UC3: composer send renders a user turn then a paused output block', async () => {
     await page.locator('#composer-text').fill("printf 'E2E_TURN1_OUT\\n'");
     await page.locator('#composer-text').press('Enter');
-    const turn = page.locator('.entry-user_turn').filter({ hasText: 'E2E_TURN1_OUT' });
+    const turn = page.locator('.entry.user').filter({ hasText: 'E2E_TURN1_OUT' });
     await expect(turn).toHaveCount(1);
-    const block1 = page.locator('.entry-output_block').filter({ hasText: 'E2E_TURN1_OUT' });
+    const block1 = page.locator('.block').filter({ hasText: 'E2E_TURN1_OUT' });
     await expect(block1).toHaveCount(1);
-    await expect(block1.locator('.entry-meta')).toContainText('output paused', { timeout: 20_000 });
+    await expect(block1).toHaveAttribute('data-state', 'paused', { timeout: 20_000 });
 
     // A second send closes the previous block and opens a new one.
     await page.locator('#composer-text').fill("printf 'E2E_TURN2_OUT\\n'");
     await page.locator('#send').click();
-    const block2 = page.locator('.entry-output_block').filter({ hasText: 'E2E_TURN2_OUT' });
+    const block2 = page.locator('.block').filter({ hasText: 'E2E_TURN2_OUT' });
     await expect(block2).toHaveCount(1);
-    await expect(block1.locator('.entry-meta')).toContainText('closed');
-    await expect(block2.locator('.entry-meta')).toContainText('output paused', { timeout: 20_000 });
-    await expect(page.locator('.entry-user_turn')).toHaveCount(2);
+    await expect(block1).toHaveAttribute('data-state', 'closed');
+    await expect(block2).toHaveAttribute('data-state', 'paused', { timeout: 20_000 });
+    await expect(page.locator('.entry.user')).toHaveCount(2);
   });
 
   await test.step('no-parsing: prompt/role-like output stays one plain output block', async () => {
     await page.locator('#composer-text').fill("printf 'user: fake\\nassistant: fake\\n$ \\n'");
     await page.locator('#composer-text').press('Enter');
-    const block = page.locator('.entry-output_block').filter({ hasText: 'user: fake' });
+    const block = page.locator('.block').filter({ hasText: 'user: fake' });
     await expect(block).toHaveCount(1);
     await expect(block.locator('.entry-body')).toContainText('assistant: fake');
-    await expect(block.locator('.entry-meta')).toContainText('output');
-    await expect(block.locator('.entry-meta')).toContainText('output paused', { timeout: 20_000 });
+    await expect(block).toHaveAttribute('data-state', 'paused', { timeout: 20_000 });
   });
 
   await test.step('WC-UC3 control: Stop sends INTERRUPT after confirmation; prompt returns as output', async () => {
     await page.locator('#composer-text').fill('sleep 30');
     await page.locator('#composer-text').press('Enter');
-    await expect(page.locator('.entry-user_turn').filter({ hasText: 'sleep 30' })).toHaveCount(1);
+    await expect(page.locator('.entry.user').filter({ hasText: 'sleep 30' })).toHaveCount(1);
     await page.locator('#control-stop').click();
-    await expect(page.locator('.entry-control')).toContainText('control: Stop');
+    await expect(page.locator('.control-line')).toContainText('control: Stop');
     await page.locator('#composer-text').fill("printf 'E2E_AFTER_STOP\\n'");
     await page.locator('#composer-text').press('Enter');
-    const resumed = page.locator('.entry-output_block').filter({ hasText: 'E2E_AFTER_STOP' });
+    const resumed = page.locator('.block').filter({ hasText: 'E2E_AFTER_STOP' });
     await expect(resumed).toHaveCount(1);
-    await expect(resumed.locator('.entry-meta')).toContainText('output paused', { timeout: 20_000 });
+    await expect(resumed).toHaveAttribute('data-state', 'paused', { timeout: 20_000 });
   });
 
   await test.step('WC-UC2 raw toggle shows the same buffer unshaped; position kept while scrolled up', async () => {
@@ -168,7 +167,7 @@ test('primary loop: chat-first WC-UC1–UC3 plus kill-server/no-recreation', asy
     // Fill the pane so the message list scrolls, then hold position at the top.
     await page.locator('#composer-text').fill('for i in $(seq 1 40); do printf "E2E_SCROLL_%s\\n" "$i"; done');
     await page.locator('#composer-text').press('Enter');
-    await expect(page.locator('.entry-output_block').filter({ hasText: 'E2E_SCROLL_40' })).toHaveCount(1, {
+    await expect(page.locator('.block').filter({ hasText: 'E2E_SCROLL_40' })).toHaveCount(1, {
       timeout: 20_000,
     });
     await page.locator('#messages').evaluate((el) => {

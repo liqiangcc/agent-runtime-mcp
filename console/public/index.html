@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#11151a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
 <title>agent-runtime-mcp Console</title>
 <link rel="stylesheet" href="/style.css">
 </head>
@@ -53,7 +57,18 @@
         <button id="bookmarks-btn" type="button" title="jump to next bookmark">★ <span id="bookmark-count">0</span></button>
         <button id="raw-toggle" type="button">Raw transcript</button>
         <button id="copy-all" type="button" title="copy visible transcript">Copy</button>
+        <label class="adapter-pick" title="presentation adapter — your choice per channel, never inferred">
+          adapter
+          <select id="adapter-sel" aria-label="presentation adapter"></select>
+        </label>
         <a id="terminal-link" class="advanced-link" href="#" title="Terminal View requires CONSOLE_TERMINAL_ENABLED" aria-disabled="true">Advanced → Terminal</a>
+        <span class="menu-wrap">
+          <button id="overflow-btn" type="button" aria-label="More actions" title="More">⋯</button>
+          <span id="overflow-menu" class="menu" hidden>
+            <button data-act="hud" type="button">Viewport HUD on/off</button>
+            <button data-act="diag-copy" type="button">Copy viewport diagnostics</button>
+          </span>
+        </span>
       </div>
       <div id="observe-banner" class="observe-banner" hidden>
         <span id="observe-banner-text"></span>
@@ -101,6 +116,7 @@
     </div>
   </div>
 </div>
+<script src="/markdown.js"></script>
 <script src="/app.js" type="module"></script>
 </body>
 </html>

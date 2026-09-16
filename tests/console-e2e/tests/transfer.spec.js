@@ -55,6 +55,12 @@ async function paneHas(session, needle) {
   return out !== null && out.includes(needle);
 }
 
+// scrollback variant — pasted multi-line payloads scroll the visible pane
+async function scrollbackHas(session, needle) {
+  const out = await tryTmux('capture-pane', '-t', session, '-p', '-S', '-');
+  return out !== null && out.includes(needle);
+}
+
 async function capturePane(session) {
   return tmux('capture-pane', '-t', session, '-p');
 }
@@ -171,6 +177,14 @@ test.afterAll(async () => {
 });
 
 test('explicit transfer: preview, cancel, confirm — exactly one target write', async ({ page }) => {
+  // Keep the primed earlier-output small and marker-last: the transferred
+  // payload is typed into the target pane and embedded newlines execute
+  // line-by-line — a line like `exec bash` replacing the shell mid-paste can
+  // swallow subsequent input, so the marker must be at the tail.
+  await tmux('clear-history', '-t', srcSession);
+  await sendKeys(srcSession, '-l', 'clear');
+  await sendKeys(srcSession, 'Enter');
+  await waitFor(async () => !(await tryTmux('capture-pane', '-t', srcSession, '-p'))?.includes('exec bash'));
   await sendKeys(srcSession, '-l', 'echo E2E_SRC_MARKER_77');
   await sendKeys(srcSession, 'Enter');
   await waitFor(() => paneHas(srcSession, 'E2E_SRC_MARKER_77'));
@@ -179,7 +193,7 @@ test('explicit transfer: preview, cancel, confirm — exactly one target write',
   await expect(page.locator('li.channel')).toHaveCount(2);
   await selectChannelById(page, srcId);
   await expect(page.locator('#chat-state')).toHaveText('live', { timeout: 20_000 });
-  const srcEntry = page.locator('.entry-earlier_output', { hasText: 'E2E_SRC_MARKER_77' }).last();
+  const srcEntry = page.locator('.turn.earlier', { hasText: 'E2E_SRC_MARKER_77' }).last();
   await expect(srcEntry).toBeVisible({ timeout: 15_000 });
 
   const dstBefore = await captureAll(dstSession);
@@ -216,7 +230,15 @@ test('explicit transfer: preview, cancel, confirm — exactly one target write',
     const preview = await page.locator('#transfer-preview').textContent();
     await page.locator('#transfer-confirm').click();
     await expect(page.locator('#transfer-modal')).toBeHidden({ timeout: 10_000 });
-    await waitFor(() => paneHas(dstSession, 'E2E_SRC_MARKER_77'));
+    // the pasted multi-line payload executes line-by-line and scrolls the
+    // marker off the visible pane — match on full scrollback
+    try {
+      await waitFor(() => scrollbackHas(dstSession, 'E2E_SRC_MARKER_77'));
+    } catch (e) {
+      console.log('DST SCROLLBACK AT FAILURE:\n' + (await tryTmux('capture-pane', '-t', dstSession, '-p', '-S', '-')));
+      console.log('DST ALIVE:', await tryTmux('list-panes', '-t', dstSession, '-F', '#{pane_current_command}'));
+      throw e;
+    }
     const dstAfter = await captureAll(dstSession);
     // the envelope header proves exactly one transfer send landed
     expect((dstAfter.match(/context transferred from/g) ?? []).length).toBe(1);
@@ -246,7 +268,7 @@ test('vanished target: explicit error, no fallback, fresh re-selection required'
 
   await page.goto(baseURL);
   await selectChannelById(page, srcId);
-  const entry = page.locator('.entry-earlier_output, .entry-output_block', { hasText: 'E2E_VANISH_11' }).last();
+  const entry = page.locator('.turn.earlier, .block', { hasText: 'E2E_VANISH_11' }).last();
   await expect(entry).toBeVisible({ timeout: 15_000 });
   await entry.locator('button.send-to').click();
   await expect(page.locator('#transfer-modal')).toBeVisible();
@@ -285,7 +307,7 @@ test('vanished target: explicit error, no fallback, fresh re-selection required'
     await page.locator('#transfer-confirm').click();
     await expect(page.locator('#transfer-modal')).toBeHidden({ timeout: 10_000 });
     expect(textPosts).toHaveLength(2);
-    await waitFor(() => paneHas(dstSession, 'E2E_VANISH_11'));
+    await waitFor(() => scrollbackHas(dstSession, 'E2E_VANISH_11'));
     // the target recorded exactly one user_turn for the single delivered write
     const history = await fetch(`${baseURL}/api/channels/${encodeURIComponent(dstId)}/history`).then((r) => r.json());
     expect((history.ring?.entries ?? []).filter((e) => e.kind === 'user_turn')).toHaveLength(1);
@@ -307,7 +329,7 @@ test('oversize selection: visible rejection, confirm disabled, no send', async (
     "printf 'Z%.0s' {1..200000}; echo; sleep 1; printf 'Y%.0s' {1..200000}; echo; sleep 1; printf 'X%.0s' {1..200000}; echo; echo E2E_BIG_DONE",
   );
   await sendKeys(srcSession, 'Enter');
-  const bigEntry = page.locator('.entry-output_block').filter({ hasText: 'E2E_BIG_DONE' }).last();
+  const bigEntry = page.locator('.block').filter({ hasText: 'E2E_BIG_DONE' }).last();
   await expect(bigEntry).toBeVisible({ timeout: 30_000 });
   // the block accumulates across pulls — wait until it genuinely exceeds the bound
   await expect

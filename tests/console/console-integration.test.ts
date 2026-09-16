@@ -444,10 +444,12 @@ test(
       h.ring.entries.some((e) => e.kind === 'output_block' && e.text.includes('C62_TURN2_OUT') && e.state === 'paused'),
     );
 
-    // UI evidence: served composer/page wire SSE + paused label + raw toggle.
+    // UI evidence: served composer/page wire SSE + block lifecycle state
+    // (paused/closed is exposed on .block elements via data-state) + raw toggle.
     const appJs = await (await fetch(`http://${authority}/app.js`)).text();
     assert.match(appJs, /EventSource/);
-    assert.match(appJs, /output paused/);
+    const readingJs = await (await fetch(`http://${authority}/reading.js`)).text();
+    assert.match(readingJs, /dataset\.state/);
     const index = await (await fetch(`http://${authority}/`)).text();
     assert.match(index, /raw-toggle|Raw transcript/);
 
