@@ -191,5 +191,10 @@ Control (this Task): shell presentation, discoverability defaults, menu
 - Screenshots `v134-*-<sha7>.png`: first screen (discoverability), channel
   view shell, expanded overflow, recovery strip, composer focus —
   420×912 standalone-sim plus 375/390 width checks.
+- Standing evidence item (this and future UI tasks): **full-page mobile
+  screenshots compared side-by-side against the frozen prototype reference**
+  (`docs/prototypes/web-console-reading-first/screenshots/` or a live
+  capture of the prototype build) — a Reviewer must be able to confirm
+  first-glance parity without running the app.
 - Report must list every action's new home (moved vs unchanged) proving
   SC3.
