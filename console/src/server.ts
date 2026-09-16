@@ -46,6 +46,7 @@ const history = new HistoryHub({
   options: {
     idleMs: config.history.observeIdleMs,
     timeoutMs: config.history.observeTimeoutMs,
+    busyTimeoutMs: config.history.observeBusyTimeoutMs,
     pollMs: config.history.pollMs,
     tailLines: config.history.tailLines,
     tailBytes: config.history.tailBytes,

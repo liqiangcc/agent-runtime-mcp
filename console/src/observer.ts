@@ -49,6 +49,7 @@ export type HistoryListener = (update: HubUpdate) => void;
 export interface ObserverOptions {
   idleMs?: number;
   timeoutMs?: number;
+  busyTimeoutMs?: number;
   pollMs?: number;
   tailLines?: number;
   tailBytes?: number;
@@ -76,6 +77,7 @@ interface ChannelState {
 
 const DEFAULT_IDLE_MS = 1_000;
 const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_BUSY_TIMEOUT_MS = 600;
 const DEFAULT_POLL_MS = 2_500;
 const DEFAULT_TAIL_LINES = 400;
 const DEFAULT_TAIL_BYTES = 256 * 1024;
@@ -98,6 +100,7 @@ export class HistoryHub {
   private readonly logger: Logger;
   private readonly idleMs: number;
   private readonly timeoutMs: number;
+  private readonly busyTimeoutMs: number;
   private readonly pollMs: number;
   private readonly tailLines: number;
   private readonly tailBytes: number;
@@ -113,6 +116,7 @@ export class HistoryHub {
     const o = deps.options ?? {};
     this.idleMs = o.idleMs ?? DEFAULT_IDLE_MS;
     this.timeoutMs = o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.busyTimeoutMs = o.busyTimeoutMs ?? DEFAULT_BUSY_TIMEOUT_MS;
     this.pollMs = o.pollMs ?? DEFAULT_POLL_MS;
     this.tailLines = o.tailLines ?? DEFAULT_TAIL_LINES;
     this.tailBytes = o.tailBytes ?? DEFAULT_TAIL_BYTES;
@@ -434,15 +438,23 @@ export class HistoryHub {
       this.setState(cs, 'live');
       this.broadcast(cs, initial.appended, initial.updated);
 
+      let sawActivity = false;
       while (!cs.stopped && cs.viewers.size > 0) {
+        // Busy/quiet cadence (design §6): while output is flowing — the last
+        // wait reported activity_observed, or a block is still open — wait
+        // with the short busy timeout so viewers see `updated` deltas within
+        // ~1s instead of up to the quiet heartbeat. `timeout` is still never
+        // a block boundary; idle_ms / output_idle semantics are unchanged.
+        const busy = sawActivity || this.currentBlock(cs)?.state === 'open';
         const wait = await this.mcp.waitChannelEvent(cs.channelId, cs.cursor, {
           idle_ms: this.idleMs,
-          timeout_ms: this.timeoutMs,
+          timeout_ms: busy ? this.busyTimeoutMs : this.timeoutMs,
         });
         if (cs.stopped || cs.viewers.size === 0) break;
         const reason = isRecord(wait) && typeof wait.reason === 'string' ? wait.reason : '';
         const nextCursor = typeof wait.next_cursor === 'string' ? wait.next_cursor : null;
         if (nextCursor !== null) cs.cursor = nextCursor;
+        sawActivity = wait.activity_observed === true;
         if (reason === 'output_idle') {
           const { appended, updated } = await this.pull(cs, 'output');
           updated.push(...this.closeCurrentBlock(cs, 'paused'));
