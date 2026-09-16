@@ -51,6 +51,8 @@ Tunnel/provider/network/TLS/DNS/firewall/workspace authorization are operator co
 
 `web-console-requirements.md` (Issue #60) specifies a human-facing, **Chat-first** Web Console that lives in `console/` as an **MCP client** of the seven tools (conversation shape = the Console's own sends + observed output; no agent-protocol parsing). It is an upper-layer component: it may hold its own bounded history, delegates access control to the Tailscale tailnet, and has two explicitly separated direct-tmux adapters (terminal attach, operator-enabled session lifecycle), but it never changes the product surface or `src/`.
 
+`web-console-reading-first-implementation.md` (Issues #90/#116, PR #117) is the design for binding the user-accepted Reading-first prototype to real Channel data: a client-side transcript model plus per-agent **presentation** adapters over the existing observer/SSE ring, with operator-declared adapter selection and raw fallback. It proposes no MCP, observer, or `console/src` change.
+
 ## C. Repository development workflow — not product protocol
 
 This repository is developed using:
