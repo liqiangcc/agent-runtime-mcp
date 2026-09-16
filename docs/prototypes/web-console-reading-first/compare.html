@@ -1,0 +1,52 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+body{background:#111;color:#ddd;font:14px/1.5 -apple-system,sans-serif;margin:0;padding:16px}
+h1{font-size:16px}h2{font-size:13px;color:#9aa7ba;margin:0 0 6px}
+.board{display:flex;gap:16px;align-items:flex-start}
+.col{flex:0 0 auto}.col img{width:420px;border:1px solid #333;display:block}
+.notes{flex:1;min-width:260px;font-size:12.5px}
+.notes td{padding:3px 8px;border-bottom:1px solid #222;vertical-align:top}
+.notes td:first-child{color:#9aa7ba;white-space:nowrap}
+table{border-collapse:collapse}
+</style></head><body>
+<h1>Visual diff board — ChatGPT mobile reference vs prototype (420×912 CSS px)</h1>
+<div class="board">
+<div class="col"><h2>Reference (user screenshot, dark-shown light theme)</h2><img src="screenshots/ref-chatgpt-1260x2736.png"></div>
+<div class="col"><h2>Prototype — Devin Reading view</h2><img src="screenshots/m-420-default.png"></div>
+<div class="notes"><h2>Annotated deltas (target → actual, CSS px)</h2><table>
+<tr><td>Header height</td><td>~54 (incl. status area) → 56 topbar + floating 16px badge</td></tr>
+<tr><td>Side gutters</td><td>~20 → 20 (#messages padding)</td></tr>
+<tr><td>Body font</td><td>~16/1.6 → 16px/1.65 (26.4px)</td></tr>
+<tr><td>Heading scale</td><td>h1 ~26 → 23.2 (1.45em); h2 ~20.8 ✓</td></tr>
+<tr><td>Paragraph spacing</td><td>~12 → 12</td></tr>
+<tr><td>Blockquote</td><td>serif italic, indented → Georgia/"Songti SC" italic + 3px rule</td></tr>
+<tr><td>User turn</td><td>right-aligned bubble → max-width 82%, radius 18, right meta</td></tr>
+<tr><td>Thinking row</td><td>"思考了 27s ›" light collapsed row → tool-card summary row (6px pad, transparent bg)</td></tr>
+<tr><td>Composer</td><td>floating pill ~52h, radius ~26, side inset ~12 → identical structure; ↑ circular primary send</td></tr>
+<tr><td>Bottom safe area</td><td>home indicator → env(safe-area-inset-bottom)</td></tr>
+</table>
+<h2 style="margin-top:14px">Residual differences (cannot be pixel-identical)</h2><table>
+<tr><td>Theme</td><td>Reference is light theme; console product is dark — structure/density tracked, colors kept dark</td></tr>
+<tr><td>System font</td><td>Reference uses SF Pro/PingFang on iOS; box renders fallback stack</td></tr>
+<tr><td>Status bar</td><td>iOS chrome (17:59, battery) not part of the web surface</td></tr>
+<tr><td>Chrome extras</td><td>prototype adds state chip + profile label + Focus toggle (product needs)</td></tr>
+</table></div>
+</div>
+<h1 style="margin-top:28px">Drawer geometry — ChatGPT drawer reference vs prototype (420×912)</h1>
+<div class="board">
+<div class="col"><h2>Drawer reference (PR #98, 420×912)</h2><img src="screenshots/ref-chatgpt-drawer-420.png"></div>
+<div class="col"><h2>Prototype — drawer open via swipe</h2><img src="screenshots/v5-5-drawer-open.png"></div>
+<div class="notes"><h2>Drawer deltas (target → actual, CSS px)</h2><table>
+<tr><td>Drawer width</td><td>~295–302 (70–72%) → 302 (min(72vw,320px))</td></tr>
+<tr><td>Canvas translation</td><td>continuous surface shifts right → translateX = drawer width, measured 302.4</td></tr>
+<tr><td>Leading corner</td><td>large rounded → border-radius 28px + shadow, applied while open/dragging</td></tr>
+<tr><td>Drawer surface</td><td>dark restrained → #0b0d11</td></tr>
+<tr><td>Top region</td><td>identity + search affordance → "Sessions" + ⌕ (mock)</td></tr>
+<tr><td>List rows</td><td>grouped, large tap targets → "Current" group, 44px rows, radio-style markers</td></tr>
+<tr><td>Bottom region</td><td>primary action + profile → "✎ New session" pill + avatar (mock)</td></tr>
+<tr><td>Motion</td><td>finger-tracking drag, distance/velocity settle → 0.22s transform transition, 35%/0.45px·ms⁻¹ thresholds</td></tr>
+</table>
+<h2 style="margin-top:14px">Residual differences</h2><table>
+<tr><td>iOS edge back gesture</td><td>outermost 28px is a guard zone — edge-swipe-to-open intentionally not replicated</td></tr>
+<tr><td>ChatGPT semantics</td><td>Library/Projects/Plugins rows not copied; our list maps to sessions only</td></tr>
+</table></div>
+</div></body></html>
