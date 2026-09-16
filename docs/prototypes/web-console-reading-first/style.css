@@ -539,6 +539,33 @@ body.focus #focus-item { color: var(--accent); }
 .tool-card.live .tool-title { color: var(--text); }
 .tool-card.live .tool-preview::after { content: " …"; }
 
+/* settled turn trace: the whole execution trace collapses into ONE
+   compact disclosure row — ChatGPT-style "Thought Ns · M steps ›" */
+.trace-sum { margin: 4px 0 10px; }
+.trace-sum summary {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  min-height: 28px;
+  padding: 3px 2px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.trace-sum summary::-webkit-details-marker { display: none; }
+.trace-sum .ts-title { font-weight: 500; }
+.trace-sum summary::after {
+  content: "›";
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--text-dim);
+  transition: transform 0.15s;
+}
+.trace-sum[open] summary::after { transform: rotate(90deg); }
+/* expanded steps: same lightweight rows, slightly inset */
+.trace-steps { margin-left: 10px; padding-left: 8px; border-left: 1px solid var(--line); }
+
 /* send state machine on user turns */
 .entry-status { font-size: 11px; }
 .st-sending { color: var(--text-dim); }
@@ -581,6 +608,7 @@ body.focus #focus-item { color: var(--accent); }
 
 .trace-note { display: none; font-size: 11.5px; color: var(--text-dim); margin: 6px 0; }
 body.focus .tool-card { display: none; }
+body.focus .trace-sum { display: none; }
 body.focus .trace-note { display: block; }
 body.focus .entry-body { font-size: 17.5px; }
 

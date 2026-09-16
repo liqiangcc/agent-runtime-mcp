@@ -98,24 +98,48 @@ window.Adapters = window.Adapters || {};
     }
   }
 
+  // Wrap a turn's activity rows into ONE compact summary disclosure —
+  // nodes are MOVED, never rebuilt: answer DOM identity, scroll and any
+  // expanded state are preserved across collapse/expand.
+  function collapseTrace(bodyEl, nodes, title) {
+    if (!nodes.length) return;
+    const det = document.createElement('details');
+    det.className = 'trace-sum';
+    const sum = document.createElement('summary');
+    sum.innerHTML =
+      `<span class="tool-icon">◌</span>` +
+      `<span class="ts-title">${title}</span>`;
+    const steps = document.createElement('div');
+    steps.className = 'trace-steps';
+    det.appendChild(sum);
+    bodyEl.insertBefore(det, nodes[0]);
+    for (const el of nodes) steps.appendChild(el);
+    det.appendChild(steps);
+  }
+
   window.Adapters.devin = {
     id: 'devin',
     label: 'devin',
 
-    // Static render of a complete entry (history path).
+    // Static render of a complete entry (history path) — completed turns
+    // already settle to one compact summary row + dominant answer.
     renderBody(entry, bodyEl) {
       const segments = parse(entry.text);
       if (!segments) return false; // caller falls back to generic rendering
       let hiddenCount = 0;
+      const cards = [];
       for (const seg of segments) {
         if (seg.type === 'text') {
           if (!seg.text.trim()) continue;
           bodyEl.appendChild(makeTextNode(seg));
         } else {
           hiddenCount += 1;
-          bodyEl.appendChild(makeCardNode(seg));
+          const card = makeCardNode(seg);
+          cards.push(card);
+          bodyEl.appendChild(card);
         }
       }
+      collapseTrace(bodyEl, cards, `${hiddenCount} tool step${hiddenCount > 1 ? 's' : ''}`);
       if (hiddenCount) {
         const note = document.createElement('div');
         note.className = 'trace-note';
@@ -135,6 +159,7 @@ window.Adapters = window.Adapters || {};
       let rendered = []; // aligned with parsed segments
       let done = false;
       let note = null;
+      const t0 = Date.now();
 
       function safeText() {
         const nl = acc.lastIndexOf('\n');
@@ -188,10 +213,19 @@ window.Adapters = window.Adapters || {};
         if (note) note.textContent = `${hiddenCount} tool step${hiddenCount > 1 ? 's' : ''} hidden in Focus mode`;
       }
 
+      function settle() {
+        done = true;
+        rendered.forEach(r => r.el.classList.remove('live'));
+        const acts = rendered.filter(r => r.type !== 'text').map(r => r.el);
+        const secs = Math.max(1, Math.round((Date.now() - t0) / 1000));
+        collapseTrace(bodyEl, acts,
+          `Thought ${secs}s · ${acts.length} tool step${acts.length > 1 ? 's' : ''}`);
+      }
+
       return {
         update(delta) { acc += delta; reconcile(); },
-        done() { done = true; reconcile(true); rendered.forEach(r => r.el.classList.remove('live')); },
-        abort() { done = true; rendered.forEach(r => r.el.classList.remove('live')); },
+        done() { reconcile(true); settle(); },
+        abort() { settle(); },
       };
     },
   };

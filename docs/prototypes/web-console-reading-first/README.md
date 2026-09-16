@@ -56,6 +56,13 @@ shared Reading-first shell (app.js, index.html, style.css)
   Markdown answer. A user turn opens a new visual beat (26px top), so a
   completed turn settles with the answer dominant and tool noise
   receded. Raw transcript stays reachable via overflow → raw view.
+- **Turn-trace auto-collapse (#114)**: while a turn runs, activity rows
+  stay single-line and update in place; on settle the entire trace is
+  MOVED (never rebuilt) into ONE compact disclosure row —
+  `◌ Thought Ns · M tool steps ›` — leaving the Markdown answer dominant.
+  Expanding reveals the per-step rows; collapsing restores the reading
+  view with answer DOM identity and scroll preserved. History entries
+  render already-collapsed.
 
 ## Installable / standalone display mode
 
