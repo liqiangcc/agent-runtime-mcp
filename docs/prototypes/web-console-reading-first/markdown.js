@@ -168,9 +168,13 @@ window.Md = (function () {
         lang.textContent = b.lang || 'Plain text';
         const copy = document.createElement('button');
         copy.type = 'button';
-        copy.textContent = 'Copy';
+        const ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+        const label = document.createElement('span');
+        label.textContent = 'Copy';
+        copy.innerHTML = ICON;
+        copy.appendChild(label);
         copy.addEventListener('click', () => {
-          navigator.clipboard?.writeText(b.text).then(() => { copy.textContent = 'Copied'; setTimeout(() => { copy.textContent = 'Copy'; }, 1200); });
+          navigator.clipboard?.writeText(b.text).then(() => { label.textContent = 'Copied'; setTimeout(() => { label.textContent = 'Copy'; }, 1200); });
         });
         head.append(lang, copy);
         const pre = document.createElement('pre');
