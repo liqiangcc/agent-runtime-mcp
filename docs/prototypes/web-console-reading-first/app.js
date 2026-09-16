@@ -359,7 +359,7 @@ function appendEntryDOM(e) {
       copy.type = 'button'; copy.title = 'Copy message';
       copy.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
       copy.addEventListener('click', () => {
-        navigator.clipboard?.writeText(e.text).then(() => toast('copied'));
+        window.copyText(e.text).then(ok => toast(ok ? 'copied' : 'copy failed'));
       });
       const raw = document.createElement('button');
       raw.type = 'button'; raw.textContent = 'raw'; raw.title = 'Raw transcript';
@@ -598,9 +598,12 @@ $('overflow-menu').addEventListener('click', (e) => {
   else if (act === 'diag-copy') {
     diagPush('diag-copy');
     const payload = JSON.stringify(DIAG, null, 1);
-    (navigator.clipboard?.writeText(payload) || Promise.reject())
-      .then(() => toast('diagnostics copied'))
-      .catch(() => { $('raw-pre').textContent = payload; $('raw-view').hidden = false; toast('clipboard blocked — diagnostics shown in raw view'); });
+    window.copyText(payload).then(ok => {
+      // always also show it: the operator can select-all / share from the raw
+      // view even if the clipboard write was refused
+      $('raw-pre').textContent = payload; $('raw-view').hidden = false;
+      toast(ok ? 'diagnostics copied (also shown below)' : 'clipboard blocked — select from the raw view');
+    });
   }
   else if (act === 'profile-devin') location.search = '?agent=devin';
   else if (act === 'profile-generic') location.search = '?agent=generic';

@@ -3,6 +3,33 @@
 // Links are scheme-whitelisted (http/https/mailto) and open with
 // rel="noopener noreferrer"; everything else renders as plain text.
 // No dependencies; production renderer choice is a Coordinator decision.
+// Clipboard that works over plain HTTP. navigator.clipboard exists only in
+// secure contexts (HTTPS / localhost); this prototype is served over HTTP on
+// the tailnet, so on the phone it is undefined and every optional-chained
+// `.writeText(...).then` used to throw silently. Fallback: a selection +
+// execCommand('copy') inside the user gesture (works on iOS Safari/WebKit).
+window.copyText = async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    try { await navigator.clipboard.writeText(text); return true; } catch { /* fall through */ }
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.readOnly = true;                       // no keyboard pop on iOS
+    ta.style.cssText = 'position:fixed;top:0;left:0;width:2em;height:2em;opacity:0;font-size:16px;';
+    document.body.appendChild(ta);
+    const range = document.createRange();
+    range.selectNodeContents(ta);
+    const sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(range);
+    ta.setSelectionRange(0, text.length);
+    const ok = document.execCommand('copy');
+    sel.removeAllRanges();
+    ta.remove();
+    return ok;
+  } catch { return false; }
+};
+
 window.Md = (function () {
   const FENCE = /^```(\w*)\s*$/;
   const HEADING = /^(#{1,6})\s+(.*)$/;
@@ -174,7 +201,7 @@ window.Md = (function () {
         copy.innerHTML = ICON;
         copy.appendChild(label);
         copy.addEventListener('click', () => {
-          navigator.clipboard?.writeText(b.text).then(() => { label.textContent = 'Copied'; setTimeout(() => { label.textContent = 'Copy'; }, 1200); });
+          window.copyText(b.text).then(ok => { label.textContent = ok ? 'Copied' : 'Copy failed'; setTimeout(() => { label.textContent = 'Copy'; }, 1200); });
         });
         head.append(lang, copy);
         const pre = document.createElement('pre');

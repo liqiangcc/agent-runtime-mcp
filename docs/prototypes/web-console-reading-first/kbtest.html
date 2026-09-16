@@ -36,8 +36,8 @@
   #tools a, #tools button.t { border-radius: 999px; width: auto; height: auto; padding: 6px 12px; font: 13px/1 inherit;
     background: #2f2f2f; color: #ececec; text-decoration: none; font-weight: 500; }
   #tools a.on { background: #ececec; color: #0d0d0d; }
-  #log { display: none; white-space: pre-wrap; font: 11px/1.4 ui-monospace, Menlo, monospace; color: #b4b4b4;
-    background: #0d0d0d; border: 1px solid #333; border-radius: 10px; padding: 8px; }
+  #log { display: none; width: 100%; white-space: pre; font: 11px/1.4 ui-monospace, Menlo, monospace; color: #b4b4b4;
+    background: #0d0d0d; border: 1px solid #333; border-radius: 10px; padding: 8px; margin: 0 0 16px; resize: vertical; max-height: none; }
 </style>
 </head>
 <body>
@@ -50,6 +50,7 @@
     <a href="?mode=reset">scroll-reset</a>
     <a href="?mode=full">fixed+reset</a>
     <button class="t" id="copy" type="button">Copy log</button>
+    <button class="t" id="selall" type="button">Show &amp; select log</button>
   </div>
   <p><b>How to test (installed Home Screen app):</b> tap the composer so the keyboard opens → type a few characters (include Chinese IME once) → dismiss the keyboard the way you normally do <b>without</b> tapping anything in the header → wait 1 s. Read <b>dead</b> and <b>sy</b> in the overlay. Then try the other three modes with the chips above. Tap <i>Copy log</i> and paste it into the issue.</p>
   <p>Filler so the reading area scrolls. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
@@ -58,7 +59,7 @@
   <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.</p>
   <p>Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
   <p>再来一段中文填充,确保内容高度足够,以便在键盘打开时主区域需要滚动。</p>
-  <pre id="log"></pre>
+  <textarea id="log" readonly rows="10" spellcheck="false"></textarea>
 </main>
 <footer><div class="pill"><textarea id="ta" rows="1" placeholder="Message…"></textarea><button type="button" id="send">↑</button></div></footer>
 <script>
@@ -110,11 +111,39 @@
   ta.addEventListener('blur', () => { sample('blur'); setTimeout(() => sample('blur+250'), 250); });
   ta.addEventListener('input', () => sample('input'));
   document.getElementById('send').addEventListener('click', () => { ta.value = ''; sample('send'); });
-  document.getElementById('copy').addEventListener('click', () => {
+  // clipboard over plain HTTP: navigator.clipboard is undefined outside a
+  // secure context, so fall back to selection + execCommand('copy') inside
+  // the tap; the log is ALWAYS shown in a selectable box as a last resort.
+  async function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      try { await navigator.clipboard.writeText(text); return true; } catch { /* fall through */ }
+    }
+    try {
+      const t = document.createElement('textarea');
+      t.value = text; t.readOnly = true;
+      t.style.cssText = 'position:fixed;top:0;left:0;width:2em;height:2em;opacity:0;font-size:16px;';
+      document.body.appendChild(t);
+      const r = document.createRange(); r.selectNodeContents(t);
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      t.setSelectionRange(0, text.length);
+      const ok = document.execCommand('copy');
+      sel.removeAllRanges(); t.remove();
+      return ok;
+    } catch { return false; }
+  }
+  document.getElementById('copy').addEventListener('click', async () => {
     const text = LOG.map(s => JSON.stringify(s)).join('\n');
+    const ok = await copyText(text);
     const log = document.getElementById('log');
-    navigator.clipboard?.writeText(text).then(() => { log.textContent = 'copied ' + LOG.length + ' samples'; log.style.display = 'block'; })
-      .catch(() => { log.textContent = text; log.style.display = 'block'; });
+    log.value = text;
+    log.style.display = 'block';
+    document.getElementById('copy').textContent = ok ? `Copied ${LOG.length} samples` : 'Copy blocked — select below';
+    setTimeout(() => { document.getElementById('copy').textContent = 'Copy log'; }, 2000);
+  });
+  document.getElementById('selall').addEventListener('click', () => {
+    const log = document.getElementById('log'); log.style.display = 'block';
+    log.value = LOG.map(s => JSON.stringify(s)).join('\n');
+    log.focus(); log.setSelectionRange(0, log.value.length);
   });
   sample('boot');
 })();
