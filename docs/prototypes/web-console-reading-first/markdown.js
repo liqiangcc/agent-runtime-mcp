@@ -158,13 +158,29 @@ window.Md = (function () {
         return q;
       }
       case 'code': {
+        // one rounded card: header (language + copy) over the pre; copy
+        // writes the exact fenced text, never a re-rendered version
+        const wrap = document.createElement('div');
+        wrap.className = 'md-codeblock' + (b.closed === false ? ' streaming' : '');
+        const head = document.createElement('div');
+        head.className = 'md-codehead';
+        const lang = document.createElement('span');
+        lang.textContent = b.lang || 'Plain text';
+        const copy = document.createElement('button');
+        copy.type = 'button';
+        copy.textContent = 'Copy';
+        copy.addEventListener('click', () => {
+          navigator.clipboard?.writeText(b.text).then(() => { copy.textContent = 'Copied'; setTimeout(() => { copy.textContent = 'Copy'; }, 1200); });
+        });
+        head.append(lang, copy);
         const pre = document.createElement('pre');
-        pre.className = 'md-pre' + (b.closed === false ? ' streaming' : '');
+        pre.className = 'md-pre';
         const c = document.createElement('code');
         if (b.lang) c.className = 'lang-' + b.lang.replace(/[^\w-]/g, '');
         c.textContent = b.text;
         pre.appendChild(c);
-        return pre;
+        wrap.append(head, pre);
+        return wrap;
       }
       case 'table': {
         const wrap = document.createElement('div');
@@ -269,7 +285,7 @@ window.Md = (function () {
     return {
       update(delta) { acc += delta; sync(acc); },
       setText(t) { acc = t; sync(acc); },
-      done() { sync(acc); container.querySelectorAll('.md-pre.streaming').forEach(p => p.classList.remove('streaming')); },
+      done() { sync(acc); container.querySelectorAll('.md-codeblock.streaming').forEach(p => p.classList.remove('streaming')); },
     };
   }
 

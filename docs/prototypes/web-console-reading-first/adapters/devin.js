@@ -139,7 +139,7 @@ window.Adapters = window.Adapters || {};
           bodyEl.appendChild(card);
         }
       }
-      collapseTrace(bodyEl, cards, `${hiddenCount} tool step${hiddenCount > 1 ? 's' : ''}`);
+      collapseTrace(bodyEl, cards, `${hiddenCount} tool${hiddenCount > 1 ? 's' : ''} used`);
       if (hiddenCount) {
         const note = document.createElement('div');
         note.className = 'trace-note';
@@ -219,7 +219,7 @@ window.Adapters = window.Adapters || {};
         const acts = rendered.filter(r => r.type !== 'text').map(r => r.el);
         const secs = Math.max(1, Math.round((Date.now() - t0) / 1000));
         collapseTrace(bodyEl, acts,
-          `Thought ${secs}s · ${acts.length} tool step${acts.length > 1 ? 's' : ''}`);
+          `Thought for ${secs}s · ${acts.length} tool${acts.length > 1 ? 's' : ''}`);
       }
 
       return {

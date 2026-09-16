@@ -334,6 +334,22 @@ function appendEntryDOM(e) {
     meta.appendChild(statusEl);
     div.appendChild(meta);
     div.appendChild(body);
+    if (e.kind === 'output') {
+      // lightweight per-answer actions (copy exact source text / raw view)
+      const acts = document.createElement('div');
+      acts.className = 'msg-actions';
+      const copy = document.createElement('button');
+      copy.type = 'button'; copy.title = 'Copy message';
+      copy.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+      copy.addEventListener('click', () => {
+        navigator.clipboard?.writeText(e.text).then(() => toast('copied'));
+      });
+      const raw = document.createElement('button');
+      raw.type = 'button'; raw.textContent = 'raw'; raw.title = 'Raw transcript';
+      raw.addEventListener('click', () => showRaw());
+      acts.append(copy, raw);
+      div.appendChild(acts);
+    }
   }
   messages.appendChild(div);
   return { div, body, statusEl };
@@ -611,7 +627,12 @@ ta.addEventListener('compositionend', () => {
 });
 ta.addEventListener('focus', () => diagPush('focus'));
 ta.addEventListener('blur', () => { diagPush('blur'); syncAppVh('blur', { dismissKb: true }); });
+// send disc rests dimmed until there is a draft (visual only — the click
+// handler still guards on the exact draft text)
+const syncSendState = () => { $('send').disabled = !ta.value.trim(); };
+syncSendState();
 ta.addEventListener('input', () => {
+  syncSendState();
   if (composing) return;
   ta.style.height = 'auto';
   ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
@@ -628,6 +649,7 @@ $('send').addEventListener('click', () => {
   maybeFollow(wasPinned);
   ta.value = '';
   ta.style.height = 'auto';
+  syncSendState();
 
   // at-most-once write; explicit state machine on the user turn —
   // subtle caption under the bubble, never a banner; ambiguous/failed
