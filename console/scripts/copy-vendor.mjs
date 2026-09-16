@@ -1,6 +1,8 @@
 // Copies the xterm browser bundles into public/vendor at build time so the
 // static file server can serve them without exposing node_modules paths.
-import { copyFileSync, mkdirSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -30,3 +32,24 @@ for (const name of modules) {
   copyFileSync(join(consoleDir, 'dist', 'src', name), join(modulesOut, name));
 }
 console.log(`vendored ${modules.length} pure modules into public/modules/`);
+
+// Issue #134 — build identity marker. The served module carries the exact
+// build identity so a resumed standalone page can detect it is stale and
+// reload. Git SHA when available; otherwise a deterministic content stamp.
+let buildId = 'unknown';
+try {
+  buildId = execSync('git rev-parse HEAD', { cwd: consoleDir, stdio: ['ignore', 'pipe', 'ignore'] })
+    .toString().trim();
+} catch {
+  // no git metadata — fall back to a deterministic hash of the public assets
+  const hash = createHash('sha256');
+  for (const name of readdirSync(join(consoleDir, 'public')).sort()) {
+    try { hash.update(readFileSync(join(consoleDir, 'public', name))); } catch { /* dirs */ }
+  }
+  buildId = `content-${hash.digest('hex').slice(0, 16)}`;
+}
+writeFileSync(
+  join(modulesOut, 'build-stamp.js'),
+  `// generated at build time — build identity for stale-resume self-heal\nexport const BUILD_ID = ${JSON.stringify(buildId)};\n`,
+);
+console.log(`wrote build-stamp.js (${buildId.slice(0, 12)})`);

@@ -60,6 +60,9 @@ const STATIC_FILES = new Set([
   '/modules/projection.js',
   '/modules/adapter.js',
   '/modules/devin-adapter.js',
+  // generated build marker (#134 stale standalone-resume self-heal); static
+  // allowlist addition only — no semantic change
+  '/modules/build-stamp.js',
 ]);
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',

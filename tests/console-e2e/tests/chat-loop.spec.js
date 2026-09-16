@@ -96,7 +96,9 @@ test('primary loop: chat-first WC-UC1–UC3 plus kill-server/no-recreation', asy
 
   await test.step('WC-UC1: session list shows only the allowed session, health=true', async () => {
     await page.goto(baseURL);
-    await expect(page.locator('h1')).toHaveText('Web Console');
+    // #134 shell: minimal topbar — menu button, session name, status light, ⋯
+    await expect(page.locator('#drawer-btn')).toBeVisible();
+    await expect(page.locator('#chat-title')).toHaveText('Sessions');
     await expect(page.locator('#health')).toHaveText('backend healthy');
     const items = page.locator('li.channel');
     await expect(items).toHaveCount(1);
@@ -147,6 +149,8 @@ test('primary loop: chat-first WC-UC1–UC3 plus kill-server/no-recreation', asy
     await page.locator('#composer-text').fill('sleep 30');
     await page.locator('#composer-text').press('Enter');
     await expect(page.locator('.entry.user').filter({ hasText: 'sleep 30' })).toHaveCount(1);
+    // explicit controls live in the composer "+" advanced panel (#134 shell)
+    await page.locator('#composer-plus').click();
     await page.locator('#control-stop').click();
     await expect(page.locator('.control-line')).toContainText('control: Stop');
     await page.locator('#composer-text').fill("printf 'E2E_AFTER_STOP\\n'");
@@ -157,10 +161,13 @@ test('primary loop: chat-first WC-UC1–UC3 plus kill-server/no-recreation', asy
   });
 
   await test.step('WC-UC2 raw toggle shows the same buffer unshaped; position kept while scrolled up', async () => {
+    // raw transcript toggle lives in the overflow menu (#134 shell)
+    await page.locator('#overflow-btn').click();
     await page.locator('#raw-toggle').click();
     await expect(page.locator('#raw-view')).toBeVisible();
     await expect(page.locator('#raw-view')).toContainText('E2E_TURN1_OUT');
     await expect(page.locator('#raw-view')).toContainText('E2E_AFTER_STOP');
+    await page.locator('#overflow-btn').click();
     await page.locator('#raw-toggle').click();
     await expect(page.locator('#messages')).toBeVisible();
 

@@ -266,11 +266,11 @@ test('the session list page is served and traversal is impossible', async (t) =>
   assert.equal(root.status, 200);
   assert.match(root.headers.get('content-type') ?? '', /text\/html/);
   const html = await root.text();
-  // Stable Chat-first invariants: the page brand, the Sessions sidebar, and
+  // Stable Chat-first invariants: the page brand, the Sessions drawer, and
   // the element IDs the bundled app.js wires (conversation + composer + SSE).
-  assert.match(html, /<h1>Web Console<\/h1>/);
+  assert.match(html, /agent-runtime-mcp Console/);
   assert.match(html, /Sessions/);
-  for (const id of ['id="chat"', 'id="composer"', 'id="observe-banner"', 'id="raw-toggle"']) {
+  for (const id of ['id="drawer"', 'id="composer"', 'id="recovery"', 'id="raw-toggle"', 'id="composer-plus"']) {
     assert.ok(html.includes(id), `required element ${id} missing`);
   }
 
