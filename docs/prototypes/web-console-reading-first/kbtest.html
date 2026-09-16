@@ -85,6 +85,7 @@
       t: new Date().toISOString().slice(11, 23), ev, mode,
       sy: sy(), pageTop: Math.round(vv()?.pageTop ?? -1), offTop: Math.round(vv()?.offsetTop ?? -1),
       vvH: Math.round(vv()?.height ?? -1), ih: window.innerHeight, ch: document.documentElement.clientHeight,
+      sh: (window.innerHeight >= window.innerWidth) ? Math.max(screen.height, screen.width) : Math.min(screen.height, screen.width),
       dead: Math.round(window.innerHeight - foot.bottom), kb: kbOpen(),
       focus: document.activeElement === ta ? 'ta' : (document.activeElement?.tagName || ''),
       standalone: matchMedia('(display-mode: standalone)').matches || navigator.standalone === true,
@@ -96,7 +97,7 @@
     const cls = s.dead > 8 ? 'bad' : 'ok';
     hud.innerHTML = `mode=<b>${mode}</b> standalone=${s.standalone}\n` +
       `dead=<b class="${cls}">${s.dead}</b>  sy=<b class="${s.sy ? 'bad' : 'ok'}">${s.sy}</b>  pageTop=${s.pageTop}\n` +
-      `vvH=${s.vvH} offTop=${s.offTop} ih=${s.ih} ch=${s.ch}\n` +
+      `vvH=${s.vvH} offTop=${s.offTop} ih=${s.ih} ch=${s.ch} sh=${s.sh}\n` +
       `kb=${s.kb} focus=${s.focus} last=${ev}${s.reset ? ' <b class="ok">→ scrollTo(0,0)</b>' : ''}`;
   }
   let timer = 0;

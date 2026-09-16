@@ -217,8 +217,25 @@ let vpDebug = null;
 let committedVh = 0;                 // canonical shell height
 let kbOpen = false, kbWatch = 0;
 // #111 — the keyboard threshold. Real soft keyboards occlude hundreds of
-// px; anything under this is accessory/rounding noise and means CLOSED.
-const KB_MIN = 40;
+// px; anything under this is status-bar/accessory/rounding noise (the
+// real-device launch gap was 68px) and means CLOSED.
+const KB_MIN = 120;
+// #111 root cause (real-device HUD, 2026-09-16): at standalone cold launch
+// WebKit reports innerHeight/clientHeight/visualViewport ALL 68px short
+// (912 → 844 = status-bar height) while the canvas is painted full-screen,
+// so the shell stops 68px above the bottom. No page metric can see it;
+// iOS corrects the metrics only on the first touch. In standalone the web
+// view covers the whole screen, so screen.{height,width} is the truth.
+function screenExtent() {
+  const s = window.screen;
+  if (!s || !s.height || !s.width) return 0;
+  const portrait = screen.orientation
+    ? screen.orientation.type.startsWith('portrait')
+    : window.innerHeight >= window.innerWidth;
+  return portrait ? Math.max(s.height, s.width) : Math.min(s.height, s.width);
+}
+// accept the screen extent only for a plausible chrome-sized gap
+const SCREEN_GAP_MAX = 160;
 function stopKbWatch() { clearInterval(kbWatch); kbWatch = 0; }
 function startKbWatch() {
   // state-owned polling while the keyboard is believed open OR an
@@ -248,7 +265,11 @@ let kbSuppressed = false;            // editable blured → no keyboard, even if
 function applyViewport(ev, { allowShrink = false, dismissKb = false } = {}) {
   if (editableFocused()) kbSuppressed = false;
   else if (dismissKb) kbSuppressed = true;
-  const live = Math.max(window.innerHeight, document.documentElement.clientHeight);
+  let live = Math.max(window.innerHeight, document.documentElement.clientHeight);
+  // standalone = full-screen web view: the screen extent is the floor for
+  // the shell height, regardless of what stale metrics WebKit reports.
+  const sh = isStandalone() ? screenExtent() : 0;
+  if (sh > live && sh - live <= SCREEN_GAP_MAX) live = sh;
   if (!isStandalone() || allowShrink || live > committedVh || !committedVh)
     committedVh = live;
   const rawKb = kbInset();
@@ -267,13 +288,16 @@ function applyViewport(ev, { allowShrink = false, dismissKb = false } = {}) {
   let unscrolled = false;
   if (!kbOpen && sy > 0) { window.scrollTo(0, 0); unscrolled = true; }
   if (kbOpen || editableFocused()) startKbWatch(); else stopKbWatch();
-  diagPush(ev, { src: isStandalone() ? 'layout-asym' : 'layout', kbInset: kb, committedVh, sy, unscrolled });
+  diagPush(ev, { src: isStandalone() ? 'layout-asym' : 'layout', kbInset: kb, committedVh, sh, sy, unscrolled });
   if (vpDebug) {
     const vv = window.visualViewport;
     const compBot = Math.round(document.getElementById('composer').getBoundingClientRect().bottom);
+    // dead is measured against the screen extent when standalone: that is
+    // the value the user actually sees (innerHeight itself can be stale)
+    const ref = sh || window.innerHeight;
     vpDebug.textContent =
-      `vh=${committedVh} ih=${window.innerHeight} ch=${document.documentElement.clientHeight} vvH=${Math.round(vv?.height ?? -1)} ` +
-      `kb=${kb} sy=${sy} compBot=${compBot} dead=${window.innerHeight - compBot} ` +
+      `vh=${committedVh} ih=${window.innerHeight} ch=${document.documentElement.clientHeight} vvH=${Math.round(vv?.height ?? -1)} sh=${sh} ` +
+      `kb=${kb} sy=${sy} compBot=${compBot} dead=${ref - compBot} ` +
       `focus=${document.activeElement?.id || '-'} ${ev}`;
   }
 }
