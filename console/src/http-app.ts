@@ -48,11 +48,18 @@ const STATIC_FILES = new Set([
   '/app.js',
   '/transfer.js',
   '/style.css',
+  '/markdown.js',
+  '/viewport.js',
+  '/reading.js',
   '/terminal.html',
   '/terminal.js',
   '/vendor/xterm.js',
   '/vendor/xterm.css',
   '/vendor/addon-fit.js',
+  // #128: compiled pure data-path modules (build-time copies from dist/src)
+  '/modules/projection.js',
+  '/modules/adapter.js',
+  '/modules/devin-adapter.js',
 ]);
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
