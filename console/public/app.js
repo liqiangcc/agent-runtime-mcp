@@ -435,24 +435,27 @@ function renderChannels(channels) {
 
     const heading = document.createElement('div');
     heading.className = 'channel-heading';
-    const idEl = document.createElement('span');
-    idEl.className = 'channel-id';
-    idEl.textContent = channel.channel_id ?? 'unknown';
+    const tmux = channel.backend_metadata && channel.backend_metadata.tmux;
+    const nameEl = document.createElement('span');
+    nameEl.className = 'channel-name';
+    nameEl.textContent = (tmux && tmux.session_name) || channel.channel_id || 'unknown';
     const stateEl = document.createElement('span');
     const state = typeof channel.state === 'string' ? channel.state : 'unknown';
     stateEl.className = `state state-${state}`;
     stateEl.textContent = state;
-    heading.append(idEl, stateEl);
+    heading.append(nameEl, stateEl);
+    const idEl = document.createElement('div');
+    idEl.className = 'channel-id';
+    idEl.textContent = channel.channel_id ?? 'unknown';
 
     const fields = document.createElement('dl');
     fields.className = 'channel-fields';
-    const tmux = channel.backend_metadata && channel.backend_metadata.tmux;
     showField(fields, 'session', tmux && tmux.session_name);
     showField(fields, 'title', channel.title);
     showField(fields, 'state', channel.state);
     showField(fields, 'last_activity', channel.last_activity);
 
-    item.append(heading, fields);
+    item.append(heading, idEl, fields);
     item.addEventListener('click', () => setSelected(channel));
     channelsEl.append(item);
   }

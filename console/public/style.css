@@ -384,9 +384,19 @@ body.drawer-open #drawer,
   margin-bottom: 0.25rem;
 }
 
+.channel-name {
+  font-weight: 500;
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
 .channel-id {
   font-family: ui-monospace, monospace;
-  font-size: 0.78rem;
+  font-size: 0.68rem;
+  color: #6b7280;
   word-break: break-all;
 }
 
@@ -523,6 +533,10 @@ body.drawer-open #drawer,
   color: #9ca3af;
 }
 
+.chat-empty[hidden] {
+  display: none;
+}
+
 .chat-empty button {
   font-size: 15px;
   padding: 10px 18px;
@@ -653,6 +667,10 @@ body.drawer-open #drawer,
   max-width: 760px;
   width: 100%;
   margin: 0 auto;
+}
+
+.messages[hidden] {
+  display: none;
 }
 
 .entry {
