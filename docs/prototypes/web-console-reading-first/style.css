@@ -1,0 +1,799 @@
+:root {
+  /* neutral OLED palette — tracks ChatGPT iOS dark: black canvas, one
+     gray surface for bubbles/composer, no brand-blue accent */
+  --bg: #000000;
+  --bg-raised: #171717;
+  --bg-card: #2f2f2f;
+  --line: #3a3a3a;
+  --text: #ececec;
+  --text-dim: #b4b4b4;
+  --text-faint: #8e8e8e;
+  --accent: #ececec;
+  --accent-ink: #0d0d0d;
+  --link: #8ab4f8;
+  --warn: #e0a63f;
+  --warn-bg: #2a2113;
+  --err: #e06a5a;
+  --err-bg: #2b1a17;
+  --ok: #4fb67f;
+  --radius: 14px;
+  --font-reading: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Noto Sans CJK SC", "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+/* #111 note: a position:fixed root was tried (af4c732) and made things
+   WORSE on the real device — the launch-time stale viewport no longer
+   healed on interaction (iOS appears to refresh stale metrics only when a
+   touch reaches a scrollable document). Keep the root in normal flow;
+   the scroll residue is handled in JS (applyViewport → scrollTo(0,0)). */
+html, body { height: 100%; }
+html { overscroll-behavior: none; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-reading);
+  font-size: 16px;
+  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* fill the real dynamic viewport — iOS standalone miscomputes
+     height:100% (stale browser-chrome height → dead gap at bottom).
+     Order matters: dvh last wins where supported (iOS 15.4+). */
+  height: 100vh;
+  height: -webkit-fill-available;
+  height: 100dvh;
+  /* runtime-measured viewport wins when JS has published it */
+  height: var(--app-vh, 100dvh);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+button:disabled { opacity: 0.45; cursor: default; }
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+/* prototype marker — lives in the overflow menu, never overlays content */
+.menu-note {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  padding: 8px 10px 4px;
+}
+
+/* ---- header: minimal (tracks ChatGPT mobile chrome) ---- */
+.topbar {
+  /* 44pt nav bar below the status bar, title centred, one icon each side */
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  align-items: center;
+  height: calc(44px + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) max(6px, env(safe-area-inset-right)) 0 max(6px, env(safe-area-inset-left));
+  border-bottom: none;
+  background: var(--bg);
+}
+.topbar button { padding: 6px 10px; border: none; background: transparent; font-size: 18px; }
+.topbar-id { display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 0; }
+#session-name { font-weight: 600; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topbar-spacer { display: none; }
+
+.chip {
+  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+/* healthy observation = a 7px dot next to the title, no text chip; only a
+   degraded state grows back into a labelled chip */
+.topbar .chip-live {
+  width: 7px; height: 7px; padding: 0; border: none; border-radius: 50%;
+  background: var(--ok); color: transparent; font-size: 0; overflow: hidden;
+}
+.chip-attaching { color: var(--warn); border-color: var(--warn); }
+.chip-needs_reobserve, .chip-error { color: var(--warn); border-color: var(--warn); background: var(--warn-bg); }
+.chip-closed { color: var(--err); border-color: var(--err); background: var(--err-bg); }
+.chip-polling { color: var(--text-dim); }
+
+.menu-wrap { position: relative; }
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 220px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 6px;
+  z-index: 50;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+.menu button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.menu button:hover { background: var(--bg-card); }
+.menu .adv { font-size: 10px; color: var(--warn); border: 1px solid var(--warn); border-radius: 999px; padding: 1px 7px; }
+.menu-group {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  padding: 8px 12px 2px;
+}
+
+/* ---- sessions drawer + canvas translation (ChatGPT-style) ---- */
+/* The conversation canvas slides right as one continuous surface with a
+   large rounded leading corner; the drawer sits beneath it. ~72% width. */
+#canvas {
+  position: relative;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: var(--bg);
+  transition: transform 0.22s ease, border-radius 0.22s ease;
+}
+body.drawer-open #canvas,
+#canvas.dragging {
+  border-radius: 28px 0 0 28px;
+  overflow: hidden;
+  box-shadow: -12px 0 40px rgba(0,0,0,0.55);
+}
+body.drawer-open #canvas {
+  transform: translateX(min(72vw, 320px));
+  pointer-events: none; /* taps on the exposed strip fall through to scrim */
+}
+
+#drawer {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: min(72vw, 320px);
+  background: #0b0d11;
+  z-index: 38;
+  display: flex;
+  flex-direction: column;
+  padding: calc(18px + env(safe-area-inset-top)) 16px calc(14px + env(safe-area-inset-bottom));
+  visibility: hidden;
+  transition: visibility 0s 0.25s;
+}
+body.drawer-open #drawer, #drawer.dragging { visibility: visible; transition-delay: 0s; }
+#drawer-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 36;
+  background: transparent;
+}
+#modal-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 64;
+}
+.drawer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  font-size: 19px;
+}
+.drawer-head button { border: none; background: transparent; font-size: 20px; padding: 4px 6px; }
+.drawer-group {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 4px 4px 8px;
+}
+#session-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
+.session {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  min-height: 44px; /* large tap target */
+}
+.session::before {
+  content: "";
+  width: 18px; height: 18px;
+  border: 1.5px solid var(--text-dim);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.session.active { background: var(--bg-card); }
+.session.active::before { border-color: var(--accent); }
+.session .s-meta { display: none; }
+.s-name { font-weight: 500; font-size: 15px; }
+.drawer-foot {
+  margin-top: auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 10px;
+}
+.new-session {
+  background: var(--bg-card);
+  border-radius: 999px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.avatar {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+/* ---- main reading flow ---- */
+#main {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  /* the sticky recovery banner must never cover scrolled-to content */
+  scroll-padding-top: 8px;
+}
+
+#messages {
+  padding: 8px 16px calc(28px + var(--kb-inset, 0px));
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.entry { margin: 0 0 20px; }
+/* no per-message meta chrome on agent output (ChatGPT shows none);
+   the row is kept in the DOM for control entries only */
+.entry-meta {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-bottom: 5px;
+  display: flex;
+  gap: 8px;
+}
+.entry.output .entry-meta { display: none; }
+.entry-body {
+  font-size: 17px;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+}
+/* turn grouping: a user turn opens a new conversation beat — extra space
+   above it, tight coupling to the agent reply that follows it */
+.entry.user { margin-top: 28px; margin-bottom: 4px; }
+#messages > .entry:first-child { margin-top: 0; }
+.entry.user + .entry.output { margin-top: 10px; }
+/* user turn: right-aligned gray bubble */
+.entry.user .entry-body {
+  background: var(--bg-card);
+  border-radius: 20px;
+  padding: 10px 16px;
+  max-width: 80%;
+  margin-left: auto;
+  width: fit-content;
+}
+/* transport status: subtle caption under the bubble — never a banner.
+   A clean "delivered" caption fades away; failed / ambiguous stay. */
+.turn-status {
+  text-align: right;
+  margin-top: 3px;
+  min-height: 0;
+  padding-right: 2px;
+  max-height: 20px;
+  overflow: hidden;
+}
+.turn-status:not(:empty) { min-height: 14px; }
+.turn-status.st-delivered { animation: cap-hide 0.3s ease 1.4s forwards; }
+@keyframes cap-hide { to { opacity: 0; max-height: 0; min-height: 0; margin-top: 0; } }
+/* lightweight action row under a settled agent answer */
+.msg-actions { display: flex; gap: 14px; margin: 6px 0 0 -4px; }
+.msg-actions button {
+  border: none; background: transparent; padding: 4px; font-size: 13px;
+  color: var(--text-faint); line-height: 1;
+}
+.entry.output .entry-body { padding: 0 2px; }
+.entry.control .entry-body {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.entry .sent-label { color: var(--accent); }
+
+/* ---- recovery: compact strip — status + single action, details collapsed ---- */
+#recovery {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  margin: 8px 12px 0;
+  max-width: 720px;
+  align-self: center;
+  width: calc(100% - 24px);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn);
+  border-radius: 10px;
+  font-size: 13px;
+}
+.rec-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  min-height: 38px;
+}
+#recovery.err { background: var(--err-bg); border-color: var(--err); }
+.rec-icon { color: var(--warn); font-size: 13px; flex-shrink: 0; }
+#recovery.err .rec-icon { color: var(--err); }
+.rec-title { font-weight: 550; font-size: 13px; flex: 1; min-width: 0; }
+#rec-more {
+  border: none; background: transparent; color: var(--text-dim);
+  font-size: 13px; padding: 4px 6px; flex-shrink: 0;
+}
+#reobserve { padding: 6px 14px; font-size: 12.5px; border-radius: 8px; flex-shrink: 0; }
+#recovery.attaching .rec-icon { color: var(--warn); }
+#recovery.attaching { background: var(--bg-card); border-color: var(--line); }
+.rec-detail {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 0 10px 10px 31px;
+  line-height: 1.45;
+}
+.rec-detail[hidden] { display: none; }
+
+/* ---- raw transcript ---- */
+#raw-view[hidden], #transfer-modal[hidden], #recovery[hidden] { display: none; }
+#raw-view {
+  position: absolute;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+}
+.raw-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+#raw-pre {
+  flex: 1;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* ---- sticky composer: floating pill (tracks ChatGPT mobile) ---- */
+#composer {
+  border-top: none;
+  background: var(--bg);
+  padding: 6px 12px calc(10px + env(safe-area-inset-bottom) + var(--kb-inset, 0px));
+}
+.composer-row {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  max-width: 720px;
+  margin: 0 auto;
+  background: var(--bg-card);
+  border: none;
+  border-radius: 28px;
+  padding: 7px 7px 7px 10px;
+  min-height: 52px;
+}
+#composer-text {
+  flex: 1;
+  resize: none;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--text);
+  font: inherit;
+  font-size: 17px;
+  line-height: 1.4;
+  padding: 8px 4px;
+  max-height: 140px;
+}
+#composer-text::placeholder { color: var(--text-dim); }
+#composer-text:focus { outline: none; }
+#send, #composer-plus {
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  flex-shrink: 0;
+  font-size: 16px;
+  align-self: flex-end;
+}
+/* send = white disc / black arrow; rests dimmed while the draft is empty */
+#send { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+#send:disabled { opacity: 0.35; }
+#composer-plus {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text);
+  font-size: 22px;
+}
+#send-status { font-size: 12px; color: var(--text-dim); min-height: 0; max-width: 720px; margin: 0 auto; }
+#send-status:not(:empty) { min-height: 16px; margin-bottom: 4px; }
+
+/* collapsed advanced panel reserves zero height — the "+" button opens it */
+#advanced { max-width: 720px; margin: 6px auto 0; }
+#advanced[hidden] { display: none; margin: 0; }
+#composer-plus[aria-expanded="true"] { background: var(--bg-raised); border-color: var(--accent); }
+.adv-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0 2px;
+  font-size: 13px;
+}
+.adv-line { color: var(--text-dim); display: flex; gap: 6px; align-items: center; }
+.adv-controls { display: flex; gap: 6px; }
+.adv-controls button { font-size: 12.5px; padding: 6px 12px; }
+
+/* ---- modal ---- */
+#transfer-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.modal-card {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 16px 16px 0 0;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  width: 100%;
+  max-width: 560px;
+  max-height: 85vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.modal-head { display: flex; justify-content: space-between; align-items: center; }
+.modal-note { font-size: 12px; color: var(--text-dim); margin: 0; }
+#transfer-modal label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-dim); }
+#transfer-modal textarea, #transfer-modal select {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  font: inherit;
+  padding: 10px;
+}
+.transfer-preview {
+  border: 1px dashed var(--accent);
+  border-radius: 10px;
+  padding: 10px;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+#transfer-status { font-size: 12px; color: var(--text-dim); min-height: 14px; }
+
+/* ---- adapter layer: profile label, focus toggle, tool cards ---- */
+#profile-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+body.focus #focus-item { color: var(--accent); }
+
+.seg-text { margin: 10px 0; }
+.seg-text:first-child { margin-top: 0; }
+
+/* activity rows — light single-line headers (reference: "thought for Ns").
+   Collapsed state is a bare row: no card chrome, no background. Only the
+   expanded body gets a restrained dark surface. */
+/* activity rows: one quiet gray line each — icon · verb · preview; no
+   disclosure triangle (the whole row is the tap target) */
+.tool-card {
+  margin: 0;
+  font-size: 14px;
+}
+.tool-card summary {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 30px;
+  padding: 2px 0;
+  cursor: pointer;
+  list-style: none;
+  color: var(--text-dim);
+}
+.tool-card summary::-webkit-details-marker, .trace-sum summary::-webkit-details-marker { display: none; }
+.tool-card summary::marker, .trace-sum summary::marker { content: ""; }
+.tool-icon { color: var(--text-faint); font-size: 12px; flex-shrink: 0; width: 14px; text-align: center; }
+.tool-title { font-weight: 500; color: var(--text-dim); font-size: 14px; white-space: nowrap; }
+.tool-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  min-width: 0;
+  color: var(--text-faint);
+}
+/* only the expanded body is a surface — restrained, no border/shadow */
+.tool-body {
+  margin: 2px 0 8px 17px;
+  padding: 8px 11px;
+  background: var(--bg-card);
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  overflow-x: auto;
+  color: var(--text);
+}
+/* in-progress activity — light indicator: accent icon only, no pulse/border */
+.tool-card.live .tool-icon { color: var(--accent); }
+.tool-card.live .tool-title { color: var(--text); }
+.tool-card.live .tool-preview::after { content: " …"; }
+
+/* settled turn trace: the whole execution trace collapses into ONE
+   compact disclosure row — ChatGPT-style "Thought Ns · M steps ›" */
+.trace-sum { margin: 2px 0 10px; }
+.trace-sum > summary {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  min-height: 28px;
+  padding: 3px 0;
+  cursor: pointer;
+  list-style: none;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+.trace-sum summary::-webkit-details-marker { display: none; }
+.trace-sum > summary .tool-icon { display: none; }
+.trace-sum > summary .ts-title { font-weight: 400; }
+/* chevron rides right after the text ("Thought for 6s ›"), not at the edge */
+.trace-sum > summary::after {
+  content: "›";
+  font-size: 16px;
+  line-height: 1;
+  color: var(--text-dim);
+  transition: transform 0.15s;
+}
+.trace-sum[open] > summary::after { transform: rotate(90deg); }
+/* expanded steps: same lightweight rows, slightly inset */
+.trace-steps { margin-left: 10px; padding-left: 8px; border-left: 1px solid var(--line); }
+
+/* send state machine on user turns */
+.entry-status { font-size: 11px; }
+.st-sending { color: var(--text-dim); }
+.st-delivered { color: var(--ok); }
+.st-failed { color: var(--err); }
+.st-ambiguous { color: var(--warn); }
+
+/* terminal sheet (Advanced) — only per-keystroke streaming path */
+#terminal-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+#terminal-sheet[hidden] { display: none; }
+.adv-tag { font-size: 10px; color: var(--warn); border: 1px solid var(--warn); border-radius: 999px; padding: 1px 7px; vertical-align: middle; }
+#term-pane {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  min-height: 140px;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+#term-input {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 10px;
+}
+
+.trace-note { display: none; font-size: 11.5px; color: var(--text-dim); margin: 6px 0; }
+body.focus .tool-card { display: none; }
+body.focus .trace-sum { display: none; }
+body.focus .trace-note { display: block; }
+body.focus .entry-body { font-size: 17.5px; }
+
+/* ---- Markdown reading surface (.md inside .seg-text) ---- */
+/* reading typography — 17px body, 1.5 leading, 16px paragraph rhythm */
+.md { font-size: 17px; line-height: 1.5; overflow-wrap: break-word; }
+.md > *:first-child { margin-top: 0; }
+.md > *:last-child { margin-bottom: 0; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+  line-height: 1.3;
+  margin: 24px 0 12px;
+  font-weight: 600;
+}
+.md h1 { font-size: 1.35em; } .md h2 { font-size: 1.2em; } .md h3 { font-size: 1.08em; }
+.md h4, .md h5, .md h6 { font-size: 1em; }
+.md p { margin: 0 0 16px; }
+/* quote: 2px rule, same sans face, no italics — not a pull-quote */
+.md blockquote {
+  margin: 16px 0;
+  padding: 0 0 0 14px;
+  border-left: 2px solid #5a5a5a;
+  color: var(--text-dim);
+}
+.md ul, .md ol { margin: 0 0 16px; padding-left: 26px; }
+.md li { margin: 6px 0; }
+.md li.task { list-style: none; margin-left: -22px; }
+.md li.task input { accent-color: var(--accent); }
+.md hr { border: none; border-top: 1px solid var(--line); margin: 20px 0; }
+.md a { color: var(--link); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
+/* inline code: plain mono, no pill */
+.md-code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+/* fenced code: one rounded dark card with a language / copy header */
+/* ChatGPT-style code card: near-black body inside a hairline, a distinct
+   header strip carrying the language and a copy action, 16px radius */
+.md-codeblock {
+  background: #0d0d0d;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 16px;
+  margin: 14px 0 18px;
+  overflow: hidden;
+}
+.md-codehead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 9px 16px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  background: #262626;
+}
+.md-codehead button {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: none; background: transparent; padding: 0;
+  font-size: 12.5px; color: var(--text-dim);
+}
+.md-codehead button svg { width: 13px; height: 13px; }
+.md-pre {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.6;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 14px 16px;
+  margin: 0;
+  color: var(--text);
+  overflow-x: auto;            /* code scrolls locally, page never does */
+  white-space: pre;
+}
+.md-codeblock.streaming .md-codehead > span::after { content: " …"; }
+.md-pre code { font-family: inherit; }
+/* table: horizontal rules only, no grid, no header fill */
+.md-table { overflow-x: auto; margin: 12px 0 16px; }
+.md table { border-collapse: collapse; font-size: 15px; min-width: 100%; }
+.md th, .md td { border: none; border-bottom: 1px solid var(--line); padding: 9px 12px 9px 0; text-align: left; vertical-align: top; }
+.md th { font-weight: 600; }
+
+#toast {
+  position: fixed;
+  bottom: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 13px;
+  z-index: 70;
+}
+
+/* viewport diagnostics (?debug=viewport) — real-device capture aid */
+#vp-debug {
+  position: fixed;
+  left: 6px;
+  right: 6px;
+  bottom: calc(2px + env(safe-area-inset-bottom));
+  z-index: 70;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.4;
+  color: #ececec;
+  background: rgba(40,40,40,0.92);
+  padding: 4px 8px;
+  border-radius: 8px;
+  pointer-events: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---- installed / standalone display mode ----
+   When launched from the home screen the browser chrome is gone: the
+   viewport already includes the safe areas, so chrome-compensation is
+   removed and the badge marks the mode honestly. */
+@media (display-mode: standalone) {
+  #proto-note::after { content: " · standalone"; }
+  #fs-item { display: none; } /* Fullscreen API is redundant in standalone */
+}
+/* ?display=standalone preview shim — review aid only, real standalone uses
+   the media query above. Mirrors the same rules. */
+body.standalone-sim #proto-note::after { content: " · standalone"; }
+body.standalone-sim #fs-item { display: none; }
+
+/* ---- desktop fallback ---- */
+@media (min-width: 900px) {
+  body {
+    display: grid;
+    grid-template-columns: 270px 1fr;
+  }
+  #drawer {
+    position: static;
+    visibility: visible;
+    transition: none;
+    width: 270px;
+    border-right: 1px solid var(--line);
+    z-index: auto;
+  }
+  #drawer-scrim { display: none !important; }
+  #drawer-btn { display: none; }
+  #canvas { transition: none; }
+  body.drawer-open #canvas { transform: none; pointer-events: auto; border-radius: 0; box-shadow: none; }
+  #transfer-modal { align-items: center; }
+  .modal-card { border-radius: 16px; }
+}
