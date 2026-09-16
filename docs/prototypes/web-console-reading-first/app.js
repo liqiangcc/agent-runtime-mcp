@@ -114,7 +114,8 @@ const DEVIN_REPLY = [
   { d: '- `session.verify` rejects expiry\n\n', ms: 130 },
   { d: '```\n$ npm test -- auth\n', ms: 200 },
   { d: '  14 passing, 0 failing\n', ms: 250 },
-  { expire: true }, // CURSOR_EXPIRED interrupts mid-stream (fence still unclosed); Re-observe resumes
+  // CURSOR_EXPIRED is no longer scripted into the default reply — inject it
+  // on demand via ⋯ → Demo states → "CURSOR_EXPIRED armed" (stream-expire).
   { d: '```\n\n', ms: 130 },
   { d: '| Check | Result |\n| --- | --- |\n', ms: 160 },
   { d: '| refresh | pass |\n', ms: 160 },
@@ -128,7 +129,6 @@ const GENERIC_REPLY = [
   { d: 'Elle regarde ', ms: 140 }, { d: 'par la fenêtre ', ms: 140 },
   { d: 'pendant que la pluie tombe.\n', ms: 140 },
   { d: '她望着窗外，雨正在下。\n', ms: 140 },
-  { expire: true },
   { d: '\nShe looks out the window ', ms: 150 },
   { d: 'while the rain falls.\n', ms: 150 },
 ];

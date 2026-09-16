@@ -40,9 +40,11 @@ shared Reading-first shell (app.js, index.html, style.css)
 - **Mock streaming**: reply deltas arrive on timers as discrete events.
   Adapter `createLive()` updates segments IN PLACE — cards and answer text
   are never re-appended or duplicated. Scroll auto-follows only when the
-  view is pinned to the bottom. A scripted CURSOR_EXPIRED interrupts the
-  stream mid-answer and requires explicit Re-observe to resume — gaps are
-  never presented as seamless. Composer typing is local-only; Send is the
+  view is pinned to the bottom. The default reply streams to completion
+  uninterrupted; a CURSOR_EXPIRED interruption is injected on demand via
+  overflow → Demo states → "Inject CURSOR_EXPIRED mid-stream", and then
+  requires explicit Re-observe to resume — gaps are never presented as
+  seamless. Composer typing is local-only; Send is the
   only mutation boundary and each user turn shows a state machine:
   `sending → delivered`, or `failed`, or `timeout — ambiguous` (no
   auto-retry). Per-keystroke streaming exists only inside the Advanced
