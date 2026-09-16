@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
+<title>#111 keyboard / viewport A-B</title>
+<style>
+  /* Minimal shell mirroring the prototype: nav bar, scrolling main, sticky
+     composer. Four strategies selectable via ?mode= — nothing else differs. */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #000; color: #ececec;
+    font: 17px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
+  html { overflow: hidden; overscroll-behavior: none; }
+  body { display: flex; flex-direction: column; overflow: hidden;
+    height: 100vh; height: -webkit-fill-available; height: 100dvh; }
+  body.fixed-root { position: fixed; inset: 0; width: 100%; overscroll-behavior: none; }
+  header { flex: none; height: calc(44px + env(safe-area-inset-top)); padding-top: env(safe-area-inset-top);
+    display: flex; align-items: center; justify-content: center; font-weight: 600; }
+  header small { position: absolute; right: 12px; font-weight: 400; color: #b4b4b4; font-size: 12px; }
+  main { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 8px 16px; }
+  main p { margin: 0 0 16px; }
+  footer { flex: none; padding: 6px 12px calc(10px + env(safe-area-inset-bottom)); background: #000; }
+  .pill { display: flex; align-items: flex-end; gap: 6px; background: #2f2f2f; border-radius: 28px; padding: 7px 7px 7px 14px; min-height: 52px; }
+  textarea { flex: 1; resize: none; background: transparent; border: 0; color: inherit; font: inherit; padding: 8px 4px; max-height: 140px; outline: none; }
+  button { border: 0; border-radius: 50%; width: 36px; height: 36px; background: #ececec; color: #0d0d0d; font-weight: 700; }
+  #hud { position: fixed; left: 8px; right: 8px; top: calc(48px + env(safe-area-inset-top)); z-index: 9;
+    background: rgba(20,20,20,.92); border: 1px solid #333; border-radius: 10px; padding: 8px 10px;
+    font: 12px/1.5 ui-monospace, Menlo, monospace; color: #b4b4b4; white-space: pre-wrap; pointer-events: none; }
+  #hud b { color: #ececec; }
+  #hud .bad { color: #ff7b72; }
+  #hud .ok { color: #7ee787; }
+  #tools { display: flex; gap: 8px; margin: 104px 0 12px; flex-wrap: wrap; }
+  #tools a, #tools button.t { border-radius: 999px; width: auto; height: auto; padding: 6px 12px; font: 13px/1 inherit;
+    background: #2f2f2f; color: #ececec; text-decoration: none; font-weight: 500; }
+  #tools a.on { background: #ececec; color: #0d0d0d; }
+  #log { display: none; width: 100%; white-space: pre; font: 11px/1.4 ui-monospace, Menlo, monospace; color: #b4b4b4;
+    background: #0d0d0d; border: 1px solid #333; border-radius: 10px; padding: 8px; margin: 0 0 16px; resize: vertical; max-height: none; }
+</style>
+</head>
+<body>
+<header>#111 A/B <small id="modeLabel"></small></header>
+<div id="hud">…</div>
+<main id="main">
+  <div id="tools">
+    <a href="?mode=baseline">baseline</a>
+    <a href="?mode=fixed">fixed-root</a>
+    <a href="?mode=reset">scroll-reset</a>
+    <a href="?mode=full">fixed+reset</a>
+    <button class="t" id="copy" type="button">Copy log</button>
+    <button class="t" id="selall" type="button">Show &amp; select log</button>
+  </div>
+  <p><b>How to test (installed Home Screen app):</b> tap the composer so the keyboard opens → type a few characters (include Chinese IME once) → dismiss the keyboard the way you normally do <b>without</b> tapping anything in the header → wait 1 s. Read <b>dead</b> and <b>sy</b> in the overlay. Then try the other three modes with the chips above. Tap <i>Copy log</i> and paste it into the issue.</p>
+  <p>Filler so the reading area scrolls. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+  <p>这是一段用于滚动测试的中文填充文字。请在键盘打开与收起之间来回切换几次,并观察底部 composer 下方是否出现空白死区。</p>
+  <p>Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
+  <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.</p>
+  <p>Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+  <p>再来一段中文填充,确保内容高度足够,以便在键盘打开时主区域需要滚动。</p>
+  <textarea id="log" readonly rows="10" spellcheck="false"></textarea>
+</main>
+<footer><div class="pill"><textarea id="ta" rows="1" placeholder="Message…"></textarea><button type="button" id="send">↑</button></div></footer>
+<script>
+(() => {
+  const mode = new URLSearchParams(location.search).get('mode') || 'baseline';
+  const FIXED = mode === 'fixed' || mode === 'full';
+  const RESET = mode === 'reset' || mode === 'full';
+  if (FIXED) document.body.classList.add('fixed-root');
+  document.getElementById('modeLabel').textContent = mode;
+  document.querySelectorAll('#tools a').forEach(a => { if (a.getAttribute('href') === '?mode=' + mode) a.classList.add('on'); });
+
+  const ta = document.getElementById('ta');
+  const hud = document.getElementById('hud');
+  const LOG = []; let last = '';
+  const KB_MIN = 40;
+  const vv = () => window.visualViewport;
+  const sy = () => Math.round(window.scrollY || vv()?.pageTop || document.scrollingElement?.scrollTop || 0);
+  const kbOpen = () => vv() ? (window.innerHeight - (vv().height + vv().offsetTop)) > KB_MIN : false;
+
+  function sample(ev) {
+    const foot = document.querySelector('footer').getBoundingClientRect();
+    const s = {
+      t: new Date().toISOString().slice(11, 23), ev, mode,
+      sy: sy(), pageTop: Math.round(vv()?.pageTop ?? -1), offTop: Math.round(vv()?.offsetTop ?? -1),
+      vvH: Math.round(vv()?.height ?? -1), ih: window.innerHeight, ch: document.documentElement.clientHeight,
+      sh: (window.innerHeight >= window.innerWidth) ? Math.max(screen.height, screen.width) : Math.min(screen.height, screen.width),
+      dead: Math.round(window.innerHeight - foot.bottom), kb: kbOpen(),
+      focus: document.activeElement === ta ? 'ta' : (document.activeElement?.tagName || ''),
+      standalone: matchMedia('(display-mode: standalone)').matches || navigator.standalone === true,
+    };
+    // strategy: only act when the keyboard is CLOSED and the window is still scrolled
+    if (RESET && !s.kb && s.sy > 0) { window.scrollTo(0, 0); s.reset = true; }
+    const key = JSON.stringify([s.sy, s.pageTop, s.vvH, s.ih, s.dead, s.kb, s.focus]);
+    if (key !== last || /focus|blur|send/.test(ev)) { last = key; LOG.push(s); if (LOG.length > 200) LOG.shift(); }
+    const cls = s.dead > 8 ? 'bad' : 'ok';
+    hud.innerHTML = `mode=<b>${mode}</b> standalone=${s.standalone}\n` +
+      `dead=<b class="${cls}">${s.dead}</b>  sy=<b class="${s.sy ? 'bad' : 'ok'}">${s.sy}</b>  pageTop=${s.pageTop}\n` +
+      `vvH=${s.vvH} offTop=${s.offTop} ih=${s.ih} ch=${s.ch} sh=${s.sh}\n` +
+      `kb=${s.kb} focus=${s.focus} last=${ev}${s.reset ? ' <b class="ok">→ scrollTo(0,0)</b>' : ''}`;
+  }
+  let timer = 0;
+  function watch() { if (timer) return; timer = setInterval(() => { sample('tick'); if (document.activeElement !== ta && !kbOpen() && sy() === 0) { clearInterval(timer); timer = 0; } }, 300); }
+  ['resize', 'orientationchange', 'pageshow'].forEach(e => window.addEventListener(e, () => sample('win.' + e)));
+  vv()?.addEventListener('resize', () => sample('vv.resize'));
+  vv()?.addEventListener('scroll', () => sample('vv.scroll'));
+  window.addEventListener('scroll', () => sample('win.scroll'), { passive: true });
+  document.addEventListener('visibilitychange', () => sample('vis.' + document.visibilityState));
+  document.addEventListener('pointerdown', () => { sample('pointerdown'); setTimeout(() => sample('pointer+300'), 300); }, { passive: true, capture: true });
+  ta.addEventListener('focus', () => { sample('focus'); watch(); });
+  ta.addEventListener('blur', () => { sample('blur'); setTimeout(() => sample('blur+250'), 250); });
+  ta.addEventListener('input', () => sample('input'));
+  document.getElementById('send').addEventListener('click', () => { ta.value = ''; sample('send'); });
+  // clipboard over plain HTTP: navigator.clipboard is undefined outside a
+  // secure context, so fall back to selection + execCommand('copy') inside
+  // the tap; the log is ALWAYS shown in a selectable box as a last resort.
+  async function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      try { await navigator.clipboard.writeText(text); return true; } catch { /* fall through */ }
+    }
+    try {
+      const t = document.createElement('textarea');
+      t.value = text; t.readOnly = true;
+      t.style.cssText = 'position:fixed;top:0;left:0;width:2em;height:2em;opacity:0;font-size:16px;';
+      document.body.appendChild(t);
+      const r = document.createRange(); r.selectNodeContents(t);
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      t.setSelectionRange(0, text.length);
+      const ok = document.execCommand('copy');
+      sel.removeAllRanges(); t.remove();
+      return ok;
+    } catch { return false; }
+  }
+  document.getElementById('copy').addEventListener('click', async () => {
+    const text = LOG.map(s => JSON.stringify(s)).join('\n');
+    const ok = await copyText(text);
+    const log = document.getElementById('log');
+    log.value = text;
+    log.style.display = 'block';
+    document.getElementById('copy').textContent = ok ? `Copied ${LOG.length} samples` : 'Copy blocked — select below';
+    setTimeout(() => { document.getElementById('copy').textContent = 'Copy log'; }, 2000);
+  });
+  document.getElementById('selall').addEventListener('click', () => {
+    const log = document.getElementById('log'); log.style.display = 'block';
+    log.value = LOG.map(s => JSON.stringify(s)).join('\n');
+    log.focus(); log.setSelectionRange(0, log.value.length);
+  });
+  sample('boot');
+})();
+</script>
+</body>
+</html>
