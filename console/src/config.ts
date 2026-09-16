@@ -21,6 +21,7 @@ export interface ConsoleConfig {
     maxObservedChannels: number;
     observeIdleMs: number;
     observeTimeoutMs: number;
+    observeBusyTimeoutMs: number;
     pollMs: number;
     tailLines: number;
     tailBytes: number;
@@ -164,6 +165,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConsoleConfig 
       maxObservedChannels: boundedInt(env.CONSOLE_HISTORY_MAX_CHANNELS, 'CONSOLE_HISTORY_MAX_CHANNELS', 4, 1, 8),
       observeIdleMs: boundedInt(env.CONSOLE_OBSERVE_IDLE_MS, 'CONSOLE_OBSERVE_IDLE_MS', 1_000, 250, 60_000),
       observeTimeoutMs: boundedInt(env.CONSOLE_OBSERVE_TIMEOUT_MS, 'CONSOLE_OBSERVE_TIMEOUT_MS', 15_000, 100, 60_000),
+      observeBusyTimeoutMs: boundedInt(env.CONSOLE_OBSERVE_BUSY_TIMEOUT_MS, 'CONSOLE_OBSERVE_BUSY_TIMEOUT_MS', 600, 100, 5_000),
       pollMs: boundedInt(env.CONSOLE_OBSERVE_POLL_MS, 'CONSOLE_OBSERVE_POLL_MS', 2_500, 500, 60_000),
       tailLines: boundedInt(env.CONSOLE_TAIL_LINES, 'CONSOLE_TAIL_LINES', 400, 10, 2_000),
       // Single read_channel request bound: the MCP's public per-read bytes
