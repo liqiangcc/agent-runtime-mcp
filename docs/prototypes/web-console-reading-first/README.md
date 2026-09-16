@@ -47,6 +47,15 @@ shared Reading-first shell (app.js, index.html, style.css)
   `sending → delivered`, or `failed`, or `timeout — ambiguous` (no
   auto-retry). Per-keystroke streaming exists only inside the Advanced
   Terminal sheet.
+- **Post-send hierarchy (#112)**: a user turn is a compact right-aligned
+  bubble with NO meta row; transport state is a subtle caption under the
+  bubble (`sending… / ✓ delivered / ✕ failed — not sent / ? timeout —
+  may have been delivered (no auto-retry)`), never a banner. The agent
+  reply couples tightly beneath (user→output adjacency tightened);
+  collapsed activity rows sit between the turn and the dominant
+  Markdown answer. A user turn opens a new visual beat (26px top), so a
+  completed turn settles with the answer dominant and tool noise
+  receded. Raw transcript stays reachable via overflow → raw view.
 
 ## Installable / standalone display mode
 

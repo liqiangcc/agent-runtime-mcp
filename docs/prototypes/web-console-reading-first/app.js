@@ -314,17 +314,27 @@ function now() { return new Date().toTimeString().slice(0, 5); }
 function appendEntryDOM(e) {
   const div = document.createElement('article');
   div.className = `entry ${e.kind}`;
-  const label = e.kind === 'user' ? 'you' : e.kind === 'control' ? 'control' : $('session-name').textContent;
-  const meta = document.createElement('div');
-  meta.className = 'entry-meta';
-  meta.innerHTML = `<span class="sent-label">${label}</span><span>${e.time}</span>`;
-  const statusEl = document.createElement('span');
-  statusEl.className = 'entry-status';
-  meta.appendChild(statusEl);
   const body = document.createElement('div');
   body.className = 'entry-body';
-  div.appendChild(meta);
-  div.appendChild(body);
+  let statusEl;
+  if (e.kind === 'user') {
+    // compact bubble, no meta chrome — transport state is a subtle
+    // right-aligned caption beneath the bubble, never a banner/card
+    statusEl = document.createElement('div');
+    statusEl.className = 'entry-status turn-status';
+    div.appendChild(body);
+    div.appendChild(statusEl);
+  } else {
+    const label = e.kind === 'control' ? 'control' : $('session-name').textContent;
+    const meta = document.createElement('div');
+    meta.className = 'entry-meta';
+    meta.innerHTML = `<span class="sent-label">${label}</span><span>${e.time}</span>`;
+    statusEl = document.createElement('span');
+    statusEl.className = 'entry-status';
+    meta.appendChild(statusEl);
+    div.appendChild(meta);
+    div.appendChild(body);
+  }
   messages.appendChild(div);
   return { div, body, statusEl };
 }
@@ -619,24 +629,26 @@ $('send').addEventListener('click', () => {
   ta.value = '';
   ta.style.height = 'auto';
 
-  // at-most-once write; explicit state machine on the user turn
+  // at-most-once write; explicit state machine on the user turn —
+  // subtle caption under the bubble, never a banner; ambiguous/failed
+  // NEVER auto-retries
   statusEl.textContent = 'sending…';
-  statusEl.className = 'entry-status st-sending';
+  statusEl.className = 'entry-status turn-status st-sending';
   const outcome = nextSendOutcome;
   nextSendOutcome = null;
   setTimeout(() => {
     if (outcome === 'fail') {
-      statusEl.textContent = 'failed — not sent';
-      statusEl.className = 'entry-status st-failed';
+      statusEl.textContent = '✕ failed — not sent';
+      statusEl.className = 'entry-status turn-status st-failed';
       return;
     }
     if (outcome === 'ambiguous') {
-      statusEl.textContent = 'timeout — ambiguous; may have been delivered (no auto-retry)';
-      statusEl.className = 'entry-status st-ambiguous';
+      statusEl.textContent = '? timeout — may have been delivered (no auto-retry)';
+      statusEl.className = 'entry-status turn-status st-ambiguous';
       return;
     }
-    statusEl.textContent = 'delivered';
-    statusEl.className = 'entry-status st-delivered';
+    statusEl.textContent = '✓ delivered';
+    statusEl.className = 'entry-status turn-status st-delivered';
     // mock agent reply streams in as deltas
     playStream(profile === 'devin' ? DEVIN_REPLY.slice() : GENERIC_REPLY.slice());
   }, 450);

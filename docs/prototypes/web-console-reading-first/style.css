@@ -272,8 +272,13 @@ body.drawer-open #drawer, #drawer.dragging { visibility: visible; transition-del
   overflow-wrap: break-word;
   white-space: pre-wrap;
 }
+/* turn grouping: a user turn opens a new conversation beat — extra space
+   above it, tight coupling to the agent reply that follows it */
+.entry.user { margin-top: 26px; margin-bottom: 6px; }
+#messages > .entry:first-child { margin-top: 0; }
+.entry.user + .entry.output { margin-top: -6px; }
+.entry.user + .entry.output .entry-meta { margin-bottom: 4px; }
 /* user turn: right-aligned bubble, like the reference */
-.entry.user .entry-meta { justify-content: flex-end; }
 .entry.user .entry-body {
   background: var(--bg-card);
   border-radius: 18px;
@@ -282,6 +287,14 @@ body.drawer-open #drawer, #drawer.dragging { visibility: visible; transition-del
   margin-left: auto;
   width: fit-content;
 }
+/* transport status: subtle caption under the bubble — never a banner */
+.turn-status {
+  text-align: right;
+  margin-top: 3px;
+  min-height: 0;
+  padding-right: 2px;
+}
+.turn-status:not(:empty) { min-height: 14px; }
 .entry.output .entry-body { padding: 0 2px; }
 .entry.control .entry-body {
   font-family: var(--font-mono);
