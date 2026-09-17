@@ -3,6 +3,7 @@
 import { TRANSFER_MAX_BYTES, buildTransferPayload, utf8Bytes, validateTransfer } from './transfer.js';
 import { createConversation, KNOWN_ADAPTERS } from './reading.js';
 import { initViewport, diagPush, copyDiag, setHud, startKbWatch, syncAppVh, setComposing } from './viewport.js';
+import { BUILD_ID } from './modules/build-stamp.js';
 
 const channelsEl = document.getElementById('channels');
 const healthEl = document.getElementById('health');
@@ -11,9 +12,12 @@ const emptyEl = document.getElementById('empty');
 const refreshBtn = document.getElementById('refresh');
 const autoChk = document.getElementById('auto');
 const intervalSel = document.getElementById('interval');
-const sidebarEl = document.getElementById('sidebar');
-const sidebarToggle = document.getElementById('sidebar-toggle');
+const drawerEl = document.getElementById('drawer');
+const drawerScrim = document.getElementById('drawer-scrim');
+const drawerBtn = document.getElementById('drawer-btn');
+const drawerCloseBtn = document.getElementById('drawer-close');
 const chatEmptyEl = document.getElementById('chat-empty');
+const emptyOpenBtn = document.getElementById('empty-open');
 const chatPaneEl = document.getElementById('chat-pane');
 const chatTitleEl = document.getElementById('chat-title');
 const chatStateEl = document.getElementById('chat-state');
@@ -23,13 +27,19 @@ const bookmarkCountEl = document.getElementById('bookmark-count');
 const rawToggleBtn = document.getElementById('raw-toggle');
 const copyAllBtn = document.getElementById('copy-all');
 const terminalLink = document.getElementById('terminal-link');
-const observeBanner = document.getElementById('observe-banner');
+const recoveryEl = document.getElementById('recovery');
 const observeBannerText = document.getElementById('observe-banner-text');
+const recMoreBtn = document.getElementById('rec-more');
+const recDetailEl = document.getElementById('rec-detail');
 const reobserveBtn = document.getElementById('reobserve-btn');
 const messagesEl = document.getElementById('messages');
 const rawViewEl = document.getElementById('raw-view');
 const newOutputBtn = document.getElementById('new-output');
 const composerEl = document.getElementById('composer');
+const composerPlusBtn = document.getElementById('composer-plus');
+const advancedEl = document.getElementById('advanced');
+const toastEl = document.getElementById('toast');
+const buildIdEl = document.getElementById('build-id');
 const composerTargetEl = document.getElementById('composer-target');
 const composerCloseBtn = document.getElementById('composer-close');
 const composerText = document.getElementById('composer-text');
@@ -287,27 +297,36 @@ const STATE_LABEL = {
   error: 'error',
 };
 
+// compact recovery strip: one status line + at most one action; detail text
+// (cursor state, error body) stays behind the ⓘ disclosure
 function setObserveState(state, detail) {
   observeState = state;
   observeDetail = detail || '';
   chatStateEl.textContent = STATE_LABEL[state] || state;
-  chatStateEl.className = `chat-state state-${state}`;
-  reobserveBtn.hidden = !(state === 'needs_reobserve' || state === 'error' || state === 'closed');
+  chatStateEl.className = `chip state-${state}`;
+  const actionable = state === 'needs_reobserve' || state === 'error' || state === 'closed';
   if (state === 'needs_reobserve') {
-    observeBannerText.textContent = `observation interrupted (${observeDetail}) — re-observe to resume`;
-    observeBanner.hidden = false;
+    observeBannerText.textContent = 'observation interrupted — re-observe to resume';
   } else if (state === 'error') {
-    observeBannerText.textContent = `observation error: ${observeDetail}`;
-    observeBanner.hidden = false;
+    observeBannerText.textContent = 'observation error';
   } else if (state === 'closed') {
     observeBannerText.textContent = 'channel closed by backend';
-    observeBanner.hidden = false;
   } else if (state === 'polling') {
     observeBannerText.textContent = 'live wait unavailable — polling';
-    observeBanner.hidden = false;
-  } else {
-    observeBanner.hidden = true;
+  } else if (state === 'attaching') {
+    observeBannerText.textContent = 're-observing…';
   }
+  recDetailEl.textContent = observeDetail;
+  recDetailEl.hidden = true;
+  recMoreBtn.setAttribute('aria-expanded', 'false');
+  recMoreBtn.hidden = !(actionable && observeDetail);
+  const show = actionable || state === 'polling' || state === 'attaching';
+  recoveryEl.hidden = !show;
+  recoveryEl.className = state === 'attaching' ? 'attaching'
+    : (state === 'error' || state === 'closed') ? 'err' : '';
+  reobserveBtn.hidden = !(actionable || state === 'attaching');
+  reobserveBtn.disabled = state === 'attaching';
+  reobserveBtn.textContent = state === 'attaching' ? 'Attaching…' : 'Re-observe';
 }
 
 function applySearch() {
@@ -363,12 +382,17 @@ function setSelected(channel) {
     closeStream();
     chatPaneEl.hidden = true;
     chatEmptyEl.hidden = false;
+    chatTitleEl.textContent = 'Sessions';
+    chatStateEl.hidden = true;
     rawMode = false;
     rawViewEl.hidden = true;
     rawToggleBtn.textContent = 'Raw transcript';
+    // discoverability: no selection always re-exposes the session list
+    setDrawer(true);
   } else {
     chatPaneEl.hidden = false;
     chatEmptyEl.hidden = true;
+    chatStateEl.hidden = false;
     const tmux = channel.backend_metadata && channel.backend_metadata.tmux;
     const name = (tmux && tmux.session_name) || channel.channel_id || 'unknown';
     chatTitleEl.textContent = name;
@@ -379,7 +403,7 @@ function setSelected(channel) {
     openStream();
     updateComposerState();
     composerText.focus();
-    sidebarEl.classList.remove('open');
+    setDrawer(false);
   }
 }
 
@@ -411,24 +435,27 @@ function renderChannels(channels) {
 
     const heading = document.createElement('div');
     heading.className = 'channel-heading';
-    const idEl = document.createElement('span');
-    idEl.className = 'channel-id';
-    idEl.textContent = channel.channel_id ?? 'unknown';
+    const tmux = channel.backend_metadata && channel.backend_metadata.tmux;
+    const nameEl = document.createElement('span');
+    nameEl.className = 'channel-name';
+    nameEl.textContent = (tmux && tmux.session_name) || channel.channel_id || 'unknown';
     const stateEl = document.createElement('span');
     const state = typeof channel.state === 'string' ? channel.state : 'unknown';
     stateEl.className = `state state-${state}`;
     stateEl.textContent = state;
-    heading.append(idEl, stateEl);
+    heading.append(nameEl, stateEl);
+    const idEl = document.createElement('div');
+    idEl.className = 'channel-id';
+    idEl.textContent = channel.channel_id ?? 'unknown';
 
     const fields = document.createElement('dl');
     fields.className = 'channel-fields';
-    const tmux = channel.backend_metadata && channel.backend_metadata.tmux;
     showField(fields, 'session', tmux && tmux.session_name);
     showField(fields, 'title', channel.title);
     showField(fields, 'state', channel.state);
     showField(fields, 'last_activity', channel.last_activity);
 
-    item.append(heading, fields);
+    item.append(heading, idEl, fields);
     item.addEventListener('click', () => setSelected(channel));
     channelsEl.append(item);
   }
@@ -452,11 +479,13 @@ async function loadHealth() {
     const available = res.ok && body && body.health && body.health.available === true;
     backendAvailable = available;
     healthEl.textContent = available ? 'backend healthy' : 'backend unavailable';
-    healthEl.className = `banner ${available ? 'ok' : 'down'}`;
+    healthEl.className = `health-dot ${available ? 'ok' : 'down'}`;
+    healthEl.title = healthEl.textContent;
   } catch {
     backendAvailable = false;
     healthEl.textContent = 'backend unreachable';
-    healthEl.className = 'banner down';
+    healthEl.className = 'health-dot down';
+    healthEl.title = healthEl.textContent;
   }
   updateComposerState();
 }
@@ -848,7 +877,52 @@ function restartTimer() {
 refreshBtn.addEventListener('click', loadAll);
 autoChk.addEventListener('change', restartTimer);
 intervalSel.addEventListener('change', restartTimer);
-sidebarToggle.addEventListener('click', () => sidebarEl.classList.toggle('open'));
+
+// ---- sessions drawer (canvas-translation model, frozen prototype shell) ----
+// The drawer is a fixed surface beneath the app; opening translates the
+// whole conversation canvas right — the transcript is never rebuilt.
+function setDrawer(open) {
+  document.body.classList.toggle('drawer-open', open);
+  drawerScrim.hidden = !open;
+}
+drawerBtn.addEventListener('click', () => setDrawer(true));
+drawerCloseBtn.addEventListener('click', () => setDrawer(false));
+drawerScrim.addEventListener('click', () => setDrawer(false));
+emptyOpenBtn.addEventListener('click', () => setDrawer(true));
+
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.hidden = false;
+  clearTimeout(toastEl._h);
+  toastEl._h = setTimeout(() => { toastEl.hidden = true; }, 1800);
+}
+
+// ---- build identity: stale standalone-resume self-heal ----
+// The served build-stamp module is fetched no-store; a mismatch means the
+// server has moved on and this page is stale — reload to self-heal.
+buildIdEl.textContent = BUILD_ID.slice(0, 7);
+document.body.dataset.build = BUILD_ID;
+async function checkBuildStamp() {
+  try {
+    const res = await fetch('/modules/build-stamp.js', { cache: 'no-store' });
+    if (!res.ok) return false;
+    const match = /BUILD_ID\s*=\s*['"]([^'"]+)['"]/.exec(await res.text());
+    if (match && match[1] !== BUILD_ID) {
+      location.reload();
+      return true;
+    }
+  } catch {
+    // offline/unreachable — keep serving the current UI
+  }
+  return false;
+}
+window.__checkBuildStamp = checkBuildStamp;
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted) void checkBuildStamp();
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') void checkBuildStamp();
+});
 
 // adapter chooser — user choice only, persisted per channel_id
 for (const id of KNOWN_ADAPTERS) {
@@ -866,14 +940,40 @@ adapterSel.addEventListener('change', () => {
   renderConversation();
 });
 
+// composer "+" toggles the zero-height advanced panel (send-without-Enter,
+// explicit controls, byte budget, clear selection)
+composerPlusBtn.addEventListener('click', () => {
+  advancedEl.hidden = !advancedEl.hidden;
+  composerPlusBtn.setAttribute('aria-expanded', String(!advancedEl.hidden));
+});
+
+// recovery strip: ⓘ expands the captured detail without leaving the strip
+recMoreBtn.addEventListener('click', () => {
+  recDetailEl.hidden = !recDetailEl.hidden;
+  recMoreBtn.setAttribute('aria-expanded', String(!recDetailEl.hidden));
+});
+
 // IME safety: never mutate the field (height, value) while a composition
 // session is active — iOS Safari can drop/duplicate composed characters
 // when layout shifts mid-composition.
-composerText.addEventListener('compositionstart', () => { setComposing(true); diagPush('compositionstart'); });
-composerText.addEventListener('compositionend', () => { setComposing(false); diagPush('compositionend'); });
+let imeComposing = false;
+function autogrowComposer() {
+  composerText.style.height = 'auto';
+  composerText.style.height = `${Math.min(composerText.scrollHeight, 140)}px`;
+}
+composerText.addEventListener('compositionstart', () => { imeComposing = true; setComposing(true); diagPush('compositionstart'); });
+composerText.addEventListener('compositionend', () => {
+  imeComposing = false;
+  setComposing(false);
+  diagPush('compositionend');
+  autogrowComposer();
+});
 composerText.addEventListener('focus', () => { diagPush('focus'); startKbWatch(); });
 composerText.addEventListener('blur', () => { diagPush('blur'); syncAppVh('blur', { dismissKb: true }); });
-composerText.addEventListener('input', updateSizeHint);
+composerText.addEventListener('input', () => {
+  updateSizeHint();
+  if (!imeComposing) autogrowComposer();
+});
 composerText.addEventListener('keydown', (event) => {
   // an Enter inside an active IME composition must never send
   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
@@ -898,10 +998,9 @@ reobserveBtn.addEventListener('click', () => openStream());
 terminalLink.addEventListener('click', (event) => {
   if (terminalEnabled && selectedChannel) return; // real navigation
   event.preventDefault();
-  observeBannerText.textContent = terminalEnabled
+  toast(terminalEnabled
     ? 'Select a session first — Terminal attaches to the selected pane.'
-    : 'Terminal View is disabled on this deployment (CONSOLE_TERMINAL_ENABLED).';
-  observeBanner.hidden = false;
+    : 'Terminal View is disabled on this deployment (CONSOLE_TERMINAL_ENABLED).');
 });
 rawToggleBtn.addEventListener('click', () => {
   rawMode = !rawMode;
@@ -929,7 +1028,9 @@ bookmarksBtn.addEventListener('click', () => {
   if (el) el.scrollIntoView({ block: 'center' });
 });
 
-// overflow menu — debug affordances only (viewport HUD, diagnostics copy)
+// overflow menu — relocated secondary actions + debug affordances.
+// Buttons/links close the menu; .menu-row controls (search, selects,
+// checkbox) keep it open while the operator edits them.
 const overflowBtn = document.getElementById('overflow-btn');
 const overflowMenu = document.getElementById('overflow-menu');
 overflowBtn.addEventListener('click', (e) => {
@@ -940,15 +1041,23 @@ document.addEventListener('click', (e) => {
   if (!e.target.closest('.menu-wrap')) overflowMenu.hidden = true;
 });
 overflowMenu.addEventListener('click', (e) => {
-  const act = e.target.closest('button')?.dataset.act;
-  if (!act) return;
+  const target = e.target.closest('button, a');
+  if (!target || e.target.closest('.menu-row')) return;
   overflowMenu.hidden = true;
+  const act = target.dataset.act;
   if (act === 'hud') setHud(!document.getElementById('vp-debug'));
   else if (act === 'diag-copy') {
     const payload = copyDiag();
     void (window.copyText ?? navigator.clipboard.writeText.bind(navigator.clipboard))(payload).then((ok) => {
-      if (!ok) { rawViewEl.textContent = payload; rawViewEl.hidden = false; rawMode = true; }
-    }).catch(() => { rawViewEl.textContent = payload; rawViewEl.hidden = false; });
+      if (ok === false) {
+        rawViewEl.textContent = payload;
+        rawViewEl.hidden = false;
+        rawMode = true;
+        messagesEl.hidden = true;
+      } else {
+        toast('diagnostics copied');
+      }
+    }).catch(() => { toast('clipboard blocked'); });
   }
 });
 
@@ -960,3 +1069,6 @@ loadAll();
 void loadLifecycle();
 void loadTerminalCapability();
 restartTimer();
+// first-screen discoverability: with no Channel selected the session list is
+// the first thing the operator sees — no hunting
+if (selectedChannel === null) setDrawer(true);

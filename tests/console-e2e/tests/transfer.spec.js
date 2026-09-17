@@ -106,6 +106,11 @@ async function channelIdFor(sessionName) {
 async function selectChannelById(page, channelId) {
   const item = page.locator('li.channel', { has: page.locator('.channel-id', { hasText: channelId }) });
   await expect(item).toHaveCount(1);
+  // #134 shell: the drawer auto-opens on a fresh no-selection load; after a
+  // selection it closes and ☰ re-opens it
+  if (!(await page.evaluate(() => document.body.classList.contains('drawer-open')))) {
+    await page.locator('#drawer-btn').click();
+  }
   await item.click();
   await expect(page.locator('#chat-pane')).toBeVisible();
 }

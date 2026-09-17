@@ -11,24 +11,14 @@
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<header class="topbar">
-  <h1>Web Console</h1>
-  <button id="sidebar-toggle" type="button" class="sidebar-toggle" aria-label="toggle sessions">Sessions</button>
-  <span id="health" class="banner">checking…</span>
-  <label class="auto"><input type="checkbox" id="auto" checked> auto-refresh</label>
-  <select id="interval">
-    <option value="2000">2s</option>
-    <option value="5000" selected>5s</option>
-    <option value="15000">15s</option>
-  </select>
-  <button id="refresh" type="button">Refresh</button>
-</header>
-<div id="error" class="banner err" hidden></div>
-<div class="layout">
-  <aside id="sidebar" class="sidebar">
-    <p class="sidebar-title">Sessions</p>
-    <p id="empty" class="empty" hidden>No channels in scope.</p>
-    <ul id="channels" class="channel-list"></ul>
+<aside id="drawer" aria-label="Sessions">
+  <div class="drawer-head">
+    <strong>Sessions</strong>
+    <button id="drawer-close" type="button" aria-label="close sessions">×</button>
+  </div>
+  <p id="empty" class="empty" hidden>No channels in scope.</p>
+  <ul id="channels" class="channel-list"></ul>
+  <div class="drawer-foot">
     <details id="lifecycle" class="lifecycle" hidden>
       <summary>Session lifecycle</summary>
       <div class="lifecycle-body">
@@ -46,57 +36,90 @@
         <p id="lc-status" class="lc-status" hidden></p>
       </div>
     </details>
-  </aside>
-  <main id="chat" class="chat">
-    <div id="chat-empty" class="chat-empty">Select a session to open the conversation.</div>
-    <div id="chat-pane" class="chat-pane" hidden>
-      <div class="chat-toolbar">
-        <span id="chat-title" class="chat-title"></span>
-        <span id="chat-state" class="chat-state"></span>
-        <input id="search" type="search" placeholder="Search…" aria-label="search conversation">
-        <button id="bookmarks-btn" type="button" title="jump to next bookmark">★ <span id="bookmark-count">0</span></button>
+  </div>
+</aside>
+<div id="drawer-scrim" hidden></div>
+
+<div id="canvas">
+<header class="topbar">
+  <button id="drawer-btn" type="button" aria-label="open sessions" title="Sessions">☰</button>
+  <div class="topbar-id">
+    <div id="chat-title" class="chat-title">Sessions</div>
+    <span id="chat-state" class="chip" hidden></span>
+  </div>
+  <div class="topbar-right">
+    <span id="health" class="health-dot" title="backend status">checking…</span>
+    <div class="menu-wrap">
+      <button id="overflow-btn" type="button" aria-label="More actions" title="More">⋯</button>
+      <div id="overflow-menu" class="menu" hidden>
+        <div class="menu-note">build <span id="build-id">…</span></div>
+        <div class="menu-group">Conversation</div>
+        <div class="menu-row"><input id="search" type="search" placeholder="Search transcript…" aria-label="search conversation"></div>
+        <button id="bookmarks-btn" type="button" title="jump to next bookmark">Bookmarks <span id="bookmark-count" class="adv">0</span></button>
         <button id="raw-toggle" type="button">Raw transcript</button>
-        <button id="copy-all" type="button" title="copy visible transcript">Copy</button>
-        <label class="adapter-pick" title="presentation adapter — your choice per channel, never inferred">
-          adapter
-          <select id="adapter-sel" aria-label="presentation adapter"></select>
-        </label>
-        <a id="terminal-link" class="advanced-link" href="#" title="Terminal View requires CONSOLE_TERMINAL_ENABLED" aria-disabled="true">Advanced → Terminal</a>
-        <span class="menu-wrap">
-          <button id="overflow-btn" type="button" aria-label="More actions" title="More">⋯</button>
-          <span id="overflow-menu" class="menu" hidden>
-            <button data-act="hud" type="button">Viewport HUD on/off</button>
-            <button data-act="diag-copy" type="button">Copy viewport diagnostics</button>
-          </span>
-        </span>
+        <button id="copy-all" type="button" title="copy visible transcript">Copy all</button>
+        <div class="menu-group">Channel</div>
+        <div class="menu-row"><label class="menu-field" title="presentation adapter — your choice per channel, never inferred">adapter <select id="adapter-sel" aria-label="presentation adapter"></select></label></div>
+        <a id="terminal-link" class="menu-link" href="#" aria-disabled="true" title="Terminal View requires CONSOLE_TERMINAL_ENABLED">Terminal <span class="adv">Advanced</span></a>
+        <div class="menu-group">Session list</div>
+        <div class="menu-row"><label class="menu-field"><input type="checkbox" id="auto" checked> auto-refresh</label>
+          <select id="interval" aria-label="refresh interval">
+            <option value="2000">2s</option>
+            <option value="5000" selected>5s</option>
+            <option value="15000">15s</option>
+          </select></div>
+        <button id="refresh" type="button">Refresh now</button>
+        <div class="menu-group">Debug</div>
+        <button data-act="hud" type="button">Viewport HUD on/off</button>
+        <button data-act="diag-copy" type="button">Copy viewport diagnostics</button>
       </div>
-      <div id="observe-banner" class="observe-banner" hidden>
-        <span id="observe-banner-text"></span>
-        <button id="reobserve-btn" type="button" hidden>Re-observe</button>
-      </div>
-      <div id="messages" class="messages" aria-live="polite"></div>
-      <pre id="raw-view" class="raw-view" hidden></pre>
-      <button id="new-output" class="new-output" hidden>↓ new output</button>
-      <footer id="composer" class="composer">
-        <div class="composer-target">
-          to <span id="composer-target" class="composer-target-name"></span>
-          <button id="composer-close" type="button" class="composer-close" aria-label="clear selection">×</button>
-        </div>
-        <div id="send-result" class="send-result" hidden></div>
-        <textarea id="composer-text" rows="2" placeholder="Message… (Enter sends · Shift+Enter for a newline)"></textarea>
-        <div class="composer-actions">
-          <button id="send" type="button" class="primary">Send</button>
-          <label class="hint"><input type="checkbox" id="no-submit"> send without Enter</label>
-          <span id="size-hint" class="size-hint"></span>
-          <span class="spacer"></span>
+    </div>
+  </div>
+</header>
+<div id="error" class="banner err" hidden></div>
+
+<div id="chat-empty" class="chat-empty">
+  <button id="empty-open" type="button">Select a session</button>
+  <p class="empty-sub">sessions live in the drawer — ☰ opens them</p>
+</div>
+<div id="chat-pane" class="chat-pane" hidden>
+  <section id="recovery" hidden>
+    <div class="rec-row">
+      <span class="rec-icon" aria-hidden="true">⚠</span>
+      <span id="observe-banner-text" class="rec-title"></span>
+      <button id="rec-more" type="button" aria-expanded="false" hidden>ⓘ</button>
+      <button id="reobserve-btn" type="button" hidden>Re-observe</button>
+    </div>
+    <div id="rec-detail" class="rec-detail" hidden></div>
+  </section>
+  <div id="messages" class="messages" aria-live="polite"></div>
+  <pre id="raw-view" class="raw-view" hidden></pre>
+  <button id="new-output" class="new-output" hidden>↓ new output</button>
+  <footer id="composer" class="composer">
+    <div id="send-result" class="send-result" hidden></div>
+    <div class="composer-row">
+      <button id="composer-plus" type="button" aria-expanded="false" aria-label="advanced input" title="Advanced input">+</button>
+      <textarea id="composer-text" rows="1" placeholder="Message… (Enter sends · Shift+Enter for a newline)"></textarea>
+      <button id="send" type="button" class="primary" aria-label="Send">↑</button>
+    </div>
+    <div id="advanced" hidden>
+      <div class="adv-body">
+        <span class="adv-line">to <span id="composer-target" class="composer-target-name"></span>
+          <button id="composer-close" type="button" class="composer-close" aria-label="clear selection">×</button></span>
+        <label class="adv-line"><input type="checkbox" id="no-submit"> send without Enter</label>
+        <div class="adv-controls">
           <button id="control-stop" type="button" class="danger">Stop</button>
           <button id="control-enter" type="button">Enter</button>
           <button id="control-escape" type="button">Escape</button>
         </div>
-      </footer>
+        <span id="size-hint" class="size-hint"></span>
+      </div>
     </div>
-  </main>
+  </footer>
 </div>
+</div><!-- /#canvas -->
+
+<div id="toast" class="toast" hidden></div>
 <div id="transfer-modal" class="modal" hidden>
   <div class="modal-card" role="dialog" aria-labelledby="transfer-title">
     <h2 id="transfer-title">Send selected output to another session</h2>

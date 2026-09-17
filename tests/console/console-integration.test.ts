@@ -156,9 +156,9 @@ test(
     const rootRes = await fetch(`http://${authority}/`);
     assert.equal(rootRes.status, 200);
     const html = await rootRes.text();
-    assert.match(html, /<h1>Web Console<\/h1>/);
+    assert.match(html, /agent-runtime-mcp Console/);
     assert.match(html, /Sessions/);
-    for (const id of ['id="chat"', 'id="composer"', 'id="observe-banner"', 'id="raw-toggle"']) {
+    for (const id of ['id="drawer"', 'id="composer"', 'id="recovery"', 'id="raw-toggle"', 'id="composer-plus"']) {
       assert.ok(html.includes(id), `required element ${id} missing`);
     }
 
